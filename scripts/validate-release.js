@@ -447,13 +447,17 @@ function checkArchiveContents() {
   // set is derived from the archive header, which distinguishes the two.
   const header = asar.getRawHeader(appArchive).header;
   const files = new Set();
-  const walkHeader = (node) => {
+  // The full archive path, not the bare name. The header is a tree of basenames,
+  // so a set built from the leaf names alone would report every runtime
+  // dependency as missing even when it is present in the archive.
+  const walkHeader = (node, prefix) => {
     for (const [name, child] of Object.entries(node.files || {})) {
-      if (child.files) walkHeader(child);
-      else files.add(name);
+      const fullPath = prefix ? `${prefix}/${name}` : name;
+      if (child.files) walkHeader(child, fullPath);
+      else files.add(fullPath);
     }
   };
-  walkHeader(header);
+  walkHeader(header, '');
   const isFileEntry = (entry) => {
     let cursor = header;
     const parts = entry.split('/');
@@ -466,6 +470,10 @@ function checkArchiveContents() {
     return false;
   };
   const present = files;
+  // The archive file set is normalised to POSIX paths, but asar resolves
+  // lookups with native separators, so reads go through this helper.
+  const readFromArchive = (archive, posixPath) =>
+    asar.extractFile(archive, posixPath.split('/').join(path.sep));
 
   // Freshness: the archive must have been built from the current source, not
   // merely carry the current version number.
@@ -503,6 +511,51 @@ function checkArchiveContents() {
     'node_modules/pdfjs-dist/LICENSE'
   ]) {
     if (!present.has(file)) fail(`app.asar is missing ${file}; shipped third-party code must carry its licence text`);
+  }
+
+  // Main-process dependencies must actually resolve inside the archive. The
+  // renderer assets above only prove the browser bundles were shipped; a main
+  // process `require()` that resolves to a file the packaging rules stripped
+  // produces an app that crashes on startup, which no amount of asset
+  // checking would catch.
+  for (const entryPoint of ['main.js', 'preload.js', 'scripts/storage-contract.js']) {
+    let source;
+    try {
+      source = readFromArchive(appArchive, entryPoint).toString('utf8');
+    } catch {
+      fail(`app.asar is missing ${entryPoint}`);
+      continue;
+    }
+    for (const match of source.matchAll(/require\(\s*['"]([^'".][^'"]*)['"]\s*\)/g)) {
+      const specifier = match[1];
+      if (specifier.startsWith('node:')) continue;
+      // `electron` and the Node built-ins are supplied by the runtime rather
+      // than shipped inside the archive, so only real packages are checked.
+      if (specifier === 'electron' || require('module').builtinModules.includes(specifier)) continue;
+      const packageName = specifier.startsWith('@')
+        ? specifier.split('/').slice(0, 2).join('/')
+        : specifier.split('/')[0];
+      if (!present.has(`node_modules/${packageName}/package.json`)) {
+        fail(`app.asar is missing node_modules/${packageName}, which ${entryPoint} requires at startup`);
+        continue;
+      }
+      const manifest = JSON.parse(
+        readFromArchive(appArchive, `node_modules/${packageName}/package.json`).toString('utf8')
+      );
+      const main = (manifest.main || 'index.js').replace(/^\.\//, '');
+      const entryCandidates = [
+        `node_modules/${packageName}/${main}`,
+        `node_modules/${packageName}/${main}.js`,
+        `node_modules/${packageName}/${main}.json`,
+        `node_modules/${packageName}/${main}/index.js`
+      ];
+      if (!entryCandidates.some((candidate) => present.has(candidate))) {
+        fail(
+          `app.asar ships node_modules/${packageName} but not its main entry ` +
+            `(${main}), which ${entryPoint} requires at startup`
+        );
+      }
+    }
   }
 
   // Production hygiene: nothing development-only may be inside the archive.

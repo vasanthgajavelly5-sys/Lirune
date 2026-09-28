@@ -8,6 +8,14 @@
  */
 
 const TextAdapter = (() => {
+  // A plain-text file is one continuous run of lines. Emitting the whole file
+  // as a single <p> joined by <br> builds one enormous inline formatting
+  // context, and the layout engine has to re-break that whole run across every
+  // paginated column each time the typography changes. Above this many lines a
+  // block is split per line instead, so the document is a list of ordinary
+  // paragraph boxes rather than one giant run of text.
+  const MAX_LINES_IN_ONE_PARAGRAPH = 400;
+
   class Adapter extends DocumentAdapter.Adapter {
     constructor(host, record) {
       super(host, record);
@@ -17,15 +25,32 @@ const TextAdapter = (() => {
 
     async buildSections() {
       const bytes = await this.loadBytes();
-      const text = decodeText(bytes);
+      // Windows line endings are normalised first. A CRLF paragraph break is
+      // \r\n\r\n, whose two newlines are not adjacent, so splitting on blank
+      // lines before normalising leaves the entire file as one block.
+      const text = decodeText(bytes).replace(/\r\n?/g, '\n');
       if (!text.trim()) throw new Error('This text file is empty.');
-      const paragraphs = text
+
+      let blocks = text
         .split(/\n{2,}/)
         .map(block => block.trim())
-        .filter(Boolean)
+        .filter(Boolean);
+
+      // Blank-line separation alone leaves a whole novel in one block when the
+      // file separates its lines with single newlines, which is the usual shape
+      // of a Project Gutenberg text. That block is split per line so the
+      // rendered document is a list of paragraphs rather than one huge run.
+      if (blocks.length <= 2) {
+        const lines = blocks.join('\n').split(/\n/);
+        if (lines.length > MAX_LINES_IN_ONE_PARAGRAPH) {
+          blocks = lines.map(line => line.trim()).filter(Boolean);
+        }
+      }
+
+      const html = blocks
         .map(block => `<p>${Utils.escapeHTML(block).replace(/\n/g, '<br>')}</p>`)
         .join('');
-      return [{ id: 'text', label: this.record.title || 'Document', depth: 0, html: paragraphs }];
+      return [{ id: 'text', label: this.record.title || 'Document', depth: 0, html }];
     }
 
     async loadBytes() {

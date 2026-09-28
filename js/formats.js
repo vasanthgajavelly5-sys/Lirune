@@ -29,6 +29,12 @@ const BookFormat = (() => {
   const UNKNOWN = { id: 'unknown', label: 'Unknown', extensions: [], mime: 'application/octet-stream', layout: 'unknown', supported: false, reason: 'Unrecognised file type.' };
 
   const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'jxl'];
+  // The formats that are themselves ZIP containers. Only these may be guessed
+  // from the file name when an archive has to be read: a file that starts with
+  // the ZIP signature is an archive, so if it cannot be opened as one it must
+  // not quietly fall back to a plain-text reader just because it was named
+  // .txt, which would render the raw bytes as a wall of nonsense.
+  const ZIP_CONTAINER_IDS = new Set(['epub', 'cbz']);
 
   function extensionOf(fileName) {
     const match = /\.([A-Za-z0-9]+)$/.exec(String(fileName || ''));
@@ -128,7 +134,8 @@ const BookFormat = (() => {
       if (names.length === 0) return { ...UNKNOWN, source: 'none', reason: 'The archive is empty.' };
       return { ...UNKNOWN, source: 'none', reason: 'The ZIP archive is not a supported book format.' };
     } catch (error) {
-      const byExtension = Object.values(FORMATS).find(format => format.extensions.includes(ext));
+      const byExtension = Object.values(FORMATS).find(format =>
+        format.extensions.includes(ext) && ZIP_CONTAINER_IDS.has(format.id));
       if (byExtension) return { ...byExtension, source: 'extension' };
       return { ...UNKNOWN, source: 'none', reason: 'The archive could not be read.' };
     }

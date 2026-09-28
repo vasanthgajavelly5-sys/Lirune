@@ -314,21 +314,6 @@ const Library = (() => {
 let renderBatchIndex = 0;
 const RENDER_BATCH_SIZE = 50;
 
-  function renderBookCards(books) {
-    const grid = document.getElementById('books-grid');
-    if (!grid) return;
-    grid.innerHTML = '';
-    grid.className = isListView ? 'books-grid list-view visible' : 'books-grid visible';
-
-    // For large libraries in grid view, render in batches to avoid blocking the main thread
-    if (books.length > RENDER_BATCH_SIZE && !isListView) {
-      renderBatchIndex = 0;
-      renderBatch(grid, books);
-    } else {
-      renderAllBooks(grid, books);
-    }
-  }
-
   function renderBatch(grid, books) {
     const start = renderBatchIndex;
     const end = Math.min(start + RENDER_BATCH_SIZE, books.length);

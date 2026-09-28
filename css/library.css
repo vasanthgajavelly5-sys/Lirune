@@ -572,6 +572,30 @@
   display: none;
 }
 #books-grid.visible { display: grid; }
+
+/* ── Library density ─────────────────────────────────────────
+   Density and metadata are presentation only, so they are applied
+   as attributes on the grid. Changing either one restyles the
+   existing cards instead of rebuilding the whole library, which
+   keeps 300+ book libraries responsive. */
+#books-grid[data-density='compact'] {
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-6) var(--sp-6);
+}
+#books-grid[data-density='compact'] .card-meta { padding: var(--sp-2) var(--sp-1) 0; }
+#books-grid[data-density='compact'] .card-title { font-size: 0.8125rem; }
+#books-grid[data-density='compact'] .card-author { font-size: 0.72rem; }
+#books-grid[data-density='compact'] .card-fallback-title { font-size: 0.7rem; }
+
+#books-grid[data-density='compact'].list-view { gap: 2px; }
+#books-grid[data-density='compact'].list-view .book-card { padding: var(--sp-2) var(--sp-3); }
+#books-grid[data-density='compact'].list-view .card-cover-wrap { width: 34px; height: 46px; }
+
+#books-grid[data-metadata='hidden'] .card-author,
+#books-grid[data-metadata='hidden'] .card-format-badge { display: none; }
+#books-grid[data-metadata='hidden'] .card-meta { padding: var(--sp-2) var(--sp-1) 0; }
+
 #books-grid.list-view {
   grid-template-columns: 1fr;
   gap: var(--sp-2);
@@ -853,3 +877,23 @@
 #empty-search svg { width: 44px; height: 44px; opacity: 0.35; }
 #empty-search h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); }
 #empty-search p  { font-size: 0.875rem; }
+
+/* Format badge on the book cover, so a mixed library stays readable. */
+.card-format-badge {
+  position: absolute;
+  left: var(--sp-2);
+  bottom: var(--sp-2);
+  z-index: 2;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: var(--bg-glass);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}

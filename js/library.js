@@ -16,16 +16,115 @@ const Library = (() => {
   let deleteConfirmationResolver = null;
   let isLoading = true;
 
+  // ── Library display settings ────────────────────────────────
+  // These are real presentation preferences, persisted through the
+  // existing NoveraDB preference store under a single key so the
+  // library keeps one source of truth. Density and metadata are
+  // applied as attributes on the grid, which changes how the library
+  // looks without re-rendering 300+ cards.
+  const DEFAULT_VIEW = {
+    view: 'grid',
+    sortBy: 'recent',
+    sortOrder: 'desc',
+    density: 'comfortable',
+    showMetadata: true
+  };
+
+  let viewPrefs = { ...DEFAULT_VIEW };
+
+  async function loadViewPrefs() {
+    const saved = await NoveraDB.getPref('libraryView', DEFAULT_VIEW);
+    viewPrefs = normalizeViewPrefs(saved);
+    return { ...viewPrefs };
+  }
+
+  function normalizeViewPrefs(prefs) {
+    const source = prefs || {};
+    return {
+      view: source.view === 'list' ? 'list' : 'grid',
+      sortBy: ['recent', 'added', 'title', 'author', 'progress'].includes(source.sortBy) ? source.sortBy : DEFAULT_VIEW.sortBy,
+      sortOrder: source.sortOrder === 'asc' ? 'asc' : 'desc',
+      density: source.density === 'compact' ? 'compact' : 'comfortable',
+      showMetadata: source.showMetadata !== false
+    };
+  }
+
+  function persistViewPrefs() {
+    NoveraDB.setPref('libraryView', { ...viewPrefs });
+  }
+
+  function getViewState() {
+    return { ...viewPrefs };
+  }
+
+  /**
+   * Applies library display settings. Attributes are used for the
+   * purely visual preferences so a density or metadata change never
+   * rebuilds the card grid; view and sort go through the existing
+   * render path, which is what keeps favourites, collections,
+   * filters and chapter counts intact.
+   */
+  function setView(patch) {
+    if (!patch || typeof patch !== 'object') return getViewState();
+    const previous = { ...viewPrefs };
+    const next = normalizeViewPrefs({ ...viewPrefs, ...patch });
+    viewPrefs = next;
+
+    if (next.view !== previous.view) isListView = next.view === 'list';
+    if (next.sortBy !== previous.sortBy) currentSort = next.sortBy;
+    applyViewAttributes();
+    syncViewControls();
+    persistViewPrefs();
+
+    if (next.view !== previous.view || next.sortBy !== previous.sortBy || next.sortOrder !== previous.sortOrder) {
+      renderLibraryUI();
+    }
+    return getViewState();
+  }
+
+  function applyViewAttributes() {
+    const grid = document.getElementById('books-grid');
+    if (!grid) return;
+    grid.dataset.density = viewPrefs.density;
+    grid.dataset.metadata = viewPrefs.showMetadata ? 'shown' : 'hidden';
+    // The list class is applied here rather than only while rendering cards so
+    // an empty or filtered-to-nothing shelf still shows the chosen layout.
+    grid.classList.toggle('list-view', viewPrefs.view === 'list');
+  }
+
+  /** Keeps the existing toolbar controls in step with the stored settings. */
+  function syncViewControls() {
+    const sortSelect = document.getElementById('sort-select');
+    if (sortSelect && sortSelect.value !== viewPrefs.sortBy) sortSelect.value = viewPrefs.sortBy;
+    const viewToggle = document.getElementById('view-toggle-btn');
+    if (viewToggle) viewToggle.classList.toggle('active', isListView);
+  }
+
+  async function resetView() {
+    viewPrefs = { ...DEFAULT_VIEW };
+    isListView = false;
+    currentSort = DEFAULT_VIEW.sortBy;
+    applyViewAttributes();
+    syncViewControls();
+    persistViewPrefs();
+    renderLibraryUI();
+    return getViewState();
+  }
+
   async function init() {
+    await loadViewPrefs();
+    isListView = viewPrefs.view === 'list';
+    currentSort = viewPrefs.sortBy;
     bindDropAndFileInput();
     bindSearchAndSort();
     bindModals();
-    document.getElementById('integrity-check-btn')?.addEventListener('click', checkIntegrity);
-    document.getElementById('export-annotations-btn')?.addEventListener('click', exportAnnotations);
-    document.getElementById('backup-library-btn')?.addEventListener('click', backupMetadata);
-    document.getElementById('restore-library-input')?.addEventListener('change', restoreMetadata);
+    // The Storage & Data controls live in the settings panel and are owned by
+    // SettingsUI, which needs to show progress, previews and confirmations that
+    // a plain listener callback cannot.
     collections = await NoveraDB.getCollections();
     renderCollectionOptions();
+    applyViewAttributes();
+    syncViewControls();
     await loadAndRenderBooks();
   }
 
@@ -64,7 +163,7 @@ const Library = (() => {
     });
 
     // Sort books
-    sortBooks(filtered, currentSort);
+    sortBooks(filtered, currentSort, viewPrefs.sortOrder);
 
     if (allBooks.length === 0) {
       // Empty library: show hero drop zone
@@ -145,7 +244,9 @@ const Library = (() => {
   }
 
   async function hydrateChapterCount(book, card) {
-    if (!book || Number.isFinite(Number(book.chapterCount)) || !window.ePub) return;
+    if (!book || Number.isFinite(Number(book.chapterCount))) return;
+    if (book.format && book.format !== 'epub') return;
+    if (!window.ePub) return;
     try {
       let epubData = book.fileData;
       if (!epubData && book.storageId && window.noveraDesktop?.readManagedBook) {
@@ -259,11 +360,13 @@ const RENDER_BATCH_SIZE = 50;
     const card = document.createElement('div');
     card.className = 'book-card';
     card.dataset.bookId = book.id;
+    card.dataset.format = book.format || 'epub';
     card.setAttribute('role', 'listitem');
     card.setAttribute('tabindex', '0');
 
     const pct = book.progressPercent || 0;
     const unavailable = book.availability === 'unavailable';
+    const formatLabel = BookFormat.describe(book.format || 'epub');
 
     const coverHtml = book.coverDataUrl
       ? `<img src="${book.coverDataUrl}" alt="${Utils.escapeHTML(book.title)}" class="card-cover" loading="lazy">`
@@ -280,13 +383,14 @@ const RENDER_BATCH_SIZE = 50;
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${book.favorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.8 8.8c0 5.5-8.8 10.2-8.8 10.2S3.2 14.3 3.2 8.8A4.6 4.6 0 0 1 12 6.1a4.6 4.6 0 0 1 8.8 2.7Z"/></svg>
           </button>
         ${pct > 0 ? `<div class="card-progress-bar"><div class="card-progress-fill" style="width:${pct}%"></div></div>` : ''}
-        ${pct >= 100 ? `<div class="card-badge">Completed</div>` : (pct > 0 ? `<div class="card-badge">${pct}%</div>` : '')}
+        ${pct >= 100 ? '<div class="card-badge">Completed</div>' : (pct > 0 ? `<div class="card-badge">${pct}%</div>` : '')}
+        <span class="card-format-badge" title="File format">${Utils.escapeHTML(formatLabel)}</span>
       </div>
       <div class="card-meta">
         <div class="card-title" title="${Utils.escapeHTML(book.title)}">${Utils.escapeHTML(book.title)}</div>
         <div class="card-author">${Utils.escapeHTML(book.author || 'Unknown')}</div>
       </div>
-      ${isListView ? `<div class="card-chapter-count ${Number.isFinite(Number(book.chapterCount)) ? '' : 'is-loading'}">${Number.isFinite(Number(book.chapterCount)) ? `${book.chapterCount} chapter${Number(book.chapterCount) === 1 ? '' : 's'}` : 'Chapters'}</div>` : ''}
+      ${isListView ? `<div class="card-chapter-count ${Number.isFinite(Number(book.chapterCount)) ? '' : 'is-loading'}">${Number.isFinite(Number(book.chapterCount)) ? `${book.chapterCount} ${book.format === 'cbz' || book.format === 'pdf' ? (book.chapterCount === 1 ? 'page' : 'pages') : (book.chapterCount === 1 ? 'chapter' : 'chapters')}` : (book.format === 'epub' ? 'Chapters' : 'Pages')}</div>` : ''}
     `;
 
     const favoriteButton = card.querySelector('.card-fav');
@@ -299,6 +403,11 @@ const RENDER_BATCH_SIZE = 50;
         if (newFavorite === null) return;
         book.favorite = newFavorite;
         updateFavoriteCard(card, newFavorite);
+        // The favourites view is built from the favourite flag, so clearing a
+        // favourite has to take the card out of it. Any other filter is
+        // unaffected, and re-rendering 300 cards for an unrelated view would
+        // be wasted work.
+        if (currentFilter === 'favorites') renderLibraryUI();
       } catch (error) {
         console.error('Failed to update favorite:', error);
         Utils.toast('Could not update favorite', 'error');
@@ -333,7 +442,8 @@ const RENDER_BATCH_SIZE = 50;
     const grid = document.getElementById('books-grid');
     if (!grid) return;
     grid.innerHTML = '';
-    grid.className = isListView ? 'books-grid list-view visible' : 'books-grid visible';
+    grid.classList.toggle('list-view', isListView);
+    grid.classList.add('visible');
 
     // For large libraries in grid view, render in batches to avoid blocking the main thread
     if (books.length > RENDER_BATCH_SIZE && !isListView) {
@@ -354,24 +464,23 @@ const RENDER_BATCH_SIZE = 50;
     if (svg) svg.setAttribute('fill', isFavorite ? 'currentColor' : 'none');
   }
 
-  function sortBooks(books, criterion) {
-    switch (criterion) {
-      case 'recent':
-        books.sort((a, b) => (b.lastReadDate || 0) - (a.lastReadDate || 0));
-        break;
-      case 'added':
-        books.sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0));
-        break;
-      case 'title':
-        books.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-        break;
-      case 'author':
-        books.sort((a, b) => (a.author || '').localeCompare(b.author || ''));
-        break;
-      case 'progress':
-        books.sort((a, b) => (b.progressPercent || 0) - (a.progressPercent || 0));
-        break;
-    }
+  /**
+   * Sorts the visible list. Every criterion is compared in one direction and
+   * then the whole list is reversed when the user asks for the other order, so
+   * ascending and descending always describe the same ranking.
+   */
+  function sortBooks(books, criterion, order) {
+    const direction = order === 'asc' ? 1 : -1;
+    const compare = {
+      recent: (a, b) => (a.lastReadDate || 0) - (b.lastReadDate || 0),
+      added: (a, b) => (a.dateAdded || 0) - (b.dateAdded || 0),
+      title: (a, b) => (a.title || '').localeCompare(b.title || ''),
+      author: (a, b) => (a.author || '').localeCompare(b.author || ''),
+      progress: (a, b) => (a.progressPercent || 0) - (b.progressPercent || 0)
+    }[criterion];
+
+    if (!compare) return;
+    books.sort((a, b) => compare(a, b) * direction);
   }
 
   // File drag-and-drop & Picker handlers
@@ -430,7 +539,7 @@ const RENDER_BATCH_SIZE = 50;
       const result = await window.noveraDesktop.openFolderDialog();
       showImportErrors(result.errors);
       if (!result.canceled && result.files?.length) await processNativeFiles(result.files, null, updateImportProgress);
-      else if (!result.canceled) updateImportProgress(0, 'No EPUB files found in that folder.');
+        else if (!result.canceled) updateImportProgress(0, 'No supported book files found in that folder.');
     };
 
     [browseBtn, addBtn, addMoreBtn].forEach(btn => {
@@ -472,7 +581,7 @@ const RENDER_BATCH_SIZE = 50;
         }
 
         try {
-          const file = await window.noveraDesktop.readEpubFile(filePath);
+          const file = await window.noveraDesktop.readBookFile(filePath);
           await processNativeFiles([file]);
           await loadAndRenderBooks();
           const imported = allBooks.find(b => b.sourcePath === file.path);
@@ -512,15 +621,48 @@ const RENDER_BATCH_SIZE = 50;
       if (dropZone) dropZone.classList.remove('drag-active');
 
       const files = Array.from(e.dataTransfer?.files || []);
-      const epubs = files.filter(f => f.name.toLowerCase().endsWith('.epub') || f.type.includes('epub'));
+      const books = files.filter(f => isImportableFile(f));
 
-      if (epubs.length === 0) {
-        Utils.toast('Please drop valid .epub files', 'error');
+      if (books.length === 0) {
+        Utils.toast(await rejectionReason(files), 'error');
         return;
       }
 
-      await processFiles(epubs);
+      await processFiles(books);
     });
+  }
+
+  /**
+   * A dropped file the app recognised but cannot read gets that format's own
+   * reason, because "unsupported" without a cause is not an answer. Anything
+   * unrecognised falls back to the list of formats that do work.
+   */
+  async function rejectionReason(files) {
+    const supported = `Drop a supported book file (${BookFormat.importExtensions().map(e => '.' + e).join(', ')})`;
+    const candidate = files.find(f => f && f.size);
+    if (!candidate) return supported;
+    try {
+      const buffer = await candidate.arrayBuffer();
+      const format = await BookFormat.detect(candidate.name, buffer);
+      if (format && format.supported === false && format.reason) {
+        return `${format.label}: ${format.reason}`;
+      }
+    } catch {
+      // Unreadable bytes are covered by the generic message.
+    }
+    return supported;
+  }
+
+  function isImportableFile(file) {
+    if (!file) return false;
+    if (BookFormat.importExtensions().includes(BookFormat.extensionOf(file.name))) return true;
+    const type = (file.type || '').toLowerCase();
+    return Object.values(BookFormat.FORMATS).some(format => format.supported && format.mime === type);
+  }
+
+  /** Managed storage keeps the real extension so a book can be re-detected. */
+  function storageIdFor(fingerprint, extension) {
+    return `${fingerprint}.${extension || 'epub'}`;
   }
 
   async function processNativeFiles(fileList, _setStatus, updateProgress) {
@@ -538,30 +680,20 @@ const RENDER_BATCH_SIZE = 50;
           continue;
         }
 
-        const bookData = await parseEpubMetadata(file.data, file.name, file.size);
-        bookData.fingerprint = await getFingerprint(file.data, file.size, file.name);
-        if (allBooks.some(book => book.fingerprint && book.fingerprint === bookData.fingerprint)) continue;
-        bookData.sourcePath = file.path;
-
-        // Persist copy in AppData storage if needed
-        if (window.noveraDesktop && window.noveraDesktop.saveBookToStorage) {
-          const res = await window.noveraDesktop.saveBookToStorage(file.name, file.data, `${bookData.fingerprint}.epub`);
-          if (res && res.success) {
-            bookData.storageId = res.storageId;
-            savedStorageId = res.storageId;
-          } else {
-            throw new Error(res?.error || 'Could not save EPUB to managed storage');
-          }
+        const imported = await importOneFile(file.data, file.name, file.size, file.path);
+        if (imported === 'duplicate') continue;
+        if (imported === 'skipped') {
+          errors.push({ name: file.name, error: 'Unsupported file type' });
+          continue;
         }
-
-        await NoveraDB.saveBook(bookData);
+        if (savedStorageId && imported?.storageId) savedStorageId = imported.storageId;
         importedCount++;
       } catch (err) {
-        console.error('Failed to import EPUB:', file.name, err);
+        console.error('Failed to import book:', file.name, err);
         if (savedStorageId) {
           try { await window.noveraDesktop.deleteBookFromStorage(savedStorageId); } catch (_) {}
         }
-        errors.push({ name: file.name, error: err.message || 'Unreadable EPUB' });
+        errors.push({ name: file.name, error: err.message || 'Unreadable file' });
       }
     }
 
@@ -577,41 +709,59 @@ const RENDER_BATCH_SIZE = 50;
     Utils.toast(`Importing ${fileList.length} book${fileList.length === 1 ? '' : 's'}...`);
 
     let importedCount = 0;
+    const errors = [];
     for (const file of fileList) {
-      let savedStorageId = null;
       try {
         const arrayBuffer = await file.arrayBuffer();
-        await validateEpubArchive(arrayBuffer);
-        const bookData = await parseEpubMetadata(arrayBuffer, file.name, file.size);
-        bookData.fingerprint = await getFingerprint(arrayBuffer, file.size, file.name);
-        if (allBooks.some(book => book.fingerprint && book.fingerprint === bookData.fingerprint)) continue;
-
-        // If on desktop, save copy to AppData
-        if (window.noveraDesktop && window.noveraDesktop.saveBookToStorage) {
-          const res = await window.noveraDesktop.saveBookToStorage(file.name, arrayBuffer, `${bookData.fingerprint}.epub`);
-          if (res && res.success) {
-            bookData.storageId = res.storageId;
-            savedStorageId = res.storageId;
-          } else {
-            throw new Error(res?.error || 'Could not save EPUB to managed storage');
-          }
-        }
-
-        await NoveraDB.saveBook(bookData);
+        const imported = await importOneFile(arrayBuffer, file.name, file.size, null);
+        if (imported === 'duplicate' || imported === 'skipped') continue;
         importedCount++;
       } catch (err) {
-        console.error('Failed to import EPUB:', file.name, err);
-        if (savedStorageId) {
-          try { await window.noveraDesktop.deleteBookFromStorage(savedStorageId); } catch (_) {}
-        }
+        console.error('Failed to import book:', file.name, err);
         Utils.toast(`Could not import "${file.name}"`, 'error');
+        errors.push({ name: file.name, error: err.message });
       }
     }
 
+    showBatchErrors(errors);
     if (importedCount > 0) {
       Utils.toast(`Added ${importedCount} book${importedCount === 1 ? '' : 's'} to library`, 'success');
       await loadAndRenderBooks();
     }
+  }
+
+  /**
+   * Detect, validate, describe and persist one book file. This is the single
+   * import path for every format, so detection rules cannot drift between the
+   * file dialog, drag-and-drop and folder import.
+   */
+  async function importOneFile(arrayBuffer, fileName, fileSize, sourcePath) {
+    const format = await BookFormat.detect(fileName, arrayBuffer);
+    if (!format.supported) {
+      throw new Error(`${format.label} files are not supported. ${format.reason || ''}`.trim());
+    }
+
+    const fingerprint = await getFingerprint(arrayBuffer, fileSize || arrayBuffer.byteLength, fileName);
+    if (allBooks.some(book => book.fingerprint && book.fingerprint === fingerprint)) return 'duplicate';
+
+    const bookData = await parseBookMetadata(arrayBuffer, fileName, fileSize, format);
+    bookData.fingerprint = fingerprint;
+    bookData.format = format.id;
+    if (sourcePath) bookData.sourcePath = sourcePath;
+
+    if (window.noveraDesktop && window.noveraDesktop.saveBookToStorage) {
+      const extension = BookFormat.extensionOf(fileName) || 'epub';
+      const res = await window.noveraDesktop.saveBookToStorage(fileName, arrayBuffer, storageIdFor(fingerprint, extension));
+      if (res && res.success) {
+        bookData.storageId = res.storageId;
+        bookData.fileSize = res.fileSize ?? bookData.fileSize;
+      } else {
+        throw new Error(res?.error || 'Could not save the file to managed storage');
+      }
+    }
+
+    await NoveraDB.saveBook(bookData);
+    return bookData;
   }
 
   function showBatchErrors(errors) {
@@ -642,7 +792,173 @@ const RENDER_BATCH_SIZE = 50;
     return `${size}:${name}`;
   }
 
-  async function parseEpubMetadata(arrayBuffer, fileName, fileSize) {
+  function baseBookRecord(fileName, fileSize, arrayBuffer, format) {
+    return {
+      id: Utils.generateId(),
+      title: fileName.replace(/\.[A-Za-z0-9]+$/i, ''),
+      author: 'Unknown Author',
+      description: '',
+      chapterCount: null,
+      coverDataUrl: null,
+      format: format.id,
+      ...(window.noveraDesktop ? {} : { fileData: arrayBuffer }),
+      originalName: fileName,
+      schemaVersion: 3,
+      fileSize: fileSize || arrayBuffer.byteLength,
+      dateAdded: Date.now(),
+      lastReadDate: 0,
+      currentCfi: null,
+      progressPercent: 0,
+      currentChapter: 'Not started'
+    };
+  }
+
+  /**
+   * Read a book's own metadata. Each format is described from its real source
+   * data (EPUB package document, PDF document info, HTML <head>, FB2
+   * <description>) so the library never shows a placeholder title for a format
+   * that carries its own metadata.
+   */
+  async function parseBookMetadata(arrayBuffer, fileName, fileSize, format) {
+    const record = baseBookRecord(fileName, fileSize, arrayBuffer, format);
+    try {
+      switch (format.id) {
+        case 'epub': return await parseEpubMetadata(arrayBuffer, fileName, fileSize, format);
+        case 'pdf': return await parsePdfMetadata(arrayBuffer, record);
+        case 'html': return parseHtmlMetadata(arrayBuffer, record);
+        case 'fb2': return parseFb2Metadata(arrayBuffer, record);
+        case 'cbz': return await parseCbzMetadata(arrayBuffer, record);
+        case 'txt': return parseTextMetadata(arrayBuffer, record);
+        default: return record;
+      }
+    } catch (error) {
+      console.warn(`Metadata extraction failed for ${fileName}:`, error);
+      return record;
+    }
+  }
+
+  async function parsePdfMetadata(arrayBuffer, record) {
+    const pdfjs = await PdfAdapter.loadPdfJs().catch(() => null);
+    if (pdfjs) {
+      try {
+        // pdf.js takes ownership of the buffer it is given, so it receives a
+        // copy: the original is still needed for managed storage afterwards.
+        const doc = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)), isEvalSupported: false }).promise;
+        const info = await doc.getMetadata().catch(() => null);
+        if (info?.info) {
+          if (info.info.Title) record.title = String(info.info.Title).trim();
+          if (info.info.Author) record.author = String(info.info.Author).trim();
+          if (info.info.Subject) record.description = String(info.info.Subject).trim();
+        }
+        record.pageCount = doc.numPages;
+        // Render page 1 at thumbnail size for the library card.
+        try {
+          const page = await doc.getPage(1);
+          const viewport = page.getViewport({ scale: 0.45 });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.floor(viewport.width));
+          canvas.height = Math.max(1, Math.floor(viewport.height));
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+          record.coverDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        } catch (coverError) {
+          console.warn('PDF cover render failed:', coverError);
+        }
+        const outline = await doc.getOutline?.().catch(() => null);
+        record.chapterCount = Array.isArray(outline) && outline.length ? countOutline(outline) : (doc.numPages || null);
+        await doc.destroy?.();
+        return record;
+      } catch (error) {
+        console.warn('PDF metadata failed, falling back to file name:', error);
+      }
+    }
+    const titleMatch = /\/Title\s*\(([^)]{1,200})\)\s*(?:\/|$)/.exec(new TextDecoder('latin1').decode(new Uint8Array(arrayBuffer)));
+    if (titleMatch) record.title = titleMatch[1].trim();
+    return record;
+  }
+
+  function countOutline(items) {
+    return (items || []).reduce((total, item) => total + 1 + countOutline(item.items || []), 0);
+  }
+
+  function parseHtmlMetadata(arrayBuffer, record) {
+    const source = TextAdapter.decodeText(new Uint8Array(arrayBuffer));
+    const parsed = new DOMParser().parseFromString(source, 'text/html');
+    const title = parsed.querySelector('title')?.textContent?.trim();
+    if (title) record.title = title;
+    const author = parsed.querySelector('meta[name="author"]')?.content
+      || parsed.querySelector('meta[property="author"]')?.content;
+    if (author) record.author = author.trim();
+    const description = parsed.querySelector('meta[name="description"]')?.content;
+    if (description) record.description = description.trim();
+    const headings = parsed.querySelectorAll('h1,h2,h3,h4,h5,h6').length;
+    record.chapterCount = headings || null;
+    return record;
+  }
+
+  function parseFb2Metadata(arrayBuffer, record) {
+    const source = TextAdapter.decodeText(new Uint8Array(arrayBuffer));
+    const info = new Fb2Adapter.Adapter(null, record).extractMetadata(new TextEncoder().encode(source));
+    if (info.title) record.title = info.title;
+    if (info.author) record.author = info.author;
+    if (info.description) record.description = String(info.description).slice(0, 400);
+    try {
+      const doc = new DOMParser().parseFromString(source, 'application/xml');
+      record.chapterCount = doc.querySelectorAll('body > section').length || null;
+      const cover = doc.querySelector('coverpage image');
+      if (cover) {
+        const binary = doc.querySelector(`binary[id="${cover.getAttribute('href')}"]`);
+        if (binary) {
+          record.coverDataUrl = `data:${binary.getAttribute('content-type') || 'image/jpeg'};base64,${(binary.textContent || '').replace(/\s+/g, '')}`;
+        }
+      }
+    } catch { /* optional */ }
+    return record;
+  }
+
+  async function parseCbzMetadata(arrayBuffer, record) {
+    if (typeof JSZip === 'undefined') return record;
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const images = Object.values(zip.files)
+      .filter(entry => !entry.dir && BookFormat.IMAGE_EXT.includes(BookFormat.extensionOf(entry.name)))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    record.pageCount = images.length;
+    record.chapterCount = images.length || null;
+    if (images.length) {
+      try {
+        const blob = await images[0].async('blob');
+        const bitmap = await createImageBitmap(blob);
+        const scale = Math.min(1, 420 / Math.max(bitmap.width, 1));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.floor(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close?.();
+        record.coverDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      } catch (error) {
+        console.warn('Comic cover render failed:', error);
+      }
+    }
+    return record;
+  }
+
+  function parseTextMetadata(arrayBuffer, record) {
+    const source = TextAdapter.decodeText(new Uint8Array(arrayBuffer));
+    const lines = source.split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      // Project Gutenberg and similar plain-text releases open with licence
+      // boilerplate; that is not the book's title.
+      .filter(line => !/^(the project gutenberg|this ebook is for the use|start of (the|this) project|produced by|end of (the|this) project)/i.test(line))
+      .slice(0, 8);
+    if (lines.length && lines[0].length <= 120) {
+      record.title = lines[0].replace(/^(title|book)\s*:\s*/i, '');
+      if (lines[1] && lines[1].length <= 120) record.author = lines[1].replace(/^(author|by)\s*:?\s*/i, '');
+    }
+    return record;
+  }
+
+  async function parseEpubMetadata(arrayBuffer, fileName, fileSize, format) {
+    const record = baseBookRecord(fileName, fileSize, arrayBuffer, format || BookFormat.FORMATS.epub);
     const tempBook = ePub(arrayBuffer);
     let title = fileName.replace(/\.epub$/i, '');
     let author = 'Unknown Author';
@@ -689,21 +1005,12 @@ const RENDER_BATCH_SIZE = 50;
     }
 
     return {
-      id: Utils.generateId(),
+      ...record,
       title,
       author,
       description,
       chapterCount,
-      coverDataUrl,
-      ...(window.noveraDesktop ? {} : { fileData: arrayBuffer }),
-      originalName: fileName,
-      schemaVersion: 2,
-      fileSize: fileSize || arrayBuffer.byteLength,
-      dateAdded: Date.now(),
-      lastReadDate: 0,
-      currentCfi: null,
-      progressPercent: 0,
-      currentChapter: 'Not started'
+      coverDataUrl
     };
   }
 
@@ -775,8 +1082,7 @@ const RENDER_BATCH_SIZE = 50;
 
     if (sortSelect) {
       sortSelect.addEventListener('change', (e) => {
-        currentSort = e.target.value;
-        renderLibraryUI();
+        setView({ sortBy: e.target.value });
       });
     }
 
@@ -789,9 +1095,7 @@ const RENDER_BATCH_SIZE = 50;
 
     if (viewToggle) {
       viewToggle.addEventListener('click', () => {
-        isListView = !isListView;
-        viewToggle.classList.toggle('active', isListView);
-        renderLibraryUI();
+        setView({ view: isListView ? 'grid' : 'list' });
       });
     }
 
@@ -971,33 +1275,302 @@ const RENDER_BATCH_SIZE = 50;
     }
   }
 
-  async function checkIntegrity() {
-    if (!window.noveraDesktop?.listManagedBooks) {
-      Utils.toast('Integrity checks are available in the desktop app', 'info');
-      return;
+  /**
+   * Checks every managed book against the file that backs it.
+   *
+   * This is strictly a read: it compares the recorded size and fingerprint with
+   * what is actually on disk and reports the difference. Nothing is written,
+   * moved or deleted, and no availability flag is changed, so running a check
+   * can never make a problem worse. Recording the outcome is a separate,
+   * explicit step the user takes afterwards.
+   *
+   * onProgress is called with { done, total, title } so a long check on a large
+   * library can show real progress rather than an indefinite spinner.
+   */
+  async function runIntegrityCheck(onProgress) {
+    if (!window.noveraDesktop?.inspectManagedBook || !window.noveraDesktop?.listManagedBooks) {
+      return { supported: false };
     }
-    try {
-      const storedIds = new Set(await window.noveraDesktop.listManagedBooks());
-      const missing = allBooks.filter(book => book.storageId && !storedIds.has(book.storageId));
-      const legacy = allBooks.filter(book => !book.storageId);
-      if (missing.length === 0 && legacy.length === 0) {
-        Utils.toast(`Library check complete: ${allBooks.length} healthy book${allBooks.length === 1 ? '' : 's'}.`, 'success');
-        return;
+
+    const report = (current) => { try { onProgress?.(current); } catch { /* reporting must never fail the check */ } };
+
+    const books = await NoveraDB.getAllBooks();
+    const storedIds = new Set(await window.noveraDesktop.listManagedBooks());
+
+    const healthy = [];
+    const missingFile = [];
+    const damaged = [];
+    const unreadable = [];
+    const needsMigration = [];
+    const noFile = [];
+
+    let done = 0;
+    for (const book of books) {
+      const title = book.title || 'Untitled';
+      report({ done, total: books.length, title });
+      done += 1;
+
+      // A record with no managed identity. Two very different situations land
+      // here and they must not be conflated: a book restored from a backup
+      // never had a file, while a legacy record still has its bytes and is
+      // perfectly readable.
+      if (!book.storageId) {
+        if (book.availability === 'needs-file') {
+          noFile.push(summarizeBook(book));
+        } else {
+          needsMigration.push(summarizeBook(book));
+        }
+        continue;
       }
-      for (const book of missing) {
-        if (book.availability !== 'unavailable') await NoveraDB.updateAvailability(book.id, 'unavailable');
-        book.availability = 'unavailable';
+
+      let info;
+      try {
+        info = await window.noveraDesktop.inspectManagedBook(book.storageId);
+      } catch (error) {
+        unreadable.push({ ...summarizeBook(book), detail: error?.message || 'Could not read the file' });
+        continue;
       }
-      renderLibraryUI();
-      Utils.toast(`Library check: ${allBooks.length - missing.length - legacy.length} healthy, ${missing.length} missing, ${legacy.length} needing migration.`, 'info', 5000);
-    } catch (error) {
-      console.error('Library integrity check failed:', error);
-      Utils.toast('Could not check library integrity', 'error');
+
+      if (!info?.exists) {
+        missingFile.push(summarizeBook(book));
+        continue;
+      }
+
+      // A size mismatch is detected without trusting the hash, which is the
+      // cheap and unambiguous signal for a truncated file.
+      if (Number.isFinite(Number(book.fileSize)) && Number(info.size) !== Number(book.fileSize)) {
+        damaged.push({ ...summarizeBook(book), detail: `Expected ${book.fileSize} bytes, found ${info.size}` });
+        continue;
+      }
+
+      if (book.fingerprint && info.fingerprint && info.fingerprint !== String(book.fingerprint).toLowerCase()) {
+        damaged.push({ ...summarizeBook(book), detail: 'File contents do not match the original book' });
+        continue;
+      }
+
+      healthy.push(summarizeBook(book));
     }
+
+    const orphans = [...storedIds].filter(storageId => !books.some(book => book.storageId === storageId));
+
+    report({ done: books.length, total: books.length, title: 'Finishing' });
+
+    return {
+      supported: true,
+      total: books.length,
+      healthy,
+      missingFile,
+      damaged,
+      unreadable,
+      needsMigration,
+      noFile,
+      orphans,
+      // A record that never had a file is not corruption, so it is excluded
+      // from the issue count: it is expected to be in this state.
+      issues: missingFile.length + damaged.length + unreadable.length,
+      checkedAt: Date.now()
+    };
   }
 
-  function downloadText(filename, content, type = 'application/json') {
-    const url = URL.createObjectURL(new Blob([content], { type }));
+  function summarizeBook(book) {
+    return {
+      id: book.id,
+      title: book.title || 'Untitled',
+      author: book.author || 'Unknown',
+      format: book.format || 'epub',
+      storageId: book.storageId || null,
+      availability: book.availability || null
+    };
+  }
+
+  /**
+   * Records the outcome of an integrity check on the book records.
+   *
+   * Only the availability marker changes: a book whose file is absent or damaged
+   * is marked so the library can show it, and one that is healthy again has the
+   * marker cleared. No book or file is ever deleted here.
+   */
+  async function applyIntegrityReport(report) {
+    if (!report?.supported) return { updated: 0 };
+    let updated = 0;
+
+    const mark = async (entries, availability) => {
+      for (const entry of entries) {
+        await NoveraDB.updateAvailability(entry.id, availability);
+        const book = allBooks.find(item => item.id === entry.id);
+        if (book) book.availability = availability;
+        updated += 1;
+      }
+    };
+
+    await mark(report.missingFile, 'unavailable');
+    await mark(report.damaged, 'unavailable');
+    await mark(report.unreadable, 'unavailable');
+    await mark(report.healthy, 'available');
+
+    if (updated) renderLibraryUI();
+    return { updated };
+  }
+
+  /**
+   * Repairs what can genuinely be repaired.
+   *
+   * A damaged or missing file is not something the application can invent: if
+   * the bytes are gone, only re-importing the book can restore it. What repair
+   * can do honestly is clear a stale unavailable marker once the file is
+   * confirmed present and correct again. Anything else is reported as needing
+   * the original file rather than being claimed as fixed.
+   */
+  async function repairLibrary(report) {
+    if (!report?.supported) return { repaired: 0, notRepairable: 0 };
+
+    let repaired = 0;
+    let notRepairable = 0;
+
+    // Nothing can be fabricated, so these are reported as needing the original
+    // file instead of being silently counted as fixed.
+    for (const entry of report.missingFile) notRepairable += 1;
+    for (const entry of report.damaged) notRepairable += 1;
+    for (const entry of report.unreadable) notRepairable += 1;
+
+    // A book marked unavailable whose file is verifiably intact can be brought
+    // back without touching the file at all.
+    for (const entry of report.healthy) {
+      const book = allBooks.find(item => item.id === entry.id);
+      if (!book) continue;
+      if (book.availability === 'unavailable') {
+        await NoveraDB.updateAvailability(entry.id, 'available');
+        book.availability = 'available';
+        repaired += 1;
+      }
+    }
+
+    renderLibraryUI();
+    return { repaired, notRepairable };
+  }
+
+  /**
+   * Removes managed files that no book record refers to.
+   *
+   * The referenced list is recomputed immediately before deleting so a library
+   * that changed since the preview cannot cause the wrong file to be removed,
+   * and the main process independently refuses to delete anything still
+   * referenced. Callers must obtain confirmation from the user first.
+   */
+  async function cleanupOrphans(previewIds) {
+    if (!window.noveraDesktop?.deleteOrphanFiles) return { removed: [], skipped: [] };
+
+    const books = await NoveraDB.getAllBooks();
+    const referencedIds = books.map(book => book.storageId).filter(Boolean);
+    const requested = Array.isArray(previewIds) && previewIds.length
+      ? previewIds.filter(storageId => !referencedIds.includes(storageId))
+      : [];
+
+    if (requested.length === 0) return { removed: [], skipped: [] };
+    return window.noveraDesktop.deleteOrphanFiles(requested, referencedIds);
+  }
+
+  /**
+   * Storage figures for the Storage & Data section. Every number is measured
+   * from the live database and the real managed files on disk, so the figures
+   * describe what is actually stored rather than a cached guess. Anything that
+   * cannot be measured is reported as null and shown as unknown.
+   */
+  async function getBookStats() {
+    const books = await NoveraDB.getAllBooks();
+    const byFormat = {};
+    let recordedBytes = 0;
+    let bytesKnown = true;
+
+    for (const book of books) {
+      const format = book.format || 'epub';
+      byFormat[format] = (byFormat[format] || 0) + 1;
+      if (Number.isFinite(Number(book.fileSize))) recordedBytes += Number(book.fileSize);
+      else bytesKnown = false;
+    }
+
+    const annotationList = await NoveraDB.getAllAnnotations();
+
+    let managedFiles = null;
+    let actualBytes = null;
+    if (window.noveraDesktop?.listManagedBooks) {
+      try {
+        const storedIds = await window.noveraDesktop.listManagedBooks();
+        managedFiles = storedIds.length;
+
+        // Real disk usage, measured rather than assumed. It can differ from the
+        // sum of recorded sizes when a file is missing or a legacy record has no
+        // size, which is exactly the kind of difference worth surfacing.
+        if (window.noveraDesktop.inspectManagedBook) {
+          let total = 0;
+          let measuredAll = true;
+          for (const storageId of storedIds) {
+            try {
+              const info = await window.noveraDesktop.inspectManagedBook(storageId);
+              if (info?.exists) total += Number(info.size) || 0;
+              else measuredAll = false;
+            } catch {
+              measuredAll = false;
+            }
+          }
+          actualBytes = measuredAll ? total : null;
+        }
+      } catch {
+        managedFiles = null;
+      }
+    }
+
+    let storageLocation = null;
+    if (window.noveraDesktop?.getStoragePath) {
+      try {
+        storageLocation = await window.noveraDesktop.getStoragePath();
+      } catch {
+        storageLocation = null;
+      }
+    }
+
+    return {
+      books: books.length,
+      byFormat,
+      annotations: annotationList.length,
+      collections: (await NoveraDB.getCollections()).length,
+      recordedBytes: bytesKnown ? recordedBytes : null,
+      actualBytes,
+      managedFiles,
+      storageLocation,
+      pendingAvailability: books.filter(book => book.availability === 'unavailable').length
+    };
+  }
+
+  /**
+   * Removes every book, its managed file and its annotations. Uses the same
+   * delete path as removing a single book so favourites, collections and the
+   * database schema are handled by the existing code rather than a second
+   * implementation.
+   */
+  async function deleteAllBooks() {
+    const books = await NoveraDB.getAllBooks();
+    let removed = 0;
+    let failed = 0;
+
+    for (const book of books) {
+      try {
+        if (book.storageId && window.noveraDesktop?.deleteBookFromStorage) {
+          await window.noveraDesktop.deleteBookFromStorage(book.storageId);
+        }
+        await NoveraDB.deleteBook(book.id);
+        removed += 1;
+      } catch (error) {
+        console.error('Failed to remove book during library reset:', error);
+        failed += 1;
+      }
+    }
+
+    await loadAndRenderBooks();
+    return { removed, failed };
+  }
+
+  function downloadText(filename, content, type = 'application/json') {    const url = URL.createObjectURL(new Blob([content], { type }));
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
@@ -1005,18 +1578,132 @@ const RENDER_BATCH_SIZE = 50;
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  const BACKUP_FORMAT = 'LIRUNE_METADATA_BACKUP';
+  const BACKUP_VERSION = 1;
+
+  /**
+   * Preferences that are worth carrying between installations.
+   *
+   * This is an explicit list rather than a dump of the preference store,
+   * because the store is also where anything operational may end up. Only
+   * display and reading preferences travel; nothing that could identify the
+   * machine, the user or a session is included.
+   */
+  const BACKUP_PREFERENCE_KEYS = [
+    'appTheme',
+    'readerTheme',
+    'accentColor',
+    'readerSettings',
+    'libraryView',
+    'appPrefs'
+  ];
+
+  /** Keys that must never be written into an export, whatever the store holds. */
+  const BACKUP_FORBIDDEN_KEY_PATTERN = /(pass|secret|token|key|credential|auth|cookie|session|license|email|user)/i;
+
+  /**
+   * Book fields that belong in a backup. The book file itself is deliberately
+   * excluded: a backup is meant to be small and safe to keep, and the file is
+   * already in the library's managed storage. The fingerprint is kept because
+   * it is what makes duplicate detection work on restore.
+   */
+  function bookForBackup(book) {
+    return {
+      id: book.id,
+      title: book.title || 'Untitled',
+      author: book.author || '',
+      description: book.description || '',
+      format: book.format || 'epub',
+      originalName: book.originalName || '',
+      fileSize: Number.isFinite(Number(book.fileSize)) ? Number(book.fileSize) : null,
+      fingerprint: book.fingerprint || null,
+      storageId: book.storageId || null,
+      schemaVersion: book.schemaVersion || null,
+      chapterCount: Number.isFinite(Number(book.chapterCount)) ? Number(book.chapterCount) : null,
+      coverDataUrl: book.coverDataUrl || null,
+      favorite: Boolean(book.favorite),
+      collectionIds: Array.isArray(book.collectionIds) ? [...book.collectionIds] : [],
+      dateAdded: book.dateAdded || null,
+      lastReadDate: book.lastReadDate || null,
+      currentCfi: book.currentCfi || null,
+      progressPercent: Number(book.progressPercent) || 0,
+      currentChapter: book.currentChapter || '',
+      availability: book.availability || 'available'
+    };
+  }
+
+  function annotationForBackup(annotation) {
+    return {
+      id: annotation.id,
+      bookId: annotation.bookId,
+      type: annotation.type,
+      text: annotation.text || '',
+      note: annotation.note || '',
+      chapter: annotation.chapter || '',
+      cfi: annotation.cfi || null,
+      page: annotation.page ?? null,
+      dateAdded: annotation.dateAdded || null,
+      color: annotation.color || null
+    };
+  }
+
+  function collectionForBackup(collection) {
+    return {
+      id: collection.id,
+      name: collection.name,
+      dateCreated: collection.dateCreated || null
+    };
+  }
+
+  /**
+   * Builds the backup document without writing it anywhere.
+   *
+   * Returning the object as well as downloading it means the exact bytes that
+   * leave the application can be inspected, and lets the caller report how much
+   * data a backup contains.
+   */
+  async function createMetadataBackup() {
+    const [books, annotations, collections] = await Promise.all([
+      NoveraDB.getAllBooks(),
+      NoveraDB.getAllAnnotations(),
+      NoveraDB.getCollections()
+    ]);
+
+    const preferences = {};
+    for (const key of BACKUP_PREFERENCE_KEYS) {
+      if (BACKUP_FORBIDDEN_KEY_PATTERN.test(key)) continue;
+      const value = await NoveraDB.getPref(key, undefined);
+      if (value !== undefined) preferences[key] = value;
+    }
+
+    const document = {
+      format: BACKUP_FORMAT,
+      version: BACKUP_VERSION,
+      createdAt: new Date().toISOString(),
+      generator: 'Lirune Reader',
+      contents: ['books', 'annotations', 'collections', 'preferences'],
+      books: books.map(bookForBackup),
+      annotations: annotations.map(annotationForBackup),
+      collections: collections.map(collectionForBackup),
+      preferences
+    };
+
+    return { document, bytes: new Blob([JSON.stringify(document, null, 2)]).size };
+  }
+
   async function backupMetadata() {
     try {
-      const [books, annotations, preferences, savedCollections] = await Promise.all([
-        NoveraDB.getAllBooks(), NoveraDB.getAllAnnotations(), NoveraDB.getAllPreferences(), NoveraDB.getCollections()
-      ]);
-      downloadText(`lirune-metadata-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({
-        format: 'NOVERA_METADATA_BACKUP', version: 1, createdAt: Date.now(), books, annotations, preferences, collections: savedCollections
-      }, null, 2));
-      Utils.toast('Metadata backup exported', 'success');
+      const { document, bytes } = await createMetadataBackup();
+      downloadText(
+        `lirune-backup-${new Date().toISOString().slice(0, 10)}.json`,
+        JSON.stringify(document, null, 2)
+      );
+      Utils.toast(`Backup exported — ${document.books.length} books, ${(bytes / 1024).toFixed(1)} KB`, 'success');
+      return document;
     } catch (error) {
       console.error('Metadata backup failed:', error);
       Utils.toast('Could not create a metadata backup', 'error');
+      return null;
     }
   }
 
@@ -1036,25 +1723,192 @@ const RENDER_BATCH_SIZE = 50;
     }
   }
 
+  /**
+   * Reads and validates a backup file without changing anything.
+   *
+   * Restoring is a two-step action on purpose: the user sees exactly what a
+   * backup contains and how it would affect the current library before
+   * anything is written. A file that is not a Lirune backup, or whose version
+   * this build does not understand, is rejected here rather than being applied
+   * and discovered to be wrong afterwards.
+   */
+  async function inspectBackupFile(file) {
+    if (!file) return { ok: false, error: 'No file was selected.' };
+
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch (error) {
+      return { ok: false, error: 'This file is not valid JSON and cannot be a Lirune backup.' };
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, error: 'This file does not contain a Lirune backup.' };
+    }
+    if (parsed.format !== BACKUP_FORMAT) {
+      // Backups from before the product was renamed are still readable, but
+      // they are identified as such rather than being treated as arbitrary JSON.
+      if (parsed.format === 'NOVERA_METADATA_BACKUP') {
+        return { ok: false, error: 'This is a backup from an older version of the app and cannot be restored safely.' };
+      }
+      return { ok: false, error: 'This file is not a Lirune backup.' };
+    }
+    if (parsed.version !== BACKUP_VERSION) {
+      if (Number(parsed.version) > BACKUP_VERSION) {
+        return { ok: false, error: `This backup was made by a newer version of the app (format ${parsed.version}). Update Lirune Reader before restoring it.` };
+      }
+      return { ok: false, error: `Unsupported backup format version ${parsed.version}.` };
+    }
+
+    if (!Array.isArray(parsed.books) || !Array.isArray(parsed.annotations)) {
+      return { ok: false, error: 'This backup is missing its books or annotations and cannot be restored.' };
+    }
+
+    const existing = await NoveraDB.getAllBooks();
+    const existingByFingerprint = new Map();
+    const existingIds = new Set();
+    for (const book of existing) {
+      existingIds.add(book.id);
+      if (book.fingerprint) existingByFingerprint.set(String(book.fingerprint).toLowerCase(), book);
+    }
+
+    // A book already in the library, matched on content, is reported as already
+    // present rather than being added a second time.
+    let newBooks = 0;
+    let alreadyPresent = 0;
+    let withProgress = 0;
+    for (const book of parsed.books) {
+      if (!book || typeof book !== 'object' || !book.id) {
+        alreadyPresent += 1;
+        continue;
+      }
+      if (book.fingerprint && existingByFingerprint.has(String(book.fingerprint).toLowerCase())) {
+        alreadyPresent += 1;
+        continue;
+      }
+      if (existingIds.has(book.id)) {
+        alreadyPresent += 1;
+        continue;
+      }
+      newBooks += 1;
+      if (Number(book.progressPercent) > 0 || book.currentCfi) withProgress += 1;
+    }
+
+    const existingAnnotationIds = new Set((await NoveraDB.getAllAnnotations()).map(a => a.id));
+    const newAnnotations = parsed.annotations.filter(a => a && a.id && !existingAnnotationIds.has(a.id)).length;
+    const existingCollectionIds = new Set((await NoveraDB.getCollections()).map(c => c.id));
+    const newCollections = (parsed.collections || []).filter(c => c && c.id && !existingCollectionIds.has(c.id)).length;
+
+    return {
+      ok: true,
+      document: parsed,
+      summary: {
+        books: parsed.books.length,
+        newBooks,
+        alreadyPresent,
+        withProgress,
+        annotations: parsed.annotations.length,
+        newAnnotations,
+        collections: (parsed.collections || []).length,
+        newCollections,
+        preferences: Object.keys(parsed.preferences || {}).length
+      }
+    };
+  }
+
+  /**
+   * Applies a previously inspected backup.
+   *
+   * Merge is the only mode on purpose. Nothing already in the library is
+   * deleted, and a book already present is left exactly as it is rather than
+   * being overwritten, so restoring a backup can only ever add information the
+   * user already chose to keep.
+   */
+  async function applyBackup(inspection, { includePreferences = false } = {}) {
+    if (!inspection?.ok) return { ok: false, error: 'The backup was not validated.' };
+    const document = inspection.document;
+
+    const existing = await NoveraDB.getAllBooks();
+    const existingFingerprints = new Set(
+      existing.map(book => book.fingerprint).filter(Boolean).map(value => String(value).toLowerCase())
+    );
+    const existingIds = new Set(existing.map(book => book.id));
+
+    let booksAdded = 0;
+    let booksSkipped = 0;
+    const importedIds = new Set();
+
+    for (const book of document.books) {
+      if (!book || typeof book !== 'object' || !book.id) {
+        booksSkipped += 1;
+        continue;
+      }
+      const fingerprint = book.fingerprint ? String(book.fingerprint).toLowerCase() : null;
+      if (existingIds.has(book.id) || (fingerprint && existingFingerprints.has(fingerprint))) {
+        booksSkipped += 1;
+        continue;
+      }
+
+      // A restored record has no book file. It is kept as metadata with progress
+      // so the user can see what they had, and re-importing the file restores it
+      // to a readable state. Saying otherwise would claim a book the
+      // application does not actually have.
+      await NoveraDB.saveBook({
+        ...book,
+        availability: book.availability === 'unavailable' ? 'unavailable' : 'needs-file',
+        fileData: undefined
+      });
+      importedIds.add(book.id);
+      existingFingerprints.add(fingerprint || book.id);
+      booksAdded += 1;
+    }
+
+    let annotationsAdded = 0;
+    for (const annotation of document.annotations || []) {
+      if (!annotation || typeof annotation !== 'object' || !annotation.id) continue;
+      // An annotation for a book that was not restored has nothing to attach to.
+      if (!importedIds.has(annotation.bookId)) continue;
+      await NoveraDB.saveAnnotation(annotation);
+      annotationsAdded += 1;
+    }
+
+    let collectionsAdded = 0;
+    for (const collection of document.collections || []) {
+      if (!collection || typeof collection !== 'object' || !collection.id) continue;
+      await NoveraDB.saveCollection(collection);
+      collectionsAdded += 1;
+    }
+
+    let preferencesApplied = 0;
+    if (includePreferences) {
+      for (const [key, value] of Object.entries(document.preferences || {})) {
+        if (!BACKUP_PREFERENCE_KEYS.includes(key)) continue;
+        if (BACKUP_FORBIDDEN_KEY_PATTERN.test(key)) continue;
+        await NoveraDB.setPref(key, value);
+        preferencesApplied += 1;
+      }
+    }
+
+    await loadAndRenderBooks();
+    return { ok: true, booksAdded, booksSkipped, annotationsAdded, collectionsAdded, preferencesApplied };
+  }
+
+  /** Restores a backup end to end. Prefer inspectBackupFile then applyBackup. */
   async function restoreMetadata(event) {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file) return;
-    try {
-      const backup = JSON.parse(await file.text());
-      if (backup.format !== 'NOVERA_METADATA_BACKUP' || backup.version !== 1 || !Array.isArray(backup.books) || !Array.isArray(backup.annotations)) {
-        throw new Error('Unsupported backup format');
-      }
-      for (const book of backup.books) await NoveraDB.saveBook(book);
-      for (const annotation of backup.annotations) await NoveraDB.saveAnnotation(annotation);
-      for (const collection of backup.collections || []) await NoveraDB.saveCollection(collection);
-      for (const [key, value] of Object.entries(backup.preferences || {})) await NoveraDB.setPref(key, value);
-      await loadAndRenderBooks();
-      Utils.toast('Metadata backup restored', 'success');
-    } catch (error) {
-      console.error('Metadata restore failed:', error);
-      Utils.toast('Backup is invalid or could not be restored', 'error');
+    if (!file) return null;
+
+    const inspection = await inspectBackupFile(file);
+    if (!inspection.ok) {
+      Utils.toast(inspection.error, 'error', 6000);
+      return null;
     }
+    const result = await applyBackup(inspection, { includePreferences: true });
+    if (result.ok) {
+      Utils.toast(`Restored ${result.booksAdded} books and ${result.annotationsAdded} annotations`, 'success');
+    }
+    return result;
   }
 
   // Context Menu & Book Details Modal
@@ -1766,8 +2620,9 @@ a { color: inherit; text-decoration: underline; }
         author: 'Lirune Reader',
         description: "A short built-in guide to help you explore Lirune Reader's library, reading tools, customization, annotations, keyboard shortcuts, and local-first features.",
         coverDataUrl,
+        format: 'epub',
         ...(window.noveraDesktop ? {} : { fileData: arrayBuffer }),
-        schemaVersion: 2,
+        schemaVersion: 3,
         fileSize: arrayBuffer.byteLength,
         dateAdded: Date.now(),
         lastReadDate: 0,
@@ -1924,6 +2779,21 @@ a { color: inherit; text-decoration: underline; }
     loadAndRenderBooks,
     openBookDetails,
     deleteBook,
-    generateSampleBook
+    generateSampleBook,
+    getViewState,
+    setView,
+    resetView,
+    runIntegrityCheck,
+    applyIntegrityReport,
+    repairLibrary,
+    cleanupOrphans,
+    exportAnnotations,
+    createMetadataBackup,
+    backupMetadata,
+    inspectBackupFile,
+    applyBackup,
+    restoreMetadata,
+    getBookStats,
+    deleteAllBooks
   };
 })();

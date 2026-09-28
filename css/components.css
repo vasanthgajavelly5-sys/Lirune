@@ -1063,11 +1063,12 @@
   box-shadow: 0 4px 14px var(--accent-glow);
 }
 
-/* ── Zoom Overlay ─────────────────────────────────────────── */
+/* ── Floating Zoom Control ────────────────────────────────────── */
+/* One component, used by the reader and by the library home. The
+   visibility is driven by ZoomControl.js (adds .visible), never by a
+   `hidden` class, so the control can actually fade in. */
 .zoom-overlay {
   position: fixed;
-  right: var(--sp-6);
-  bottom: var(--sp-6);
   z-index: var(--z-panel);
   display: inline-flex;
   align-items: center;
@@ -1088,11 +1089,29 @@
   transition:
     opacity var(--dur-normal) var(--ease-out),
     transform var(--dur-normal) var(--ease-out);
+  min-width: 128px;
+  justify-content: space-between;
 }
 .zoom-overlay.visible {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
+}
+/* Reader: sits above the content but clear of the status bar. */
+#reader-zoom-control {
+  right: var(--sp-6);
+  bottom: 52px;
+}
+/* Home: bottom-left, away from the window controls. */
+.zoom-overlay-home {
+  left: var(--sp-6);
+  bottom: var(--sp-6);
+}
+body.reader-open .zoom-overlay-home { display: none; }
+.zoom-overlay [data-zoom-value] {
+  min-width: 3.5ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .zoom-btn {
   display: inline-flex;
@@ -1109,13 +1128,9 @@
   cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast), transform var(--dur-fast) var(--ease-spring);
 }
-.zoom-btn:hover {
+.zoom-btn:hover:not(:disabled) {
   background: var(--bg-active);
   transform: scale(1.08);
 }
-.zoom-btn:active { transform: scale(0.95); }
-#zoom-overlay-value {
-  min-width: 3.5ch;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
+.zoom-btn:active:not(:disabled) { transform: scale(0.95); }
+.zoom-btn:disabled { opacity: 0.35; cursor: not-allowed; }

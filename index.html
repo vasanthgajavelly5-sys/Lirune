@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Lirune Reader — A calm, private home for your books.">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob: data:; object-src 'none'; base-uri 'none'; form-action 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob: file:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob: data:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self' blob: data:; form-action 'none';">
   <title>Lirune Reader — A calm home for your books</title>
 
   <!-- Application Stylesheets -->
@@ -18,6 +18,9 @@
   <!-- EPUB.js & JSZip Dependencies (bundled for offline packaged use) -->
   <script src="node_modules/jszip/dist/jszip.min.js"></script>
   <script src="node_modules/epubjs/dist/epub.min.js"></script>
+
+  <!-- pdf.js is ESM-only; this module is the single place it enters the app. -->
+  <script type="module" src="js/reader/pdfjs-loader.js"></script>
 </head>
 <body data-theme="dark">
 
@@ -304,12 +307,15 @@
       </div>
     </header>
 
-    <!-- Temporary Zoom Overlay -->
-    <div id="zoom-overlay" class="zoom-overlay hidden" role="status" aria-live="polite" aria-label="Zoom level">
-      <button class="zoom-btn" id="zoom-out-btn" aria-label="Zoom out" title="Zoom out (Ctrl+-)">−</button>
-      <span id="zoom-overlay-value">100%</span>
-      <button class="zoom-btn" id="zoom-in-btn" aria-label="Zoom in" title="Zoom in (Ctrl++)">+</button>
+    <!-- Floating Reader Zoom Control: [-] 100% [+] -->
+    <div id="reader-zoom-control" class="zoom-overlay" role="group" aria-label="Reader zoom" data-zoom-visible="false">
+      <button class="zoom-btn" data-zoom-decrease type="button" aria-label="Zoom out" title="Zoom out (Ctrl+-)">−</button>
+      <span data-zoom-value aria-live="polite">100%</span>
+      <button class="zoom-btn" data-zoom-increase type="button" aria-label="Zoom in" title="Zoom in (Ctrl++)">+</button>
     </div>
+
+    <!-- Format capability note (e.g. fixed-layout PDF) -->
+    <p id="format-note" class="format-note hidden" role="status" aria-live="polite"></p>
 
     <!-- Reading Progress Stripe -->
     <div id="reading-stripe" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Reading progress">
@@ -323,9 +329,10 @@
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
 
-      <!-- Central EPUB Content Area -->
+      <!-- Central Content Area -->
       <div id="reader-content-wrap">
         <div id="epub-container" role="main" aria-label="Book pages"></div>
+        <div id="format-container" class="hidden" role="main" aria-label="Document pages"></div>
 
         <!-- Sleek Page Turning / Loading Overlay -->
         <div id="reader-loading" class="hidden">
@@ -351,6 +358,9 @@
       </div>
       <div class="statusbar-item">
         <span id="status-progress-pct">0% read</span>
+      </div>
+      <div class="statusbar-item">
+        <span id="status-page"></span>
       </div>
       <div class="statusbar-item">
         <span id="status-time-left"></span>
@@ -394,17 +404,24 @@
     <!-- Keyboard Shortcut Floating Hint -->
   </div>
 
+  <!-- Floating Home Zoom Control: independent of the reader zoom -->
+  <div id="home-zoom-control" class="zoom-overlay zoom-overlay-home" role="group" aria-label="Home zoom" data-zoom-visible="false">
+    <button class="zoom-btn" data-zoom-decrease type="button" aria-label="Zoom out library" title="Zoom out (Ctrl+-)">−</button>
+    <span data-zoom-value aria-live="polite">100%</span>
+    <button class="zoom-btn" data-zoom-increase type="button" aria-label="Zoom in library" title="Zoom in (Ctrl++)">+</button>
+  </div>
+
   <!-- =========================================================
        DRAWERS / PANELS (Sliding Glass Drawers)
        ========================================================= -->
   <div id="panel-overlay" class="panel-overlay" aria-hidden="true"></div>
 
-  <!-- TOC Drawer (Left) -->
-  <aside id="toc-panel" class="panel panel-left" aria-label="Table of contents" aria-hidden="true">
+  <!-- Navigation Drawer (Left) — EPUB chapters, PDF outline/pages, comic pages -->
+  <aside id="toc-panel" class="panel panel-left" aria-label="Document navigation" aria-hidden="true">
     <div class="panel-header">
-      <h3>Table of Contents</h3>
-      <button class="btn btn-glass icon-btn" id="close-toc-btn" aria-label="Close table of contents">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <h3 id="toc-panel-title">Table of Contents</h3>
+      <button class="btn btn-glass icon-btn" id="close-toc-btn" aria-label="Close navigation panel">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x18="6" x2="6" y1="18" y2="6"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
       </button>
     </div>
     <div class="toc-search">
@@ -416,14 +433,92 @@
   </aside>
 
   <!-- Settings Drawer (Right) -->
-  <aside id="settings-panel" class="panel panel-right" aria-label="Reading display settings" aria-hidden="true">
+  <!--
+    Two views share this panel. The quick view is a presentation of the
+    settings that matter for where the user is right now: the library from
+    Home, reading from the reader. The full view is the same settings
+    arranged into sections, reached with "Expand Settings". Both read and
+    write the same authoritative stores, so neither owns any state.
+  -->
+  <aside id="settings-panel" class="panel panel-right" aria-label="Settings" aria-hidden="true">
     <div class="panel-header">
-      <h3>Display &amp; Typography</h3>
+      <button class="btn btn-glass icon-btn settings-back-btn hidden" id="settings-back-btn" type="button" aria-label="Back to quick settings">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      </button>
+      <h3 id="settings-panel-title">Settings</h3>
       <button class="btn btn-glass icon-btn" id="close-settings-btn" aria-label="Close settings">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    <div class="panel-body settings-body">
+    <div class="panel-body settings-body" id="settings-body">
+      <div id="quick-settings" class="settings-view" role="group" aria-label="Quick settings"></div>
+      <div id="full-settings" class="settings-view hidden">
+        <nav class="full-settings-nav" id="full-settings-nav" aria-label="Settings sections"></nav>
+        <div class="full-settings-panes" id="full-settings-panes">
+
+          <section class="full-settings-pane" data-section="general" hidden>
+            <div class="settings-section-heading">
+              <div class="setting-section-title">General</div>
+              <p>Application behaviour that applies everywhere.</p>
+            </div>
+            <div class="settings-group" id="general-controls"></div>
+          </section>
+
+          <section class="full-settings-pane" data-section="appearance" hidden>
+            <div class="settings-section-heading">
+              <div class="setting-section-title">Appearance</div>
+              <p>Application theme, accent and the colours used inside books.</p>
+            </div>
+            <div class="settings-group" id="app-theme-controls">
+              <div class="setting-section-title">App theme</div>
+              <p class="setting-hint">Light and dark mode for the whole application.</p>
+              <div class="layout-grid" id="app-theme-grid" role="group" aria-label="Application theme"></div>
+            </div>
+      <section class="settings-group" aria-labelledby="app-accent-title">
+          <div class="settings-section-heading">
+            <div class="setting-section-title" id="app-accent-title">Application accent</div>
+            <p>Choose the color used for controls and focus states.</p>
+          </div>
+          <label class="color-control">Accent color<input type="color" id="app-accent-color" aria-label="Application accent color" value="#EEECF8"></label>
+          <button class="btn btn-ghost reset-settings-btn" id="reset-accent-btn" type="button">Reset to Lirune default</button>
+        </section>
+            <div class="full-settings-spacer"></div>
+      <section class="settings-group" aria-labelledby="reading-theme-title">
+        <div class="settings-section-heading">
+          <div class="setting-section-title" id="reading-theme-title">Reading theme</div>
+          <p>Presets change the page, text, and link colors.</p>
+        </div>
+        <div class="theme-preset-grid" role="group" aria-label="Reader themes">
+          <button class="theme-preset" data-theme="neutral" aria-pressed="false"><span class="theme-swatch theme-swatch-neutral"></span><span class="theme-preset-name">Neutral</span></button>
+          <button class="theme-preset" data-theme="sepia" aria-pressed="false"><span class="theme-swatch theme-swatch-sepia"></span><span class="theme-preset-name">Sepia</span></button>
+          <button class="theme-preset active" data-theme="night" aria-pressed="true"><span class="theme-swatch theme-swatch-night"></span><span class="theme-preset-name">Night</span></button>
+          <button class="theme-preset" data-theme="paper" aria-pressed="false"><span class="theme-swatch theme-swatch-paper"></span><span class="theme-preset-name">Paper</span></button>
+          <button class="theme-preset" data-theme="contrast1" aria-pressed="false"><span class="theme-swatch theme-swatch-contrast1"></span><span class="theme-preset-name">Contrast 1</span></button>
+          <button class="theme-preset" data-theme="contrast2" aria-pressed="false"><span class="theme-swatch theme-swatch-contrast2"></span><span class="theme-preset-name">Contrast 2</span></button>
+          <button class="theme-preset" data-theme="contrast3" aria-pressed="false"><span class="theme-swatch theme-swatch-contrast3"></span><span class="theme-preset-name">Contrast 3</span></button>
+          <button class="theme-preset" data-theme="contrast4" aria-pressed="false"><span class="theme-swatch theme-swatch-contrast4"></span><span class="theme-preset-name">Contrast 4</span></button>
+          <button class="theme-preset" data-theme="custom" aria-pressed="false"><span class="theme-swatch theme-swatch-custom"></span><span class="theme-preset-name">Custom</span></button>
+        </div>
+        <details class="custom-theme-details">
+          <summary>Customize colors <span>Optional</span></summary>
+          <div class="custom-theme-controls" aria-labelledby="custom-theme-title">
+          <div class="custom-theme-heading"><span id="custom-theme-title">Custom reader colors</span><span id="custom-theme-preview" class="custom-theme-preview" aria-label="Custom theme preview">Aa</span></div>
+          <label class="color-control">Reading background<input type="color" data-custom-color="bg" aria-label="Custom reading background"></label>
+          <label class="color-control">Text<input type="color" data-custom-color="text" aria-label="Custom text color"></label>
+          <label class="color-control">Muted text<input type="color" data-custom-color="muted" aria-label="Custom muted text color"></label>
+          <label class="color-control">Links<input type="color" data-custom-color="link" aria-label="Custom link color"></label>
+          <label class="color-control">Selection / highlight<input type="color" data-custom-color="selection" aria-label="Custom selection and highlight color"></label>
+          <button class="btn btn-ghost reset-settings-btn" id="reset-custom-theme-btn" type="button">Reset custom theme</button>
+          </div>
+        </details>
+        </section>
+          </section>
+
+          <section class="full-settings-pane" data-section="reading" hidden>
+            <div class="settings-section-heading">
+              <div class="setting-section-title">Reading</div>
+              <p>Typography, spacing and page layout for every book you open.</p>
+            </div>
       <section class="settings-group" aria-labelledby="reading-text-title">
         <div class="settings-section-heading">
           <div class="setting-section-title" id="reading-text-title">Reading text</div>
@@ -487,47 +582,8 @@
           </button>
         </div>
       </section>
-
-      <section class="settings-group" aria-labelledby="app-accent-title">
-          <div class="settings-section-heading">
-            <div class="setting-section-title" id="app-accent-title">Application accent</div>
-            <p>Choose the color used for controls and focus states.</p>
-          </div>
-          <label class="color-control">Accent color<input type="color" id="app-accent-color" aria-label="Application accent color" value="#EEECF8"></label>
-          <button class="btn btn-ghost reset-settings-btn" id="reset-accent-btn" type="button">Reset to Lirune default</button>
-        </section>
-
-      <section class="settings-group" aria-labelledby="reading-theme-title">
-        <div class="settings-section-heading">
-          <div class="setting-section-title" id="reading-theme-title">Reading theme</div>
-          <p>Presets change the page, text, and link colors.</p>
-        </div>
-        <div class="theme-preset-grid" role="group" aria-label="Reader themes">
-          <button class="theme-preset" data-theme="neutral" aria-pressed="false"><span class="theme-swatch theme-swatch-neutral"></span><span class="theme-preset-name">Neutral</span></button>
-          <button class="theme-preset" data-theme="sepia" aria-pressed="false"><span class="theme-swatch theme-swatch-sepia"></span><span class="theme-preset-name">Sepia</span></button>
-          <button class="theme-preset active" data-theme="night" aria-pressed="true"><span class="theme-swatch theme-swatch-night"></span><span class="theme-preset-name">Night</span></button>
-          <button class="theme-preset" data-theme="paper" aria-pressed="false"><span class="theme-swatch theme-swatch-paper"></span><span class="theme-preset-name">Paper</span></button>
-          <button class="theme-preset" data-theme="contrast1" aria-pressed="false"><span class="theme-swatch theme-swatch-contrast1"></span><span class="theme-preset-name">Contrast 1</span></button>
-          <button class="theme-preset" data-theme="contrast2" aria-pressed="false"><span class="theme-swatch theme-swatch-contrast2"></span><span class="theme-preset-name">Contrast 2</span></button>
-          <button class="theme-preset" data-theme="contrast3" aria-pressed="false"><span class="theme-swatch theme-swatch-contrast3"></span><span class="theme-preset-name">Contrast 3</span></button>
-          <button class="theme-preset" data-theme="contrast4" aria-pressed="false"><span class="theme-swatch theme-swatch-contrast4"></span><span class="theme-preset-name">Contrast 4</span></button>
-          <button class="theme-preset" data-theme="custom" aria-pressed="false"><span class="theme-swatch theme-swatch-custom"></span><span class="theme-preset-name">Custom</span></button>
-        </div>
-        <details class="custom-theme-details">
-          <summary>Customize colors <span>Optional</span></summary>
-          <div class="custom-theme-controls" aria-labelledby="custom-theme-title">
-          <div class="custom-theme-heading"><span id="custom-theme-title">Custom reader colors</span><span id="custom-theme-preview" class="custom-theme-preview" aria-label="Custom theme preview">Aa</span></div>
-          <label class="color-control">Reading background<input type="color" data-custom-color="bg" aria-label="Custom reading background"></label>
-          <label class="color-control">Text<input type="color" data-custom-color="text" aria-label="Custom text color"></label>
-          <label class="color-control">Muted text<input type="color" data-custom-color="muted" aria-label="Custom muted text color"></label>
-          <label class="color-control">Links<input type="color" data-custom-color="link" aria-label="Custom link color"></label>
-          <label class="color-control">Selection / highlight<input type="color" data-custom-color="selection" aria-label="Custom selection and highlight color"></label>
-          <button class="btn btn-ghost reset-settings-btn" id="reset-custom-theme-btn" type="button">Reset custom theme</button>
-          </div>
-        </details>
-        </section>
-
-      <section class="settings-group" aria-labelledby="layout-title">
+            <div class="full-settings-spacer"></div>
+      <section class="settings-group" id="flow-control-row" aria-labelledby="layout-title">
         <div class="settings-section-heading">
           <div class="setting-section-title" id="layout-title">Page layout</div>
           <p>Control how pages flow and how much space they use.</p>
@@ -542,8 +598,8 @@
             <span>Continuous</span>
           </button>
         </div>
-        <div class="setting-subheading">Columns</div>
-        <div class="layout-grid">
+        <div class="setting-subheading" id="spread-subheading">Columns</div>
+        <div class="layout-grid" id="spread-control-row">
           <button class="layout-opt active" data-spread="auto" id="spread-auto-btn">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
             <span>Auto Spread</span>
@@ -552,6 +608,26 @@
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/></svg>
             <span>Single Page</span>
           </button>
+        </div>
+        <div class="setting-subheading hidden" id="fit-subheading">Page fit (PDF &amp; comics)</div>
+        <div class="layout-grid hidden" id="fit-control-row">
+          <button class="layout-opt active" data-fit="width" id="fit-width-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v10M21 7v10M7 12h10"/></svg>
+            <span>Fit width</span>
+          </button>
+          <button class="layout-opt" data-fit="page" id="fit-page-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/></svg>
+            <span>Fit page</span>
+          </button>
+        </div>
+        <div class="setting-slider-row">
+          <div class="setting-row">
+          <div class="setting-label">
+            Zoom
+            <span id="zoom-display">100%</span>
+          </div>
+          </div>
+          <p class="setting-hint">Use <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> or the floating control. Zoom applies to this document only and is not saved.</p>
         </div>
         <div class="setting-slider-row">
           <div class="setting-row">
@@ -572,14 +648,91 @@
           <input type="range" id="margin-slider" min="2" max="24" step="2" value="10" class="glass-slider" aria-label="Page margins">
         </div>
       </section>
-
+            <div class="full-settings-spacer"></div>
       <button class="btn btn-ghost reset-settings-btn" id="reset-reader-settings-btn" type="button">Reset reading preferences</button>
-      <button class="btn btn-ghost reset-settings-btn" id="integrity-check-btn" type="button">Check library integrity</button>
-      <button class="btn btn-ghost reset-settings-btn" id="export-annotations-btn" type="button">Export annotations</button>
-      <button class="btn btn-ghost reset-settings-btn" id="backup-library-btn" type="button">Back up library metadata</button>
-      <label class="btn btn-ghost reset-settings-btn" for="restore-library-input">Restore metadata backup</label>
-      <input id="restore-library-input" type="file" accept="application/json,.json" hidden>
+          </section>
 
+          <section class="full-settings-pane" data-section="library" hidden>
+            <div class="settings-section-heading">
+              <div class="setting-section-title">Library</div>
+              <p>How your shelf is arranged. These never move or delete your books.</p>
+            </div>
+            <div class="settings-group" id="library-view-controls"></div>
+            <div class="full-settings-spacer"></div>
+            <button class="btn btn-ghost reset-settings-btn" id="reset-library-view-btn" type="button">Reset library view</button>
+          </section>
+
+          <section class="full-settings-pane" data-section="accessibility" hidden>
+            <div class="settings-section-heading">
+              <div class="setting-section-title">Accessibility</div>
+              <p>Adjustments that make the interface easier to use.</p>
+            </div>
+            <div class="settings-group" id="accessibility-controls"></div>
+          </section>
+
+          <section class="full-settings-pane" data-section="shortcuts" hidden>
+            <div class="settings-section-heading">
+              <div class="setting-section-title">Keyboard shortcuts</div>
+              <p>Every shortcut the application handles.</p>
+            </div>
+            <div class="settings-group" id="shortcuts-list"></div>
+          </section>
+
+          <section class="full-settings-pane" data-section="storage" hidden>
+            <div class="settings-section-heading">
+              <div class="setting-section-title">Storage &amp; data</div>
+              <p>What is stored, how to check it, and how to remove it.</p>
+            </div>
+            <div class="settings-group" id="storage-stats"></div>
+
+            <div class="settings-group" id="storage-integrity">
+              <div class="setting-section-title">Library integrity</div>
+              <p class="setting-hint">Checks that every book still matches the file stored on this computer. The check only reads files; it never changes or deletes anything.</p>
+              <div class="storage-actions">
+                <button class="btn btn-ghost reset-settings-btn" id="integrity-check-btn" type="button">Start check</button>
+                <button class="btn btn-ghost reset-settings-btn" id="integrity-repair-btn" type="button" disabled>Repair</button>
+              </div>
+              <div class="integrity-progress" id="integrity-progress" hidden>
+                <div class="integrity-bar"><div class="integrity-bar-fill" id="integrity-bar-fill"></div></div>
+                <p class="setting-hint" id="integrity-progress-text">Checking…</p>
+              </div>
+              <div id="integrity-results" aria-live="polite"></div>
+            </div>
+
+            <div class="settings-group" id="storage-orphans" hidden>
+              <div class="setting-section-title">Unused files</div>
+              <p class="setting-hint" id="orphan-summary"></p>
+              <div class="orphan-list" id="orphan-list"></div>
+              <button class="btn btn-ghost reset-settings-btn" id="orphan-cleanup-btn" type="button">Remove unused files</button>
+            </div>
+
+            <div class="settings-group">
+              <div class="setting-section-title">Backup</div>
+              <p class="setting-hint">A backup holds your book details, collections, favourites, reading positions, highlights and notes. It does not contain the book files themselves, and nothing is uploaded anywhere.</p>
+              <div class="storage-actions">
+                <button class="btn btn-ghost reset-settings-btn" id="backup-library-btn" type="button">Back up library</button>
+                <button class="btn btn-ghost reset-settings-btn" id="export-annotations-btn" type="button">Export annotations</button>
+              </div>
+              <div class="storage-actions">
+                <label class="btn btn-ghost reset-settings-btn" for="restore-library-input">Restore from a backup</label>
+                <input id="restore-library-input" type="file" accept="application/json,.json" hidden>
+              </div>
+              <div id="restore-preview"></div>
+            </div>
+
+            <div class="full-settings-spacer"></div>
+            <div class="settings-group danger-group">
+              <div class="setting-section-title">Remove all data</div>
+              <p class="setting-hint">Deletes every book, annotation and reading position from this computer. This cannot be undone.</p>
+              <button class="btn btn-ghost reset-settings-btn" id="delete-all-data-btn" type="button">Delete all books and data</button>
+            </div>
+          </section>
+
+          <section class="full-settings-pane" data-section="about" hidden>
+            <div class="settings-section-heading">
+              <div class="setting-section-title">About</div>
+              <p>Project information and licences.</p>
+            </div>
       <section class="settings-group support-group" style="margin-top:var(--sp-6); padding:var(--sp-4); border-radius:var(--radius-lg); background:rgba(255, 255, 255, 0.03); border:1px solid var(--border-subtle);">
         <div class="setting-section-title" style="margin-bottom:var(--sp-2);">Support Lirune Reader</div>
         <p style="font-size:var(--text-xs); color:var(--text-secondary); margin-bottom:var(--sp-3); line-height:1.5;">Lirune Reader is a free and open-source desktop reader. If you enjoy reading here, support future features and development by buying a coffee!</p>
@@ -588,7 +741,8 @@
           <span>Buy Me a Coffee</span>
         </a>
       </section>
-
+            <div class="full-settings-spacer"></div>
+            <div class="settings-group" id="about-extra"></div>
       <section class="settings-group about-card" aria-labelledby="about-title">
         <img src="assets/icon.png" alt="Lirune Reader icon" class="about-icon">
         <div>
@@ -601,7 +755,10 @@
           <a href="https://buymeacoffee.com/vasanthgajavelly" target="_blank" rel="noopener noreferrer" class="btn btn-glow" aria-label="Support Lirune Reader on Buy Me a Coffee">☕ Buy Me a Coffee</a>
         </div>
       </section>
+          </section>
 
+        </div>
+      </div>
     </div>
   </aside>
 
@@ -787,6 +944,41 @@
     </div>
   </div>
 
+  <!-- Generic confirmation used by the storage actions that remove things. The
+       message is supplied by SettingsUI so each action states exactly what it
+       will do rather than sharing vague wording. -->
+  <div id="confirm-action-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-action-title" aria-describedby="confirm-action-message">
+    <div class="modal-box delete-book-modal-box">
+      <div class="modal-header">
+        <div>
+          <h2 id="confirm-action-title">Are you sure?</h2>
+          <p class="modal-subtitle" id="confirm-action-subtitle"></p>
+        </div>
+      </div>
+      <p id="confirm-action-message" class="delete-book-message"></p>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-confirm-action-btn" type="button">Cancel</button>
+        <button class="btn btn-accent delete-book-confirm-btn" id="confirm-confirm-action-btn" type="button">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="delete-all-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="delete-all-title" aria-describedby="delete-all-message">
+    <div class="modal-box delete-book-modal-box">
+      <div class="modal-header">
+        <div>
+          <h2 id="delete-all-title">Delete all books and data?</h2>
+          <p class="modal-subtitle">This permanently removes everything Lirune Reader stores on this computer.</p>
+        </div>
+      </div>
+      <p id="delete-all-message" class="delete-book-message">Every book, its file, all reading positions, highlights, notes and bookmarks will be deleted. Your original files elsewhere on this computer are not touched. This cannot be undone.</p>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-delete-all-btn" type="button">Cancel</button>
+        <button class="btn btn-accent delete-book-confirm-btn" id="confirm-delete-all-btn" type="button">Delete Everything</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Keyboard Shortcuts Modal -->
   <div id="shortcuts-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
     <div class="modal-box">
@@ -872,10 +1064,20 @@
   <!-- Application Logic Scripts -->
   <script src="js/utils.js"></script>
   <script src="js/db.js"></script>
-  <script src="js/themes.js"></script>
-  <script src="js/settings.js"></script>
+  <script src="js/formats.js"></script>
+<script src="js/themes.js"></script>
+<script src="js/appPrefs.js"></script>
+<script src="js/settings.js"></script>
   <script src="js/epubLoader.js"></script>
-  <script src="js/library.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/reader/documentAdapter.js"></script>
+  <script src="js/reader/flowAdapters.js"></script>
+  <script src="js/reader/epubAdapter.js"></script>
+  <script src="js/reader/pdfAdapter.js"></script>
+  <script src="js/reader/cbzAdapter.js"></script>
+  <script src="js/reader/zoomControl.js"></script>
+  <script src="js/reader/readerController.js"></script>
+<script src="js/library.js"></script>
+<script src="js/settingsUI.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>

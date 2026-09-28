@@ -8,7 +8,8 @@ const App = (() => {
   let currentBookId = null;
   let focusMode = false;
   let nativeFullscreen = false;
-  let libraryZoom = 100;
+  let homeZoom = 100;
+  let homeZoomControl = null;
 
   async function init() {
     // Initialize subsystem managers in parallel (they share a single cached DB
@@ -17,9 +18,21 @@ const App = (() => {
     await Promise.all([
       ThemeManager.init(),
       ReaderSettings.init(),
+      AppPrefs.init(),
       Library.init()
     ]);
     hideLibraryLoading();
+
+    SettingsUI.init();
+
+    homeZoomControl = ZoomControl.create('home-zoom-control', {
+      min: 75,
+      max: 150,
+      step: 10,
+      label: 'Home zoom',
+      onChange: value => applyHomeZoom(value)
+    });
+    Reader.init();
 
     window.noveraDesktop?.getVersion?.().then(version => {
       const versionEl = document.getElementById('about-version');
@@ -33,32 +46,51 @@ const App = (() => {
     bindSearchOverlay();
     bindFullscreenState();
     bindWindowControls();
+    bindViewportClamping();
 
     console.log('Lirune Reader successfully initialized');
   }
 
   // View Switching
-  function applyLibraryZoom() {
+  function applyHomeZoom(value) {
+    homeZoom = Number(value) || 100;
     const libView = document.getElementById('library-view');
-    if (libView) libView.style.zoom = `${libraryZoom}%`;
+    if (!libView) return;
+    // CSS zoom on the view scales the existing DOM in place. The library is
+    // never re-rendered, so filters, sorting, favourites and collections keep
+    // their state and 300+ book libraries stay fast.
+    libView.style.zoom = `${homeZoom}%`;
+    if (libView.classList.contains('hidden')) libView.style.zoom = '';
   }
 
-  function adjustLibraryZoom(delta) {
-    const next = Math.min(150, Math.max(75, libraryZoom + delta));
-    if (next === libraryZoom) return;
-    libraryZoom = next;
-    applyLibraryZoom();
+  function adjustHomeZoom(delta) {
+    homeZoomControl?.adjust(delta);
+  }
+
+  function setHomeZoom(value) {
+    homeZoomControl?.set(value);
+  }
+
+  function getHomeZoom() {
+    return homeZoomControl?.get() ?? 100;
+  }
+
+  function bindViewportClamping() {
+    const clamp = () => {
+      homeZoomControl?.clampToViewport();
+      Reader.showZoomControl?.();
+    };
+    window.addEventListener('resize', clamp);
+    window.addEventListener('scroll', clamp, true);
   }
 
   function openLibrary() {
     activeView = 'library';
     closeAllPanels();
+    document.body.classList.remove('reader-open');
 
     const libView = document.getElementById('library-view');
     const readerView = document.getElementById('reader-view');
-
-    libraryZoom = 100;
-    applyLibraryZoom();
 
     if (readerView) {
       readerView.classList.remove('active');
@@ -81,10 +113,9 @@ const App = (() => {
     }
 
     currentBookId = bookId;
-    libraryZoom = 100;
-    applyLibraryZoom();
     activeView = 'reader';
     closeAllPanels();
+    document.body.classList.add('reader-open');
 
     const libView = document.getElementById('library-view');
     const readerView = document.getElementById('reader-view');
@@ -98,7 +129,7 @@ const App = (() => {
       readerView.classList.add('active');
     }
 
-    const success = await EpubLoader.openBook(book);
+    const success = await Reader.open(book);
     if (!success) {
       openLibrary();
     }
@@ -114,8 +145,8 @@ const App = (() => {
     // Prev / Next page buttons
     const prevBtn = document.getElementById('prev-btn');
     const nextBtn = document.getElementById('next-btn');
-    if (prevBtn) prevBtn.addEventListener('click', () => EpubLoader.prev());
-    if (nextBtn) nextBtn.addEventListener('click', () => EpubLoader.next());
+    if (prevBtn) prevBtn.addEventListener('click', () => Reader.prev());
+    if (nextBtn) nextBtn.addEventListener('click', () => Reader.next());
 
     // Bookmark button
     const bmBtn = document.getElementById('bookmark-btn');
@@ -128,6 +159,16 @@ const App = (() => {
     if (fsBtn) {
       fsBtn.addEventListener('click', toggleFullscreen);
     }
+
+    // Page-fit controls (fixed-layout and image formats only)
+    document.querySelectorAll('[data-fit]').forEach(button => {
+      button.addEventListener('click', () => {
+        Reader.setFit(button.dataset.fit);
+        document.querySelectorAll('[data-fit]').forEach(other => {
+          other.classList.toggle('active', other === button);
+        });
+      });
+    });
 
     const focusSettingsBtn = document.getElementById('focus-settings-btn');
     if (focusSettingsBtn) {
@@ -197,13 +238,16 @@ const App = (() => {
   function bindDrawersAndModals() {
     const overlay = document.getElementById('panel-overlay');
 
-    // TOC drawer
+    // Navigation drawer (TOC / outline / page list depending on format)
     const tocBtn = document.getElementById('toc-toggle-btn');
     const closeTocBtn = document.getElementById('close-toc-btn');
     const tocPanel = document.getElementById('toc-panel');
 
     if (tocBtn) {
-      tocBtn.addEventListener('click', () => toggleDrawer(tocPanel));
+      tocBtn.addEventListener('click', () => {
+        Reader.renderNavigation();
+        toggleDrawer(tocPanel);
+      });
     }
     if (closeTocBtn) {
       closeTocBtn.addEventListener('click', () => closeDrawer(tocPanel));
@@ -219,10 +263,21 @@ const App = (() => {
     const settingsPanel = document.getElementById('settings-panel');
 
     settingsButtons.forEach(button => {
-      button.addEventListener('click', () => toggleDrawer(settingsPanel));
+      button.addEventListener('click', () => {
+        toggleDrawer(settingsPanel);
+        // The panel shows the settings for wherever the user already is, so
+        // the content is rebuilt at the moment it opens rather than when the
+        // view last changed.
+        SettingsUI.refresh();
+      });
     });
     if (closeSettingsBtn) {
-      closeSettingsBtn.addEventListener('click', () => closeDrawer(settingsPanel));
+      closeSettingsBtn.addEventListener('click', () => {
+        // Leaving settings always returns the panel to the normal sidebar
+        // state, whatever was open when it was closed.
+        SettingsUI.collapse();
+        closeDrawer(settingsPanel);
+      });
     }
 
     // Annotations drawer
@@ -295,24 +350,41 @@ const App = (() => {
     }
   }
 
+  function resolvePanel(panel) {
+    if (!panel) return null;
+    if (typeof panel === 'string') return document.getElementById(panel);
+    return panel;
+  }
+
   function toggleDrawer(panel) {
+    panel = resolvePanel(panel);
     if (!panel) return;
     const isOpen = panel.classList.contains('open');
     closeAllPanels();
     if (!isOpen) {
       panel.classList.add('open');
+      panel.setAttribute('aria-hidden', 'false');
       document.getElementById('panel-overlay')?.classList.add('visible');
     }
   }
 
   function closeDrawer(panel) {
+    panel = resolvePanel(panel);
     if (!panel) return;
     panel.classList.remove('open');
+    panel.setAttribute('aria-hidden', 'true');
     document.getElementById('panel-overlay')?.classList.remove('visible');
   }
 
   function closeAllPanels() {
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('open'));
+    document.querySelectorAll('.panel').forEach(p => {
+      p.classList.remove('open');
+      p.setAttribute('aria-hidden', 'true');
+    });
+    // Closing the settings panel always returns it to the normal sidebar
+    // state, whether it was closed with Escape, the overlay, or by switching
+    // views.
+    SettingsUI.collapse();
     document.getElementById('panel-overlay')?.classList.remove('visible');
     document.getElementById('search-overlay')?.classList.remove('visible');
     document.getElementById('shortcuts-modal')?.classList.add('hidden');
@@ -370,16 +442,17 @@ const App = (() => {
     const prevBtn = document.getElementById('search-prev-btn');
     const nextBtn = document.getElementById('search-next-btn');
 
+    const showSearch = () => {
+      overlay?.classList.add('visible');
+      input?.focus();
+      input?.select();
+    };
+
     if (searchBtn) {
       searchBtn.addEventListener('click', () => {
         if (!overlay) return;
-        const isVis = overlay.classList.contains('visible');
-        if (isVis) {
-          overlay.classList.remove('visible');
-        } else {
-          overlay.classList.add('visible');
-          input?.focus();
-        }
+        if (overlay.classList.contains('visible')) overlay.classList.remove('visible');
+        else showSearch();
       });
     }
 
@@ -389,36 +462,77 @@ const App = (() => {
 
     if (input) {
       input.addEventListener('input', Utils.debounce((e) => {
-        EpubLoader.searchBook(e.target.value);
+        Reader.search(e.target.value);
       }, 300));
 
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
-          if (e.shiftKey) {
-            EpubLoader.prevSearchResult();
-          } else {
-            EpubLoader.nextSearchResult();
-          }
+          if (e.shiftKey) Reader.prevSearchResult();
+          else Reader.nextSearchResult();
         }
       });
     }
 
-    if (prevBtn) prevBtn.addEventListener('click', () => EpubLoader.prevSearchResult());
-    if (nextBtn) nextBtn.addEventListener('click', () => EpubLoader.nextSearchResult());
+    if (prevBtn) prevBtn.addEventListener('click', () => Reader.prevSearchResult());
+    if (nextBtn) nextBtn.addEventListener('click', () => Reader.nextSearchResult());
+  }
+
+  // ---------------------------------------------------------------
+  // Keyboard: one authoritative shortcut table for the whole app.
+  // The handler below dispatches from this same table, so the
+  // Shortcuts list in Settings can never drift from what the app
+  // actually does.
+  // ---------------------------------------------------------------
+  const ZOOM_IN_CODES = new Set(['Equal', 'NumpadAdd']);
+  const ZOOM_OUT_CODES = new Set(['Minus', 'NumpadSubtract']);
+
+  const SHORTCUTS = [
+    { keys: ['Ctrl', '+'], description: 'Zoom in', contexts: ['library', 'reader'] },
+    { keys: ['Ctrl', '-'], description: 'Zoom out', contexts: ['library', 'reader'] },
+    { keys: ['Ctrl', 'F'], description: 'Search inside the book', contexts: ['reader'] },
+    { keys: ['/'], description: 'Search inside the book', contexts: ['reader'] },
+    { keys: ['Ctrl', 'K'], description: 'Search the library', contexts: ['library'] },
+    { keys: ['S'], description: 'Open reading settings', contexts: ['reader'] },
+    { keys: ['T'], description: 'Toggle table of contents', contexts: ['reader'] },
+    { keys: ['N'], description: 'Toggle annotations', contexts: ['reader'] },
+    { keys: ['B'], description: 'Toggle bookmark', contexts: ['reader'] },
+    { keys: ['F'], description: 'Toggle fullscreen', contexts: ['reader'] },
+    { keys: ['→', 'J', 'Space'], description: 'Next page', contexts: ['reader'] },
+    { keys: ['←', 'K', 'Shift Space'], description: 'Previous page', contexts: ['reader'] },
+    { keys: ['↓', '↑'], description: 'Scroll or turn the page', contexts: ['reader'] },
+    { keys: ['PgDn', 'PgUp'], description: 'Next or previous page', contexts: ['reader'] },
+    { keys: ['?'], description: 'Show this shortcut list', contexts: ['reader'] },
+    { keys: ['Esc'], description: 'Close panels, leave fullscreen, or return to the library', contexts: ['library', 'reader'] }
+  ];
+
+  /** The shortcuts the app actually handles, in either context. */
+  function getShortcuts() {
+    return SHORTCUTS.map(shortcut => ({ ...shortcut, keys: [...shortcut.keys], contexts: [...shortcut.contexts] }));
+  }
+
+  function isZoomIn(event) {
+    if (ZOOM_IN_CODES.has(event.code)) return true;
+    return event.key === '+' || (event.key === '=' && event.shiftKey);
+  }
+
+  function isZoomOut(event) {
+    if (ZOOM_OUT_CODES.has(event.code)) return true;
+    return event.key === '-';
   }
 
   function bindKeyboardShortcuts() {
     window.addEventListener('keydown', (e) => {
-      // If typing in input, textarea, or contentEditable, ignore shortcuts (except Escape)
       const target = e.target;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      const isInput = target.tagName === 'INPUT'
+        || target.tagName === 'TEXTAREA'
+        || target.tagName === 'SELECT'
+        || target.isContentEditable;
 
       if (e.key === 'Escape') {
-        // If modals or drawers open, close them
-        const hasOpenPanels = document.querySelector('.panel.open') ||
-                              document.querySelector('.modal-backdrop:not(.hidden)') ||
-                              document.getElementById('search-overlay')?.classList.contains('visible');
+        const hasOpenPanels = document.querySelector('.panel.open')
+          || document.querySelector('.modal-backdrop:not(.hidden)')
+          || document.getElementById('search-overlay')?.classList.contains('visible');
         if (hasOpenPanels) {
           closeAllPanels();
           return;
@@ -435,122 +549,101 @@ const App = (() => {
           return;
         }
 
-        // If in reader view, escape goes back to library
         if (activeView === 'reader') {
           openLibrary();
           return;
         }
       }
 
-      // Reader search shortcut: Ctrl+F must take precedence over the
-      // generic input guard and the plain F fullscreen shortcut.
-      if (activeView === 'reader' && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      const mod = e.ctrlKey || e.metaKey;
+
+      // Zoom is handled before the input guard so Ctrl +/- behaves like a
+      // desktop zoom shortcut even while a text field has focus. The target
+      // depends on which view is active, so the two never mix.
+      if (mod && (isZoomIn(e) || isZoomOut(e))) {
         e.preventDefault();
-        const searchOverlay = document.getElementById('search-overlay');
-        if (searchOverlay) {
-          searchOverlay.classList.add('visible');
-          const searchInput = document.getElementById('search-input');
-          searchInput?.focus();
-          searchInput?.select();
+        if (isZoomIn(e)) {
+          if (activeView === 'reader') Reader.adjustZoom(10);
+          else adjustHomeZoom(10);
+        } else if (activeView === 'reader') {
+          Reader.adjustZoom(-10);
+        } else {
+          adjustHomeZoom(-10);
         }
+        return;
+      }
+
+      // Reader search must take precedence over the plain F fullscreen shortcut.
+      if (activeView === 'reader' && mod && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const overlay = document.getElementById('search-overlay');
+        overlay?.classList.add('visible');
+        const input = document.getElementById('search-input');
+        input?.focus();
+        input?.select();
         return;
       }
 
       // Library search shortcut: Ctrl+K
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      if (mod && e.key.toLowerCase() === 'k' && activeView === 'library') {
         e.preventDefault();
         const searchInput = document.getElementById('lib-search-input');
-        if (searchInput && activeView === 'library') {
-          searchInput.focus();
-          searchInput.select();
-        }
-        return;
-      }
-
-      // Application zoom on the library/home screen. Handle this before the
-      // input guard so Ctrl +/- behaves like a normal desktop zoom shortcut
-      // even when the library search field has focus.
-      if (activeView === 'library' && (e.ctrlKey || e.metaKey) &&
-          (e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+')) {
-        e.preventDefault();
-        adjustLibraryZoom(10);
-        return;
-      }
-      if (activeView === 'library' && (e.ctrlKey || e.metaKey) &&
-          (e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-')) {
-        e.preventDefault();
-        adjustLibraryZoom(-10);
+        searchInput?.focus();
+        searchInput?.select();
         return;
       }
 
       if (isInput) return;
 
-      // Reader shortcuts
-      if (activeView === 'reader') {
-        // Zoom shortcuts. Use event.code as the stable keyboard source so
-        // Ctrl+=, Ctrl++ and numpad + / - all reach the same runtime zoom.
-        if ((e.ctrlKey || e.metaKey) && (e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+')) {
-          e.preventDefault();
-          ReaderSettings.adjustZoom(10);
-        } else if ((e.ctrlKey || e.metaKey) && (e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-')) {
-          e.preventDefault();
-          ReaderSettings.adjustZoom(-10);
-        } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key.toLowerCase() === 'j' || (e.key === ' ' && !e.shiftKey)) {
-          if (!e.shiftKey) {
-            e.preventDefault();
-            EpubLoader.next();
-          }
-        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key.toLowerCase() === 'k' || (e.key === ' ' && e.shiftKey)) {
-          e.preventDefault();
-          EpubLoader.prev();
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          const settings = ReaderSettings.getSettings();
-          if (settings.flow === 'scrolled') {
-            EpubLoader.scrollBy(0, -100);
-          } else {
-            EpubLoader.prev();
-          }
-        } else if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          const settings = ReaderSettings.getSettings();
-          if (settings.flow === 'scrolled') {
-            EpubLoader.scrollBy(0, 100);
-          } else {
-            EpubLoader.next();
-          }
-        } else if (e.key.toLowerCase() === 't') {
-          e.preventDefault();
-          const tocPanel = document.getElementById('toc-panel');
-          toggleDrawer(tocPanel);
-        } else if (e.key.toLowerCase() === 's') {
-          e.preventDefault();
-          const settingsPanel = document.getElementById('settings-panel');
-          toggleDrawer(settingsPanel);
-        } else if (e.key.toLowerCase() === 'n') {
-          e.preventDefault();
-          const annPanel = document.getElementById('annotations-panel');
-          EpubLoader.refreshAnnotationsPanel();
-          toggleDrawer(annPanel);
-        } else if (e.key.toLowerCase() === 'b') {
-          e.preventDefault();
-          EpubLoader.toggleBookmark();
-        } else if (e.key === '/') {
-          e.preventDefault();
-          const searchOverlay = document.getElementById('search-overlay');
-          if (searchOverlay) {
-            searchOverlay.classList.add('visible');
-            document.getElementById('search-input')?.focus();
-          }
-        } else if (e.key.toLowerCase() === 'f') {
-          e.preventDefault();
-          toggleFullscreen();
-        } else if (e.key === '?') {
-          e.preventDefault();
-          document.getElementById('shortcuts-modal')?.classList.remove('hidden');
-        }
-      }
+      if (activeView === 'reader') handleReaderKeys(e);
     });
+  }
+
+  function handleReaderKeys(e) {
+    const flow = ReaderSettings.getSettings().flow;
+
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key.toLowerCase() === 'j' || (e.key === ' ' && !e.shiftKey)) {
+      if (e.key === ' ' && e.shiftKey) return;
+      e.preventDefault();
+      Reader.next();
+    } else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key.toLowerCase() === 'k' || (e.key === ' ' && e.shiftKey)) {
+      e.preventDefault();
+      Reader.prev();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (flow === 'scrolled') Reader.scrollBy(0, -100);
+      else Reader.prev();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (flow === 'scrolled') Reader.scrollBy(0, 100);
+      else Reader.next();
+    } else if (e.key.toLowerCase() === 't') {
+      e.preventDefault();
+      Reader.renderNavigation();
+      toggleDrawer(document.getElementById('toc-panel'));
+    } else if (e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      SettingsUI.refresh();
+      toggleDrawer(document.getElementById('settings-panel'));
+    } else if (e.key.toLowerCase() === 'n') {
+      e.preventDefault();
+      EpubLoader.refreshAnnotationsPanel();
+      toggleDrawer(document.getElementById('annotations-panel'));
+    } else if (e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      EpubLoader.toggleBookmark();
+    } else if (e.key === '/') {
+      e.preventDefault();
+      const overlay = document.getElementById('search-overlay');
+      overlay?.classList.add('visible');
+      document.getElementById('search-input')?.focus();
+    } else if (e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      toggleFullscreen();
+    } else if (e.key === '?') {
+      e.preventDefault();
+      document.getElementById('shortcuts-modal')?.classList.remove('hidden');
+    }
   }
 
   function showLibraryLoading(show) {
@@ -564,16 +657,38 @@ const App = (() => {
     if (!show) {
       if (dropZone) dropZone.classList.remove('loading-books');
     }
+    void libHeader;
   }
 
   function hideLibraryLoading() {
     showLibraryLoading(false);
   }
 
+  // ---------------------------------------------------------------
+  // Settings context: the application already knows which view is
+  // active, so Settings asks the application rather than guessing from
+  // the DOM. Both the quick settings panel and the expanded settings
+  // view read this, which is what keeps them in step with the real
+  // navigation state.
+  // ---------------------------------------------------------------
+  function getSettingsContext() {
+    return activeView;
+  }
+
   return {
     init,
     openLibrary,
-    openReader
+    openReader,
+    closeDrawer,
+    toggleDrawer,
+    closeAllPanels,
+    adjustHomeZoom,
+    setHomeZoom,
+    getHomeZoom,
+    toggleFullscreen,
+    getSettingsContext,
+    getShortcuts,
+    isReaderView: () => activeView === 'reader'
   };
 })();
 

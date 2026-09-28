@@ -15,9 +15,11 @@ contextBridge.exposeInMainWorld('noveraDesktop', {
   saveBookToStorage: (fileName, arrayBuffer, storageId) => ipcRenderer.invoke('fs:save-book', { fileName, storageId, buffer: arrayBuffer }),
   deleteBookFromStorage: (storageId) => ipcRenderer.invoke('fs:delete-book', storageId),
   getStoragePath: () => ipcRenderer.invoke('fs:get-storage-path'),
-  readEpubFile: (filePath) => ipcRenderer.invoke('fs:read-epub', filePath),
+  readBookFile: (filePath) => ipcRenderer.invoke('fs:read-book', filePath),
   readManagedBook: (storageId, fingerprint, fileSize) => ipcRenderer.invoke('fs:read-managed-book', { storageId, fingerprint, fileSize }),
   listManagedBooks: () => ipcRenderer.invoke('fs:list-managed-books'),
+  inspectManagedBook: (storageId) => ipcRenderer.invoke('fs:inspect-managed-book', { storageId }),
+  deleteOrphanFiles: (storageIds, referencedIds) => ipcRenderer.invoke('fs:delete-orphan-files', { storageIds, referencedIds }),
 
   // Native Electron fullscreen state
   toggleNativeFullscreen: () => ipcRenderer.invoke('window:toggle-fullscreen'),

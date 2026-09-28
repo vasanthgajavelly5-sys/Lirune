@@ -6,9 +6,14 @@ const JSZip = require('jszip');
 const crypto = require('crypto');
 const { fingerprintBuffer, storageIdForFingerprint, isStorageId } = require('./scripts/storage-contract');
 
+// Formats the application can open. Kept in sync with js/formats.js; the
+// renderer performs the authoritative content-based detection.
+const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz'];
+const OPENABLE_EXTENSIONS = [...SUPPORTED_EXTENSIONS, 'mobi', 'azw', 'azw3', 'cbr'];
+
 let mainWindow = null;
 let pendingOpenFile = null;
-const pendingEpubReadPaths = new Set();
+const pendingBookReadPaths = new Set();
 const EXPECTED_SHELL_PATH = path.resolve(__dirname, 'index.html');
 const EXPECTED_SHELL_URL = pathToFileURL(EXPECTED_SHELL_PATH).toString();
 
@@ -24,8 +29,8 @@ if (!gotTheLock) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
 
-      // Check if an EPUB file path was passed in the arguments
-      const filePath = extractEpubArg(argv);
+      // Check if a book file path was passed in the arguments
+      const filePath = extractBookArg(argv);
       if (filePath) {
         dispatchOpenFile(filePath);
       }
@@ -33,13 +38,12 @@ if (!gotTheLock) {
   });
 }
 
-function extractEpubArg(args) {
+function extractBookArg(args) {
   for (const arg of args) {
-    if (typeof arg === 'string' && arg.toLowerCase().endsWith('.epub')) {
-      if (fs.existsSync(arg)) {
-        return path.resolve(arg);
-      }
-    }
+    if (typeof arg !== 'string') continue;
+    const ext = path.extname(arg).slice(1).toLowerCase();
+    if (!OPENABLE_EXTENSIONS.includes(ext)) continue;
+    if (fs.existsSync(arg)) return path.resolve(arg);
   }
   return null;
 }
@@ -49,7 +53,7 @@ function dispatchOpenFile(filePath) {
     pendingOpenFile = filePath;
     return;
   }
-  pendingEpubReadPaths.add(path.resolve(filePath));
+  pendingBookReadPaths.add(path.resolve(filePath));
   mainWindow.webContents.send('open-file-from-os', filePath);
 }
 
@@ -183,8 +187,8 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
 
-    // If an EPUB was passed at launch, dispatch it now
-    const initialFile = pendingOpenFile || extractEpubArg(process.argv);
+    // If a book was passed at launch, dispatch it now
+    const initialFile = pendingOpenFile || extractBookArg(process.argv);
     if (initialFile) {
       pendingOpenFile = null;
       dispatchOpenFile(initialFile);
@@ -236,13 +240,18 @@ ipcMain.handle('dialog:open-files', async (event) => {
   if (!mainWindow) return { canceled: true, files: [] };
 
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Select one EPUB book',
+    title: 'Select a book',
     buttonLabel: 'Import to Lirune Reader',
     filters: [
+      { name: 'Supported books', extensions: SUPPORTED_EXTENSIONS },
       { name: 'EPUB eBooks (*.epub)', extensions: ['epub'] },
+      { name: 'PDF documents (*.pdf)', extensions: ['pdf'] },
+      { name: 'Comic archives (*.cbz)', extensions: ['cbz'] },
+      { name: 'Text and HTML (*.txt, *.html, *.htm)', extensions: ['txt', 'html', 'htm'] },
+      { name: 'FictionBook (*.fb2)', extensions: ['fb2'] },
       { name: 'All Files (*.*)', extensions: ['*'] }
     ],
-    properties: ['openFile']
+    properties: ['openFile', 'multiSelections']
   });
 
   if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
@@ -251,10 +260,10 @@ ipcMain.handle('dialog:open-files', async (event) => {
 
   const loadedFiles = [];
   const errors = [];
-  for (const filePath of result.filePaths.slice(0, 1)) {
+  for (const filePath of result.filePaths) {
     try {
       const buffer = fs.readFileSync(filePath);
-      await validateEpubBuffer(buffer);
+      await validateBookBuffer(buffer, path.extname(filePath).slice(1).toLowerCase());
       const name = path.basename(filePath);
       loadedFiles.push({
         name,
@@ -277,7 +286,7 @@ ipcMain.handle('dialog:open-folder', async (event) => {
   if (!mainWindow) return { canceled: true, files: [] };
 
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Select Folder Containing EPUBs',
+    title: 'Select Folder Containing Books',
     buttonLabel: 'Import Folder',
     properties: ['openDirectory']
   });
@@ -295,11 +304,12 @@ ipcMain.handle('dialog:open-folder', async (event) => {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (entry.name.startsWith('.')) continue;
         await scanDir(full);
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.epub')) {
+      } else if (entry.isFile() && SUPPORTED_EXTENSIONS.includes(path.extname(entry.name).slice(1).toLowerCase())) {
         try {
           const buffer = fs.readFileSync(full);
-          await validateEpubBuffer(buffer);
+          await validateBookBuffer(buffer, path.extname(entry.name).slice(1).toLowerCase());
           loadedFiles.push({
             name: entry.name,
             path: full,
@@ -321,6 +331,46 @@ ipcMain.handle('dialog:open-folder', async (event) => {
 
   return { canceled: false, files: loadedFiles, errors };
 });
+
+/**
+ * Validate an imported file.
+ * EPUB gets the full OCF/DRM check; every other supported format is checked
+ * against its file signature so a renamed file is rejected up front.
+ */
+async function validateBookBuffer(buffer, extension = '') {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('The file is empty');
+  }
+  const isZip = buffer.length >= 4 && buffer.readUInt32BE(0) === 0x504b0304;
+  const ext = String(extension || '').toLowerCase();
+
+  // The declared extension is checked first: EPUB and CBZ are both ZIP
+  // containers, so the signature alone cannot tell them apart.
+  if (ext === 'cbz') {
+    if (!isZip) throw new Error('Not a readable ZIP archive');
+    const zip = await JSZip.loadAsync(buffer);
+    if (Object.keys(zip.files).filter(name => !zip.files[name].dir).length === 0) {
+      throw new Error('The comic archive is empty');
+    }
+    return true;
+  }
+  if (ext === 'epub' || (isZip && !ext)) {
+    return validateEpubBuffer(buffer);
+  }
+  if (ext === 'pdf' || (!ext && buffer.slice(0, 5).toString('latin1') === '%PDF-')) {
+    if (buffer.slice(0, 5).toString('latin1') !== '%PDF-') throw new Error('Not a readable PDF document');
+    return true;
+  }
+  if (isZip) {
+    const zip = await JSZip.loadAsync(buffer);
+    if (Object.keys(zip.files).length === 0) throw new Error('The archive is empty');
+    return true;
+  }
+  if (['txt', 'html', 'htm', 'fb2'].includes(ext)) {
+    return true;
+  }
+  throw new Error(`Unsupported file type${ext ? ` (.${ext})` : ''}`);
+}
 
 async function validateEpubBuffer(buffer) {
   if (!buffer || buffer.length < 4 || buffer.readUInt32BE(0) !== 0x504b0304) {
@@ -357,14 +407,15 @@ ipcMain.handle('shell:show-in-folder', (event, targetPath) => {
 ipcMain.handle('fs:save-book', async (event, { fileName, storageId, buffer }) => {
   requireTrustedSender(event);
   try {
-    if (typeof fileName !== 'string' || !fileName.toLowerCase().endsWith('.epub')) {
-      throw new Error('Only EPUB files can be stored');
+    const extension = typeof fileName === 'string' ? path.extname(fileName).slice(1).toLowerCase() : '';
+    if (!SUPPORTED_EXTENSIONS.includes(extension)) {
+      throw new Error(`Unsupported file type${extension ? ` (.${extension})` : ''}`);
     }
     const bookBuffer = Buffer.from(buffer);
-    await validateEpubBuffer(bookBuffer);
+    await validateBookBuffer(bookBuffer, extension);
     const fingerprint = fingerprintBuffer(bookBuffer);
-    const safeStorageId = storageId || storageIdForFingerprint(fingerprint);
-    if (safeStorageId !== storageIdForFingerprint(fingerprint)) throw new Error('Storage identity does not match EPUB content');
+    const safeStorageId = storageId || storageIdForFingerprint(fingerprint, extension);
+    if (safeStorageId !== storageIdForFingerprint(fingerprint, extension)) throw new Error('Storage identity does not match file content');
     const destPath = writeManagedBook(safeStorageId, bookBuffer);
     return { success: true, storageId: safeStorageId, fingerprint, fileSize: bookBuffer.length, originalName: path.basename(fileName) };
   } catch (e) {
@@ -397,18 +448,19 @@ ipcMain.handle('app:get-version', (event) => {
   return app.getVersion();
 });
 
-ipcMain.handle('fs:read-epub', (event, filePath) => {
+ipcMain.handle('fs:read-book', (event, filePath) => {
   requireTrustedSender(event);
-  if (typeof filePath !== 'string' || !filePath.toLowerCase().endsWith('.epub')) {
-    throw new Error('Only EPUB files can be opened');
+  const extension = typeof filePath === 'string' ? path.extname(filePath).slice(1).toLowerCase() : '';
+  if (!OPENABLE_EXTENSIONS.includes(extension)) {
+    throw new Error('This file type cannot be opened');
   }
 
   const resolvedPath = path.resolve(filePath);
-  if (!pendingEpubReadPaths.delete(resolvedPath)) {
-    throw new Error('This EPUB was not opened by the operating system');
+  if (!pendingBookReadPaths.delete(resolvedPath)) {
+    throw new Error('This file was not opened by the operating system');
   }
   if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
-    throw new Error('The EPUB file does not exist');
+    throw new Error('The file does not exist');
   }
 
   const buffer = fs.readFileSync(resolvedPath);
@@ -423,10 +475,10 @@ ipcMain.handle('fs:read-epub', (event, filePath) => {
 ipcMain.handle('fs:read-managed-book', (event, { storageId, fingerprint, fileSize } = {}) => {
   requireTrustedSender(event);
   const managedPath = getStoragePath(storageId);
-  if (!fs.existsSync(managedPath)) throw new Error('Managed EPUB file is unavailable');
+  if (!fs.existsSync(managedPath)) throw new Error('Managed book file is unavailable');
   const buffer = fs.readFileSync(managedPath);
-  if (fileSize !== undefined && buffer.length !== Number(fileSize)) throw new Error('Managed EPUB file is corrupted');
-  if (fingerprint && fingerprintBuffer(buffer) !== fingerprint.toLowerCase()) throw new Error('Managed EPUB file is corrupted');
+  if (fileSize !== undefined && buffer.length !== Number(fileSize)) throw new Error('Managed book file is corrupted');
+  if (fingerprint && fingerprintBuffer(buffer) !== fingerprint.toLowerCase()) throw new Error('Managed book file is corrupted');
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
 });
 
@@ -435,6 +487,66 @@ ipcMain.handle('fs:list-managed-books', (event) => {
   return fs.readdirSync(getBooksStorageDir(), { withFileTypes: true })
     .filter(entry => entry.isFile() && isStorageId(entry.name))
     .map(entry => entry.name);
+});
+
+/**
+ * Inspects one managed file without sending its contents to the renderer.
+ *
+ * The integrity check needs the real on-disk size and content hash to tell a
+ * healthy book apart from a truncated or altered one, and hashing has to happen
+ * in the main process because the books can be hundreds of megabytes. Reading
+ * one file per call is deliberate: it lets the renderer report honest progress
+ * as a large library is checked.
+ */
+ipcMain.handle('fs:inspect-managed-book', (event, { storageId } = {}) => {
+  requireTrustedSender(event);
+  const managedPath = getStoragePath(storageId);
+  if (!fs.existsSync(managedPath)) return { exists: false, size: 0, fingerprint: null };
+  const stats = fs.statSync(managedPath);
+  if (!stats.isFile()) return { exists: false, size: 0, fingerprint: null };
+  return {
+    exists: true,
+    size: stats.size,
+    fingerprint: fingerprintBuffer(fs.readFileSync(managedPath))
+  };
+});
+
+/**
+ * Removes managed files that no library record refers to.
+ *
+ * Only the storage identities passed in are touched, and every one of them is
+ * re-checked against the caller's own list of referenced identities so a bug in
+ * the renderer can never delete a file a book still needs.
+ */
+ipcMain.handle('fs:delete-orphan-files', (event, { storageIds, referencedIds } = {}) => {
+  requireTrustedSender(event);
+  const referenced = new Set(Array.isArray(referencedIds) ? referencedIds : []);
+  const removed = [];
+  const skipped = [];
+
+  for (const storageId of Array.isArray(storageIds) ? storageIds : []) {
+    if (!isStorageId(storageId)) {
+      skipped.push({ storageId, reason: 'invalid-identity' });
+      continue;
+    }
+    if (referenced.has(storageId)) {
+      skipped.push({ storageId, reason: 'referenced' });
+      continue;
+    }
+    try {
+      const target = getStoragePath(storageId);
+      if (!fs.existsSync(target)) {
+        skipped.push({ storageId, reason: 'absent' });
+        continue;
+      }
+      fs.unlinkSync(target);
+      removed.push(storageId);
+    } catch (error) {
+      skipped.push({ storageId, reason: 'failed' });
+    }
+  }
+
+  return { removed, skipped };
 });
 
 ipcMain.handle('window:toggle-fullscreen', (event) => {

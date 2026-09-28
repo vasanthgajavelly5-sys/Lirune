@@ -14,10 +14,7 @@ const ReaderSettings = (() => {
   };
 
   let currentSettings = { ...DEFAULT_SETTINGS };
-  let currentZoom = 100;
   let persistTimer = null;
-  let zoomChangeTimer = null;
-  let zoomOverlayVisible = false;
 
   function normalizeSettings(settings) {
     const merged = { ...DEFAULT_SETTINGS, ...settings };
@@ -37,11 +34,10 @@ const ReaderSettings = (() => {
     currentSettings = normalizeSettings(saved);
     updateUI();
     bindEvents();
-    bindZoomEvents();
   }
 
   function getSettings() {
-    return { ...currentSettings, zoom: currentZoom };
+    return { ...currentSettings };
   }
 
 function updateUI() {
@@ -72,9 +68,9 @@ function updateUI() {
     if (marginSlider) marginSlider.value = currentSettings.margin;
     if (marginVal) marginVal.textContent = `${currentSettings.margin}%`;
 
-    // Zoom display (runtime only)
+    // Zoom readout (runtime only, owned by the reader's ZoomControl)
     const zoomDisplay = document.getElementById('zoom-display');
-    if (zoomDisplay) zoomDisplay.textContent = `${currentZoom}%`;
+    if (zoomDisplay && typeof Reader !== 'undefined') zoomDisplay.textContent = `${Reader.getZoom()}%`;
 
     // Flow buttons
     const flowPaginated = document.getElementById('flow-paginated-btn');
@@ -96,72 +92,23 @@ function updateUI() {
     persistTimer = setTimeout(() => NoveraDB.setPref('readerSettings', currentSettings), 250);
     updateUI();
 
-    if (shouldApply && typeof EpubLoader !== 'undefined') {
-      EpubLoader.applySettings({ ...currentSettings, zoom: currentZoom });
+    if (shouldApply && typeof Reader !== 'undefined') {
+      Reader.applySettings(getSettings());
     }
   }
 
+  // Zoom is owned by the reader's ZoomControl so the keyboard shortcuts, the
+  // floating control and the settings readout all read one value.
   function adjustZoom(delta) {
-    const newZoom = Math.min(200, Math.max(50, currentZoom + delta));
-    if (newZoom !== currentZoom) {
-      currentZoom = newZoom;
-      updateUI();
-      if (typeof EpubLoader !== 'undefined') {
-        EpubLoader.applySettings({ ...currentSettings, zoom: currentZoom });
-      }
-      showZoomOverlay();
-    }
+    if (typeof Reader !== 'undefined') Reader.adjustZoom(delta);
   }
 
   function setZoom(zoom) {
-    const newZoom = Math.min(200, Math.max(50, zoom));
-    if (newZoom !== currentZoom) {
-      currentZoom = newZoom;
-      updateUI();
-      if (typeof EpubLoader !== 'undefined') {
-        EpubLoader.applySettings({ ...currentSettings, zoom: currentZoom });
-      }
-      showZoomOverlay();
-    }
+    if (typeof Reader !== 'undefined') Reader.setZoom(zoom);
   }
 
-  function showZoomOverlay() {
-    const overlay = document.getElementById('zoom-overlay');
-    if (!overlay) return;
-    const zoomDisplay = document.getElementById('zoom-overlay-value');
-    if (zoomDisplay) zoomDisplay.textContent = `${currentZoom}%`;
-    overlay.classList.add('visible');
-    zoomOverlayVisible = true;
-    clearTimeout(zoomChangeTimer);
-    zoomChangeTimer = setTimeout(() => {
-      overlay.classList.remove('visible');
-      zoomOverlayVisible = false;
-    }, 2000);
-  }
-
-  function bindZoomEvents() {
-    const zoomOutBtn = document.getElementById('zoom-out-btn');
-    const zoomInBtn = document.getElementById('zoom-in-btn');
-    if (zoomOutBtn) {
-      zoomOutBtn.addEventListener('click', () => adjustZoom(-10));
-    }
-    if (zoomInBtn) {
-      zoomInBtn.addEventListener('click', () => adjustZoom(10));
-    }
-
-    const overlay = document.getElementById('zoom-overlay');
-    if (overlay) {
-      overlay.addEventListener('pointerenter', () => {
-        clearTimeout(zoomChangeTimer);
-      });
-      overlay.addEventListener('pointerleave', () => {
-        clearTimeout(zoomChangeTimer);
-        zoomChangeTimer = setTimeout(() => {
-          overlay.classList.remove('visible');
-          zoomOverlayVisible = false;
-        }, 1200);
-      });
-    }
+  function getZoom() {
+    return typeof Reader !== 'undefined' ? Reader.getZoom() : 100;
   }
 
   function bindEvents() {
@@ -222,9 +169,7 @@ function updateUI() {
       flowPaginated.addEventListener('click', () => {
         if (currentSettings.flow !== 'paginated') {
           setSetting('flow', 'paginated');
-          if (typeof EpubLoader !== 'undefined' && EpubLoader.isLoaded()) {
-            EpubLoader.reRender();
-          }
+          Reader.reRender();
         }
       });
     }
@@ -232,9 +177,7 @@ function updateUI() {
       flowScrolled.addEventListener('click', () => {
         if (currentSettings.flow !== 'scrolled') {
           setSetting('flow', 'scrolled');
-          if (typeof EpubLoader !== 'undefined' && EpubLoader.isLoaded()) {
-            EpubLoader.reRender();
-          }
+          Reader.reRender();
         }
       });
     }
@@ -246,9 +189,7 @@ function updateUI() {
       spreadAuto.addEventListener('click', () => {
         if (currentSettings.spread !== 'auto') {
           setSetting('spread', 'auto');
-          if (typeof EpubLoader !== 'undefined' && EpubLoader.isLoaded()) {
-            EpubLoader.reRender();
-          }
+          Reader.reRender();
         }
       });
     }
@@ -256,33 +197,39 @@ function updateUI() {
       spreadSingle.addEventListener('click', () => {
         if (currentSettings.spread !== 'none') {
           setSetting('spread', 'none');
-          if (typeof EpubLoader !== 'undefined' && EpubLoader.isLoaded()) {
-            EpubLoader.reRender();
-          }
+          Reader.reRender();
         }
       });
     }
 
     const resetButton = document.getElementById('reset-reader-settings-btn');
     if (resetButton) {
-      resetButton.addEventListener('click', () => {
-        currentSettings = { ...DEFAULT_SETTINGS };
-        clearTimeout(persistTimer);
-        persistTimer = setTimeout(() => NoveraDB.setPref('readerSettings', currentSettings), 0);
-        updateUI();
-        if (typeof EpubLoader !== 'undefined' && EpubLoader.isLoaded()) EpubLoader.reRender();
-      });
+      resetButton.addEventListener('click', reset);
     }
+  }
+
+  /**
+   * Restores every reading preference to its default, persists the result and
+   * re-renders the open document so the reader never shows stale values.
+   * Runtime zoom is deliberately untouched: it is not a stored setting.
+   */
+  function reset() {
+    currentSettings = { ...DEFAULT_SETTINGS };
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => NoveraDB.setPref('readerSettings', { ...currentSettings }), 0);
+    updateUI();
+    Reader.reRender?.();
+    return getSettings();
   }
 
   return {
     init,
     getSettings,
     setSetting,
+    reset,
+    defaults: () => ({ ...DEFAULT_SETTINGS }),
     adjustZoom,
     setZoom,
-    showZoomOverlay,
-    getZoom: () => currentZoom,
-    setZoomDirect: (val) => { currentZoom = Math.min(200, Math.max(50, val)); }
+    getZoom
   };
 })();

@@ -219,3 +219,15 @@ svg { flex-shrink: 0; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The in-app Reduce motion preference. Same rule as the operating
+   system setting, driven by an attribute so it can be turned on
+   without changing how the application is launched. */
+:root[data-reduce-motion='on'] *,
+:root[data-reduce-motion='on'] *::before,
+:root[data-reduce-motion='on'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}

@@ -61,7 +61,13 @@
       "js/**/*",
       "assets/**/*",
       "node_modules/epubjs/**/*",
-      "node_modules/jszip/**/*"
+      "node_modules/jszip/**/*",
+      "node_modules/pdfjs-dist/build/pdf.min.mjs",
+      "node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
+      "node_modules/pdfjs-dist/build/pdf.sandbox.min.mjs",
+      "node_modules/pdfjs-dist/LICENSE",
+      "node_modules/pdfjs-dist/README.md",
+      "node_modules/pdfjs-dist/LICENSE.notes"
     ],
     "win": {
       "target": [
@@ -106,6 +112,7 @@
   },
   "dependencies": {
     "epubjs": "^0.3.93",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "pdfjs-dist": "^4.10.38"
   }
 }

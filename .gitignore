@@ -9,6 +9,19 @@ Master_EPUB_Library_All/
 *.epub
 corpus-inventory.txt
 corpus-failures.txt
+qa/artifacts/
+.qa-userdata/
+downloads/
+
+# Scratch material from development sessions. None of this belongs in the
+# repository, and none of it should ever reach a build; these entries exist so
+# an accidental `git add -A` cannot commit them.
+Batch1-Fixes/
+Batch2-Fixes/
+Batch3-Fixes/
+Lirune-Reader-*.zip
+debug_page.html
+download_*.py
 
 # Logs
 logs/

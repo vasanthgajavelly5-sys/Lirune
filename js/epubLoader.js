@@ -15,6 +15,13 @@ const EpubLoader = (() => {
   let activeSelection = null; // { cfiRange, text, chapter }
   let annotationCache = [];
   let lastNavigationAt = 0;
+  let currentProgress = { percent: 0, chapter: 'Reading', page: null, pageCount: null, locationLabel: '' };
+  let currentLocationLabel = '';
+  let currentNavigation = [];
+  let lastRenderedSections = [];
+  let currentZoom = 100;
+  let currentActiveHref = '';
+  let locationsPromise = null;
 
   const HIGHLIGHT_COLORS = {
     yellow: '#FBBF24',
@@ -24,6 +31,195 @@ const EpubLoader = (() => {
     purple: '#A78BFA',
     orange: '#FB923C'
   };
+
+  function getCapabilities() {
+    return {
+      typography: true,
+      search: true,
+      toc: true,
+      annotations: true,
+      zoom: true,
+      paginate: true
+    };
+  }
+
+  function getFormat() {
+    return 'epub';
+  }
+
+  function getProgress() {
+    return { ...currentProgress };
+  }
+
+  function getLocation() {
+    if (!rendition) return '';
+    const location = rendition.currentLocation();
+    if (!location?.start) return currentBookData?.currentCfi || '';
+    return location.start.cfi;
+  }
+
+  function getNavigation() {
+    return currentNavigation.map(item => ({ ...item }));
+  }
+
+  /**
+  /**
+   * The navigation entry that owns the reader's current location.
+   *
+   * Matching on spine index alone is enough when every chapter is its own
+   * file, but plenty of books pack several chapters into one document. In
+   * that case the entries are ordered by their position in the rendered
+   * document and the active one is the last entry at or before the visible
+   * area, which works in both paginated and scrolled mode.
+   */
+  function findActiveEntry() {
+    if (!currentNavigation.length) return null;
+    const index = getCurrentSpineIndex();
+    if (index === null) {
+      return currentActiveHref ? resolveChapter(currentActiveHref) : null;
+    }
+
+    const candidates = currentNavigation.filter(item => item.spineIndex === index);
+    if (candidates.length <= 1) {
+      return candidates[0] || (currentActiveHref ? resolveChapter(currentActiveHref) : null);
+    }
+
+    const doc = getCurrentDocument();
+    const axis = readingAxis(doc);
+    const limit = readingLimit(doc, axis);
+    if (axis === null || limit === null) return candidates[0];
+
+    let active = candidates[0];
+    for (const item of candidates) {
+      const start = elementStart(item.href, doc, axis);
+      if (start !== null && start >= limit) break;
+      active = item;
+    }
+    return active;
+  }
+
+  /**
+   * Which way the document advances. epub.js paginates by laying content out
+   * in columns, in which case a later entry starts further to the right;
+   * reflowed documents simply get taller.
+   */
+  function readingAxis(doc) {
+    if (!doc) return null;
+    const container = doc.querySelector('.epub-container') || doc.body;
+    if (!container) return null;
+    const columns = getComputedStyle(container).columnWidth;
+    return columns && columns !== 'auto' ? 'x' : 'y';
+  }
+
+  /**
+   * The element epub.js paginates by scrolling. It lives in the reader shell,
+   * not in the ebook document, because epub.js renders the whole spine as one
+   * very wide view and slides that view horizontally.
+   */
+  function getViewContainer() {
+    const frame = getCurrentDocument()?.defaultView?.frameElement;
+    return frame?.closest?.('.epub-container') || null;
+  }
+
+  /**
+   * The edge of the rendered viewport along the reading axis.
+   *
+   * A paginated document is one wide view scrolled by its view container, so
+   * an element's own offset is already an absolute document position and the
+   * visible page is the container's scroll position plus its width. A
+   * reflowed document scrolls itself, so its viewport is its own scroll
+   * position plus the window height.
+   */
+  function readingLimit(doc, axis) {
+    if (!doc || !axis) return null;
+    if (axis === 'x') {
+      const view = getViewContainer();
+      if (!view) return null;
+      const value = view.scrollLeft + view.clientWidth;
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+    const scroller = doc.scrollingElement || doc.documentElement;
+    const value = (scroller?.scrollTop || 0) + (doc.defaultView?.innerHeight || 0);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  function elementStart(href, doc, axis) {
+    const fragment = fragmentOf(href);
+    if (!fragment || !doc) return null;
+    const element = doc.getElementById(fragment)
+      || doc.querySelector(`[name="${CSS.escape(fragment)}"]`);
+    if (!element || typeof element.getBoundingClientRect !== 'function') return null;
+    const rect = element.getBoundingClientRect();
+    return axis === 'x' ? rect.left : rect.top;
+  }
+
+  function fragmentOf(href) {
+    const text = String(href || '');
+    const at = text.indexOf('#');
+    return at < 0 ? '' : text.slice(at + 1);
+  }
+
+  /** The navigation entry that owns the reader's current location. */
+  function getActiveNavId() {
+    const match = findActiveEntry();
+    return match ? match.id : null;
+  }
+
+  function setZoom(zoom) {
+    const next = Math.min(200, Math.max(50, Number(zoom) || 100));
+    if (next === currentZoom) return false;
+    currentZoom = next;
+    applyStylesToAllContents();
+    return true;
+  }
+
+  function getZoom() {
+    return currentZoom;
+  }
+
+  /** Resolves once epub.js has produced its real location list. */
+  function waitForLocations(timeout = 20000) {
+    if (!currentBook) return Promise.reject(new Error('No book is open'));
+    if (currentBook.locations && currentBook.locations.total > 0) return Promise.resolve(currentBook.locations);
+    if (!locationsPromise) return Promise.reject(new Error('Location generation was not started'));
+    return Promise.race([
+      locationsPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Location generation timed out')), timeout))
+    ]);
+  }
+
+  /** The real EPUB CFI for a percentage of the way through the book. */
+  function cfiFromPercentage(percent) {
+    if (!currentBook?.locations || !currentBook.locations.total) return null;
+    const value = Math.min(0.999, Math.max(0, Number(percent) / 100));
+    try {
+      return currentBook.locations.cfiFromPercentage(value);
+    } catch (error) {
+      console.warn('Could not build a CFI from a percentage:', error);
+      return null;
+    }
+  }
+
+  async function destroy() {
+    try { rendition?.destroy(); } catch { /* already gone */ }
+    try { currentBook?.destroy(); } catch { /* already gone */ }
+    rendition = null;
+    currentBook = null;
+    currentBookData = null;
+    tocItems = [];
+    currentNavigation = [];
+    lastRenderedSections = [];
+    currentProgress = { percent: 0, chapter: 'Reading', page: null, pageCount: null, locationLabel: '' };
+    currentLocationLabel = '';
+    currentActiveHref = '';
+    isBookLoaded = false;
+    const container = document.getElementById('epub-container');
+    if (container) container.innerHTML = '';
+  }
+
+  function getLastLocation() {
+    return currentProgress;
+  }
 
   async function openBook(bookRecord, targetCfi = null) {
     if (!bookRecord) {
@@ -110,13 +306,16 @@ const EpubLoader = (() => {
       loadAnnotations(bookRecord.id);
 
       // Generate locations in background for accurate page & progress calculation
-      currentBook.ready.then(() => {
-        return currentBook.locations.generate(1000);
-      }).then(() => {
-        updateProgress();
-      }).catch(err => {
-        console.warn('Location generation warning:', err);
-      });
+      locationsPromise = currentBook.ready
+        .then(() => currentBook.locations.generate(1000))
+        .then(() => {
+          updateProgress();
+          return currentBook.locations;
+        })
+        .catch(err => {
+          console.warn('Location generation warning:', err);
+          return null;
+        });
 
       isBookLoaded = true;
       showLoading(false);
@@ -205,7 +404,7 @@ const EpubLoader = (() => {
 
     const fontFam = settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', Georgia, serif`;
     const headingFam = settings.fontFamily === 'Playfair Display' ? "'Playfair Display', Georgia, serif" : fontFam;
-    const fontSize = Math.round((settings.fontSize || 18) * (settings.zoom || 100) / 100);
+    const fontSize = Math.round((settings.fontSize || 18) * currentZoom / 100);
     const alignment = settings.alignment || 'left';
     const lineHeight = settings.lineHeight || 1.6;
     const margin = settings.margin ? `${settings.margin * 3}px` : '30px';
@@ -352,6 +551,30 @@ const EpubLoader = (() => {
     activeSelection = null;
   }
 
+  function normalizeHref(href) {
+    if (!href) return '';
+    return String(href).split('#')[0].replace(/^\.\//, '');
+  }
+
+  /** Resolve the TOC entry that owns the current spine location. */
+  function resolveChapter(href) {
+    if (!href || tocItems.length === 0) return null;
+    const current = normalizeHref(href);
+    if (!current) return null;
+    let match = null;
+    let bestLength = -1;
+    for (const item of tocItems) {
+      const itemHref = normalizeHref(item.href);
+      if (!itemHref) continue;
+      const match2 = current === itemHref || current.endsWith(itemHref) || itemHref.endsWith(current);
+      if (match2 && itemHref.length > bestLength) {
+        match = item;
+        bestLength = itemHref.length;
+      }
+    }
+    return match;
+  }
+
   function updateProgress(location) {
     if (!location && rendition) {
       location = rendition.currentLocation();
@@ -359,6 +582,7 @@ const EpubLoader = (() => {
     if (!location || !location.start) return;
 
     const currentCfi = location.start.cfi;
+    const href = location.start.href || '';
     let percent = 0;
 
     if (currentBook && currentBook.locations && currentBook.locations.total > 0) {
@@ -366,12 +590,25 @@ const EpubLoader = (() => {
       if (isNaN(percent)) percent = 0;
     }
 
-    // Find current chapter from TOC
-    let currentChapter = 'Reading';
-    if (tocItems.length > 0 && location.start.href) {
-      const match = tocItems.find(item => location.start.href.includes(item.href) || item.href.includes(location.start.href));
-      if (match) currentChapter = match.label.trim();
-    }
+    const match = findActiveEntry();
+    const currentChapter = match ? match.label : (currentBookData?.currentChapter || 'Reading');
+    currentActiveHref = href;
+    Reader?.refreshNavigationPanel?.();
+
+    // epub.js reports a page index inside the current spine item; combine it
+    // with the real generated locations for an honest "page n of m" reading.
+    const pageInSection = location.start.displayed?.page;
+    const totalPages = location.start.displayed?.total;
+    const pageLabel = totalPages ? `Page ${pageInSection} of ${totalPages}` : (pageInSection ? `Page ${pageInSection}` : '');
+
+    currentProgress = {
+      percent,
+      chapter: currentChapter,
+      page: Number.isFinite(Number(pageInSection)) ? Number(pageInSection) : null,
+      pageCount: Number.isFinite(Number(totalPages)) ? Number(totalPages) : null,
+      locationLabel: pageLabel
+    };
+    currentLocationLabel = pageLabel;
 
     // Update UI elements
     const chapterEl = document.getElementById('progress-chapter');
@@ -379,12 +616,15 @@ const EpubLoader = (() => {
     const fillEl = document.getElementById('reading-stripe-fill');
     const statusChapter = document.getElementById('status-chapter-name');
     const statusPct = document.getElementById('status-progress-pct');
+    const statusPage = document.getElementById('status-page');
 
     if (chapterEl) chapterEl.textContent = currentChapter;
-    if (pageInfoEl) pageInfoEl.textContent = `${percent}%`;
+    if (pageInfoEl) pageInfoEl.textContent = pageLabel ? `${pageLabel} · ${percent}%` : `${percent}%`;
     if (fillEl) fillEl.style.width = `${percent}%`;
+    document.getElementById('reading-stripe')?.setAttribute('aria-valuenow', String(percent));
     if (statusChapter) statusChapter.textContent = currentChapter;
     if (statusPct) statusPct.textContent = `${percent}% read`;
+    if (statusPage) statusPage.textContent = pageLabel;
 
     // Check if current location is bookmarked
     checkBookmarkStatus(currentCfi);
@@ -413,16 +653,24 @@ const EpubLoader = (() => {
   async function loadTableOfContents() {
     if (!currentBook) return;
 
+    currentNavigation = [];
+    lastRenderedSections = [];
+    tocItems = [];
+
     try {
       const navigation = await currentBook.loaded.navigation;
-      tocItems = [];
+      const entries = [];
 
       function flattenToc(items, depth = 0) {
-        items.forEach(item => {
-          tocItems.push({
-            label: item.label,
+        (items || []).forEach(item => {
+          const label = (item.label || '').trim() || 'Untitled';
+          entries.push({
+            id: `toc-${entries.length + 1}`,
+            label,
             href: item.href,
-            depth
+            target: item.href,
+            depth,
+            spineIndex: spineIndexFor(item.href)
           });
           if (item.subitems && item.subitems.length > 0) {
             flattenToc(item.subitems, depth + 1);
@@ -431,50 +679,56 @@ const EpubLoader = (() => {
       }
 
       flattenToc(navigation.toc);
-      renderTocUI(tocItems);
 
+      if (entries.length === 0) {
+        // A book without an NCX/nav document still has a real spine; expose it
+        // rather than showing an empty panel.
+        const spine = currentBook.spine?.spineItems || [];
+        spine.forEach((item, index) => {
+          const href = item.href || '';
+          if (!href) return;
+          entries.push({
+            id: `toc-${entries.length + 1}`,
+            label: `Section ${index + 1}`,
+            href,
+            target: href,
+            depth: 0,
+            spineIndex: index
+          });
+        });
+      }
+
+      tocItems = entries;
+      currentNavigation = entries;
+      Reader.renderNavigation();
     } catch (err) {
       console.warn('Could not load TOC:', err);
+      Reader.renderNavigation();
     }
   }
 
-  function renderTocUI(items) {
-    const listEl = document.getElementById('toc-list');
-    if (!listEl) return;
-    listEl.innerHTML = '';
-
-    if (items.length === 0) {
-      listEl.innerHTML = '<p class="empty-state" style="padding:var(--sp-6);">No Table of Contents found</p>';
-      return;
+  /**
+   * epub.js reports the reader's position as a spine index, while navigation
+   * documents reference documents by href. Resolving each navigation href to
+   * its real spine index is what lets "current chapter" be answered for every
+   * book, including ones whose chapter files share a single document.
+   */
+  function spineIndexFor(href) {
+    if (!href || !currentBook?.spine) return null;
+    try {
+      const item = currentBook.spine.get(href);
+      return Number.isFinite(item?.index) ? item.index : null;
+    } catch (error) {
+      return null;
     }
+  }
 
-    items.forEach(item => {
-      const btn = document.createElement('button');
-      btn.className = `toc-entry depth-${Math.min(2, item.depth)}`;
-      btn.innerHTML = `
-        <span class="toc-progress-dot"></span>
-        <span class="toc-text">${Utils.escapeHTML(item.label.trim())}</span>
-      `;
-      btn.addEventListener('click', () => {
-        goTo(item.href);
-        // Close TOC panel
-        document.getElementById('toc-panel')?.classList.remove('open');
-        document.getElementById('panel-overlay')?.classList.remove('visible');
-      });
-      listEl.appendChild(btn);
-    });
-
-    // TOC filter input handler
-    const filterInput = document.getElementById('toc-filter-input');
-    if (filterInput) {
-      filterInput.oninput = (e) => {
-        const q = e.target.value.toLowerCase().trim();
-        listEl.querySelectorAll('.toc-entry').forEach(entry => {
-          const match = entry.textContent.toLowerCase().includes(q);
-          entry.style.display = match ? 'block' : 'none';
-        });
-      };
-    }
+  /** The index of that document in the spine. */
+  function getCurrentSpineIndex() {
+    if (!rendition) return null;
+    const location = rendition.currentLocation();
+    const index = location?.start?.index;
+    return Number.isFinite(index) ? index : null;
   }
 
   function applyStylesToAllContents() {
@@ -545,7 +799,7 @@ const EpubLoader = (() => {
     if (!rendition) return;
 
     if (settings.fontSize) {
-      const effectiveFontSize = Math.round(settings.fontSize * (settings.zoom || 100) / 100);
+      const effectiveFontSize = Math.round(settings.fontSize * currentZoom / 100);
       rendition.themes.fontSize(`${effectiveFontSize}px`);
     }
 
@@ -580,8 +834,74 @@ const EpubLoader = (() => {
     navigate('previous');
   }
 
+  /**
+   * Navigation documents point at a document plus a fragment
+   * ("chapter3.xhtml#section-4"). epub.js only honours the document part, so
+   * displaying the raw string lands on the top of the file. The fragment is
+   * therefore scrolled to directly, on the axis epub.js paginates on, which
+   * is what makes a table of contents land on the exact chapter rather than
+   * the one that happens to share its file.
+   */
   function goTo(target) {
-    if (rendition) rendition.display(target);
+    if (!rendition || !target) return;
+    const text = String(target);
+    const at = text.indexOf('#');
+    if (at < 0) {
+      rendition.display(text);
+      return;
+    }
+
+    const file = text.slice(0, at);
+    const fragment = text.slice(at + 1);
+    if (!fragment) {
+      rendition.display(file);
+      return;
+    }
+
+    if (scrollToFragment(fragment)) return;
+
+    // epub.js finishes positioning a freshly displayed document after it
+    // announces the render, so the scroll is applied again once the engine
+    // has settled on the new section.
+    const onRendered = () => {
+      rendition.off('rendered', onRendered);
+      if (!scrollToFragment(fragment)) return;
+      requestAnimationFrame(() => scrollToFragment(fragment));
+      setTimeout(() => scrollToFragment(fragment), 300);
+    };
+    rendition.on('rendered', onRendered);
+    rendition.display(file);
+  }
+
+  function getCurrentDocument() {
+    const contents = rendition?.getContents?.();
+    const first = contents?.[0];
+    return first?.document || null;
+  }
+
+  function findFragmentElement(doc, fragment) {
+    if (!doc || !fragment) return null;
+    return doc.getElementById(fragment)
+      || doc.querySelector(`[name="${CSS.escape(fragment)}"]`);
+  }
+
+  function scrollToFragment(fragment) {
+    const doc = getCurrentDocument();
+    const element = findFragmentElement(doc, fragment);
+    if (!element) return false;
+
+    if (readingAxis(doc) === 'x') {
+      // A paginated document is one wide view scrolled by its container, so an
+      // element's own offset is exactly the scroll position that shows it.
+      const view = getViewContainer();
+      if (!view) return false;
+      view.scrollLeft = Math.max(0, Math.round(element.getBoundingClientRect().left));
+    } else {
+      const win = doc.defaultView;
+      if (!win) return false;
+      win.scrollTo({ top: Math.max(0, Math.round(element.getBoundingClientRect().top)), left: 0 });
+    }
+    return true;
   }
 
   function scrollBy(dx, dy) {
@@ -831,67 +1151,41 @@ const EpubLoader = (() => {
       if (generation !== searchGeneration) return;
 
       if (countEl) countEl.textContent = `${searchResults.length} results`;
-
-      if (searchResults.length === 0) {
-        if (resultsEl) resultsEl.innerHTML = '<div class="search-empty">No occurrences found.</div>';
-        return;
-      }
-
-      renderSearchResults(searchResults, query);
-
+      if (resultsEl) resultsEl.innerHTML = '';
+      return searchResults;
     } catch (e) {
       console.error('In-book search error:', e);
       if (countEl) countEl.textContent = 'Search failed';
+      return [];
     }
   }
 
-  function renderSearchResults(results, query) {
-    const resultsEl = document.getElementById('search-results');
-    if (!resultsEl) return;
-    resultsEl.innerHTML = '';
-
-    results.slice(0, 100).forEach((item, idx) => {
-      const div = document.createElement('div');
-      div.className = 'search-result';
-      const escapedExcerpt = Utils.escapeHTML(item.excerpt || '');
-      const escapedQuery = Utils.escapeHTML(query);
-      div.innerHTML = `
-        <div class="search-result-excerpt">
-          ${escapedExcerpt.replace(new RegExp(`(${escapeRegex(escapedQuery)})`, 'gi'), '<mark>$1</mark>')}
-        </div>
-      `;
-      div.addEventListener('click', () => {
-        currentSearchIdx = idx;
-        goTo(item.cfi);
-        highlightSearchResult(idx);
-      });
-      resultsEl.appendChild(div);
-    });
+  function getSearchResults() {
+    return searchResults;
   }
 
-  function highlightSearchResult(idx) {
-    const items = document.querySelectorAll('.search-result');
-    items.forEach((item, i) => {
-      item.classList.toggle('active', i === idx);
-    });
+  function goToSearchResult(index) {
+    if (searchResults.length === 0) return null;
+    const total = searchResults.length;
+    currentSearchIdx = ((index % total) + total) % total;
+    const hit = searchResults[currentSearchIdx];
+    goTo(hit.cfi);
+    if (hit.excerpt) {
+      // Reveal the match inside the rendered page when the range resolves.
+      try {
+        const range = rendition.range(hit.cfi);
+        if (range) range.start.contents.addClass('search-hit-active');
+      } catch { /* off-page ranges are simply skipped */ }
+    }
+    return { index: currentSearchIdx, total };
   }
 
   function nextSearchResult() {
-    if (searchResults.length === 0) return;
-    currentSearchIdx = (currentSearchIdx + 1) % searchResults.length;
-    goTo(searchResults[currentSearchIdx].cfi);
-    highlightSearchResult(currentSearchIdx);
+    return goToSearchResult(currentSearchIdx + 1);
   }
 
   function prevSearchResult() {
-    if (searchResults.length === 0) return;
-    currentSearchIdx = (currentSearchIdx - 1 + searchResults.length) % searchResults.length;
-    goTo(searchResults[currentSearchIdx].cfi);
-    highlightSearchResult(currentSearchIdx);
-  }
-
-  function escapeRegex(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return goToSearchResult(currentSearchIdx - 1);
   }
 
   function showLoading(show, text = 'Loading...') {
@@ -925,7 +1219,21 @@ const EpubLoader = (() => {
     searchBook,
     nextSearchResult,
     prevSearchResult,
+    getSearchResults,
+    goToSearchResult,
     isLoaded,
-    getActiveSelection
+    getActiveSelection,
+    getCapabilities,
+    getFormat,
+    getProgress,
+    getLocation,
+    getNavigation,
+    getActiveNavId,
+      getZoom,
+    setZoom,
+    waitForLocations,
+    cfiFromPercentage,
+    destroy,
+      getSearchResultCount: () => searchResults.length
   };
 })();

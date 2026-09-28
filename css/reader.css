@@ -382,3 +382,109 @@ body.focus-mode .focus-settings-btn:focus-visible {
   background: var(--bg-hover);
   border-color: var(--border-subtle);
 }
+
+/* -- Non-EPUB reader surfaces (PDF, TXT, HTML, FB2, CBZ) ---------- */
+#format-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--reading-bg);
+}
+
+/* Flowing text (TXT / HTML / FB2) */
+.doc-viewport {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: var(--reading-bg);
+  color: var(--reading-text);
+  scrollbar-gutter: stable;
+}
+.doc-viewport:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.doc-body {
+  font-family: var(--doc-font-family, Georgia, serif);
+  font-size: var(--doc-font-size, 18px);
+  line-height: var(--doc-line-height, 1.6);
+  text-align: var(--doc-align, left);
+  padding: var(--sp-6) var(--doc-margin, 10%);
+  padding-bottom: 40vh;
+  margin: 0 auto;
+  max-width: 46em;
+}
+.doc-viewport.is-paginated { overflow-x: hidden; overflow-y: hidden; }
+.doc-body.is-paginated {
+  height: 100%;
+  max-width: none;
+  padding-bottom: var(--sp-6);
+  column-width: var(--doc-page-width, 40em);
+  column-gap: var(--doc-page-gap, 48px);
+  column-fill: auto;
+  padding-left: var(--doc-margin, 10%);
+  padding-right: var(--doc-margin, 10%);
+  will-change: transform;
+}
+.doc-body img,
+.doc-body svg,
+.doc-body video { max-width: 100%; height: auto; }
+.doc-body h1, .doc-body h2, .doc-body h3,
+.doc-body h4, .doc-body h5, .doc-body h6 { line-height: 1.25; margin: 1.2em 0 0.5em; }
+.doc-body blockquote { margin: 1em 0; padding-left: 1em; border-left: 2px solid var(--border-default); }
+.doc-body table { border-collapse: collapse; max-width: 100%; }
+.doc-body td, .doc-body th { border: 1px solid var(--border-subtle); padding: 0.35em 0.6em; }
+.doc-body pre { overflow-x: auto; background: var(--bg-hover); padding: 0.8em; border-radius: 6px; }
+.doc-section { scroll-margin-top: var(--sp-6); }
+.doc-search-hit { background: var(--hl-yellow); color: var(--text-primary); border-radius: 2px; }
+.doc-search-hit.is-active { background: var(--accent); color: var(--text-on-accent, #fff); }
+
+/* PDF */
+.pdf-viewport {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--sp-6);
+  background: var(--reading-bg);
+}
+.pdf-page {
+  background: #ffffff;
+  box-shadow: var(--shadow-lg);
+  border-radius: 2px;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.pdf-canvas { display: block; }
+
+/* Comic archives */
+.cbz-viewport {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--sp-5);
+  background: var(--reading-bg);
+}
+.cbz-stage { flex: 0 0 auto; box-shadow: var(--shadow-lg); background: #ffffff; }
+.cbz-page { display: block; width: 100%; height: auto; }
+
+/* Format capability note */
+.format-note {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-sticky);
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: var(--r-full);
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: 0.72rem;
+  backdrop-filter: var(--blur-md);
+  pointer-events: none;
+}

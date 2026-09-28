@@ -9,7 +9,14 @@ const storePackage = path.join(dist, `Lirune Reader-${version}-Setup.appx`);
 const unpacked = path.join(dist, 'win-unpacked');
 const executable = path.join(unpacked, 'Lirune Reader.exe');
 const appArchive = path.join(unpacked, 'resources', 'app.asar');
-const forbidden = ['Master_EPUB_Library_All', '.env', '.pfx', '.p12', '.pem', '.key'];
+const forbidden = [
+  'Master_EPUB_Library_All', '.env', '.pfx', '.p12', '.pem', '.key',
+  // Development-only material. The packaging allowlist already excludes these,
+  // but a build that picks them up should fail validation rather than ship.
+  'qa', 'downloads', 'Batch1-Fixes', 'Batch2-Fixes', 'Batch3-Fixes',
+  'Lirune-Reader-Source', 'Lirune-Reader-Current-State', 'debug_page',
+  '.epub', '.azw3', '.mobi', '.cbr', '.fb2', '.cbz'
+];
 
 const failures = [];
 const required = process.argv.includes('--store')

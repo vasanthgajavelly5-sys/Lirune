@@ -16,6 +16,7 @@
     "dist:store": "node scripts/build-store.js",
     "validate:release": "node scripts/validate-release.js",
     "validate:release:store": "node scripts/validate-release.js --store",
+    "validate:release:config": "node scripts/validate-release.js --config",
     "build": "electron-builder --win nsis"
   },
   "keywords": [
@@ -64,10 +65,18 @@
       "node_modules/jszip/**/*",
       "node_modules/pdfjs-dist/build/pdf.min.mjs",
       "node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
-      "node_modules/pdfjs-dist/build/pdf.sandbox.min.mjs",
       "node_modules/pdfjs-dist/LICENSE",
-      "node_modules/pdfjs-dist/README.md",
-      "node_modules/pdfjs-dist/LICENSE.notes"
+      "node_modules/pdfjs-dist/LICENSE.notes",
+      "!node_modules/epubjs/{documentation,examples,lib,src,types,node_modules}{,/**}",
+      "!node_modules/epubjs/{.babelrc.json,.eslintrc.js,.nojekyll,.watchmanconfig,bower.json,documentation.yml,webpack.config.js}",
+      "!node_modules/epubjs/dist/{epub.js,epub.legacy.js,epub.legacy.min.js,epub.js.map}",
+      "!node_modules/jszip/{.codeclimate.yml,.editorconfig,.eslintrc.js,.jekyll-metadata,.travis.yml,CHANGES.md,deps.js,graph.svg,sponsors.md,tsconfig.json,lib,vendor,node_modules}{,/**}",
+      "!node_modules/jszip/dist/jszip.js",
+      "!node_modules/pdfjs-dist/{image_decoders,legacy,types,web}{,/**}",
+      "!node_modules/pdfjs-dist/{CODE_OF_CONDUCT.md,webpack.mjs}",
+      "!node_modules/pdfjs-dist/build/{pdf.mjs,pdf.sandbox.mjs,pdf.sandbox.min.mjs,pdf.worker.mjs}",
+      "!node_modules/pdfjs-dist/build/*.mjs.map",
+      "!node_modules/@napi-rs{,/**}"
     ],
     "win": {
       "target": [
@@ -106,8 +115,7 @@
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
       "installerHeaderIcon": "assets/icon.ico",
-      "license": "LICENSE",
-      "include": "scripts/nsis-include.nsh"
+      "license": "LICENSE"
     }
   },
   "dependencies": {

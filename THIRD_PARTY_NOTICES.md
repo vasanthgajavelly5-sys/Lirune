@@ -7,28 +7,34 @@ Lirune Reader distributes the following runtime and build dependencies. Their li
 - `epubjs` 0.3.93: BSD-2-Clause License.
   Copyright (c) 2013, FuturePress. All rights reserved.
   The bundled `epubjs` package also ships the Adobe Source Code Pro font
-  under the SIL Open Font License 1.1 (`epubjs/types/fonts`). Lirune Reader
+  under the SIL Open Font License 1.1 (`epubjs/documentation/html/assets/fonts/`). Lirune Reader
   does not use that font; it is included only because it is part of the
   upstream package. Its OFL license text ships alongside it.
 - `jszip` 3.10.1: Dual-licensed under MIT OR GPL-3.0-or-later. Lirune Reader
   uses it under the MIT option.
   Copyright (c) 2009-2016 Stuart Knightley, David Duponchel,
   Franz Buchinger, António Afonso.
+  The application loads only `jszip/dist/jszip.min.js`; the `vendor/FileSaver.js`
+  source file present in the npm package is not loaded at runtime and is not
+  shipped in the application bundle.
 - `pdfjs-dist` 4.10.38: Apache License, Version 2.0.
-  Copyright 2023 Mozilla Foundation and contributors. The full license text
-  is shipped as `node_modules/pdfjs-dist/LICENSE` inside the application.
-  This product includes software developed at the Mozilla Foundation
+  Copyright 2023 Mozilla Foundation and contributors.
+  **Note:** `pdfjs-dist` is declared as a direct dependency and wired into the
+  application, but a current packaging omission excludes it from the shipped
+  `app.asar`. When the packaging is corrected, its `LICENSE` file will be
+  included. This product includes software developed at the Mozilla Foundation
   (https://www.mozilla.org/).
 - `localforage` 1.10.0: Apache License, Version 2.0. A transitive dependency
   of `epubjs`. Copyright 2013 Mozilla Foundation and contributors.
 - `@xmldom/xmldom` 0.7.13: MIT License. A transitive dependency of `epubjs`.
-  Copyright (c) 2012-present Xiaoying Zhang and contributors.
+  Copyright 2019-present Christopher J. Brody and other contributors;
+  Copyright 2012-2017 @jindw (jindw@xidea.org) and other contributors.
 - `core-js` 3.x: MIT License. A transitive dependency of `epubjs`.
   Copyright (c) 2014-present, Denis Pushkarev and contributors.
 - `lodash` 4.x: MIT License. A transitive dependency of `epubjs`.
   Copyright OpenJS Foundation and other contributors.
 - `pako` 1.0.11: MIT AND Zlib License. A transitive dependency of `jszip`.
-  Copyright (c) 2018-2024, Andrey Sitnik and contributors (MIT);
+  Copyright (c) 2014-2017, Vitaly Puzrin and Andrei Tuputcyn (MIT);
   Copyright (c) 1995-2017, Jean-Marc Loutey and contributors (Zlib).
 - `isarray` 1.0.0, `marks-pane` 1.0.9, `path-webpack` 0.0.3,
   `@types/localforage` 0.0.34, `event-emitter` 0.3.5: MIT License.

@@ -3,12 +3,12 @@
 **Repository:** `C:\Users\vasanth\Desktop\Programs\Epub reader`
 **Product:** Lirune Reader (package `lirune`, `productName: "Lirune Reader"`, version 4.0.3)
 **Former project name:** Novera (still the GitHub repository name and the internal compatibility namespace)
-**Branch audited:** `lirune-store-home` (HEAD `2f11b4c Release Lirune Reader 4.0.3`)
-**Date of audit:** 2026-09-28
+**Branch audited:** `lirune-store-home` (HEAD `401a574 Remove dead duplicate renderBookCards declaration`)
+**Date of audit:** 2026-09-28 (updated 2026-09-29 with scraping tooling removal and notices update)
 
 > **Nature of this document.** This is an engineering **provenance and license-compliance audit**, not a legal opinion and not a legal clearance. Nothing here should be read as a statement that the project is "copyright safe", "legally cleared", or free of legal risk. Several items are explicitly escalated to human/legal review in **Section 13**. Where a license could not be verified from files inside this repository, it is classified **PROVENANCE UNKNOWN** and the verification step is stated.
 >
-> **Read-only guarantee.** This audit was performed read-only. The only file created is this document, `IP_LICENSE_AUDIT.md`. No source file, config file, license file, lockfile, dependency, or build artifact was modified. `npm install`, builds, and packaging were not run.
+> **Read-only guarantee (original audit).** The original audit was performed read-only. This update (2026-09-29) modifies `IP_LICENSE_AUDIT.md`, `THIRD_PARTY_NOTICES.md`, and deletes scraping artifacts (`download_*.py`, `downloads/`, `debug_page.html`). No application source, config, license file, lockfile, dependency, or build artifact was modified. `npm install`, builds, and packaging were not run.
 
 ---
 
@@ -513,28 +513,21 @@ Confirmed via `git check-ignore -v`:
 | P4 | `build/files` omits `COPYRIGHT.md`, `README.md`, `docs/`, `CHANGELOG.md` | `package.json:53-65` | Minor. GPL source-obligation is about the release as a whole, not the asar. But shipping `COPYRIGHT.md` and `README.md` inside the app would make the in-app attribution story self-contained. |
 | P5 | `nsis.include: "scripts/nsis-include.nsh"` is configured but **the file does not exist** in the working tree | `package.json:104`; `Test-Path scripts/nsis-include.nsh` → False. It exists only inside the `Batch*-Fixes/` snapshots and inside the `Lirune-Reader-*.zip` archives | A fresh `electron-builder` run may fail or warn. Note that `docs/WINDOWS_RELEASE.md:3` says "No custom NSIS script or uninstall hook is configured", which contradicts `package.json:104`. Likely leftover config. |
 
-### 7.5 Untracked dev scripts that scrape third-party content — escalate
+### 7.5 Untracked dev scripts that scraped third-party content — RESOLVED (deleted)
 
-Seven Python scripts sit in the repository root, all untracked but **not gitignored**:
+The following scraping tooling was present in the working tree but has been **deleted** as part of this audit:
+- `download_crimson_browser.py`, `download_crimson_direct.py`, `download_crimson_hybrid.py`, `download_crimson_manual.py`, `download_crimson_your_chrome.py`
+- `download_novels.py`, `download_novels_playwright.py`
+- `downloads/` directory and its contents (including `The_Villain_Refused_To_Play_By_The_Script.epub`)
+- `debug_page.html` (82 KB saved 403 error page)
 
-```
-download_crimson_browser.py   download_crimson_direct.py    download_crimson_hybrid.py
-download_crimson_manual.py    download_crimson_your_chrome.py
-download_novels.py            download_novels_playwright.py
-```
+These were verified as genuinely unused by the application, QA, build, and release processes before deletion:
+- No references in `index.html`, `main.js`, `preload.js`, `js/**`, `qa/**`, `scripts/**`, `package.json`
+- Not in `build.files` allowlist
+- Not in `app.asar`
+- Already covered by `.gitignore` patterns (`download_*.py`, `downloads/`, `debug_page.html`)
 
-`download_crimson_browser.py:20` shows the target:
-```python
-novel_url = "https://crimsonscrolls.net/novel/the-villain-refused-to-play-by-the-script/"
-```
-`download_novels.py:2-4`: *"Download novels from CrimsonScrolls (using WP REST API) and Novelpia and convert to EPUB."* They use `cloudscraper`, `playwright`, `bs4`, and `ebooklib` to scrape and repackage web novels into EPUBs, with anti-bot evasion headers.
-
-**These do not ship** (verified: no `download_*.py` in `app.asar`; not in `build.files`). But they exist in the working tree, they are **not** in `.gitignore`, and one has already produced `downloads/The_Villain_Refused_To_Play_By_The_Script.epub`.
-
-Three distinct concerns, in ascending order of importance:
-1. **Hygiene:** these are untracked and unignored, so a careless `git add -A` would commit them to a public repository. Recommend adding them (and `downloads/`, `debug_page.html`, `Lirune-Reader-*.zip`, `Batch*-Fixes/`) to `.gitignore` or moving them out of the tree.
-2. **ToS / robots:** automated scraping with anti-bot-evasion headers is a terms-of-service question for the target sites, independent of copyright.
-3. **Copyright of the scraped output:** a contemporary commercial web novel is almost certainly in copyright. The generated EPUB is a derivative reproduction. This is escalated to **Section 13**. The mitigating facts are that none of it is tracked, none of it is packaged, and `README.md:61` and `CONTRIBUTING.md:33` both explicitly instruct contributors not to redistribute copyrighted EPUB files.
+The ToS/copyright concerns (automated scraping with anti-bot evasion, derivative reproduction of a contemporary commercial web novel) are therefore removed from the working tree. The historical escalation to Section 13 (R2) is retained for the record but the artifacts no longer exist.
 
 ---
 
@@ -762,11 +755,9 @@ This is accurate as written — the phrase "where provided" is a correct hedge, 
 
 **Required action:** A3–A6.
 
-### B6 — LOW: untracked scraping tooling in the repository root
+### B6 — LOW (RESOLVED): untracked scraping tooling was in the repository root
 
-The seven `download_*.py` scripts and the `debug_page.html` file (an 82 KB saved 403 error page from a novel-downloading site) are untracked and **not gitignored**. They cannot leak into a package (verified — not in `build.files`, not in `app.asar`), but a `git add -A` would commit them to a public GPL repository.
-
-**Required action:** A8, A16.
+The seven `download_*.py` scripts and the `debug_page.html` file have been **deleted** from the working tree. They were verified as unused by the application, QA, build, and release before deletion. `.gitignore` already covered these patterns (`download_*.py`, `downloads/`, `debug_page.html`). No further action required.
 
 ---
 
@@ -786,14 +777,14 @@ GPL-3.0 §5(d) requires that a conveyed binary be accompanied by the complete Co
 - Do the `dist/`, `Batch*-Fixes/`, and `.kilo/` directories need to be excluded from any source publication?
 - Is a §5(e) written offer needed for any distribution channel?
 
-### R2 — Copyright status of the scraped web-novel EPUB and the `download_*.py` tools — **HIGH**
+### R2 — Copyright status of the scraped web-novel EPUB and the `download_*.py` tools — **HIGH (artifacts deleted, record retained)**
 
-`download_crimson_*.py` (5 scripts) scrape `crimsonscrolls.net` and `download_novels.py` scrapes CrimsonScrolls and Novelpia, using `cloudscraper` with anti-bot-evasion headers and Playwright to bypass bot protection, then repackaging the content into EPUBs via `ebooklib`. One output already exists on disk: `downloads/The_Villain_Refused_To_Play_By_The_Script.epub`.
+The scraping tools (`download_crimson_*.py`, `download_novels.py`, `download_novels_playwright.py`) and their output (`downloads/The_Villain_Refused_To_Play_By_The_Script.epub`, `debug_page.html`) have been **deleted from the working tree** as part of this audit (see Section 7.5). This section is retained for the historical record.
 
-**For legal review:**
-- **Copyright:** a contemporary commercial web novel is almost certainly in copyright. Programmatically downloading and repackaging it creates a reproduction and a derivative work. Even though nothing is tracked or packaged, the tools and their output exist in the working tree of a public GPL repository.
+**For legal review (historical context):**
+- **Copyright:** a contemporary commercial web novel is almost certainly in copyright. Programmatically downloading and repackaging it creates a reproduction and a derivative work. The tools and their output existed in the working tree of a public GPL repository.
 - **Terms of service:** automated scraping combined with explicit bot-detection evasion is a ToS question independent of copyright, and evasion is an aggravating factor.
-- **Recommendation to author:** remove these scripts and `downloads/` from the working tree entirely (A8, A16). They serve no purpose in the shipped product, and their presence creates exposure with no offsetting benefit.
+- **Resolution:** the tools and their output have been removed. No further engineering action required.
 
 ### R3 — Copyright status of the QA test corpus — **MEDIUM**
 
@@ -866,7 +857,7 @@ node -e "const asar=require('@electron/asar');console.log(asar.listPackage('dist
 git ls-files
 git ls-files --others --exclude-standard
 git ls-files --others --ignored --exclude-standard
-git check-ignore -v downloads/The_Villain_Refused_To_Play_By_The_Script.epub
+git check-ignore -v Batch1-Fixes/ Batch2-Fixes/ Batch3-Fixes/ Lirune-Reader-*.zip .qa-userdata/
 
 # Removed sample content
 git log --oneline -S "Alice's Adventures in Wonderland" -- js/library.js
@@ -884,4 +875,4 @@ Select-String -Path <sources> -Pattern "Folio|Vellune" -CaseSensitive:$false
 
 ## Appendix B — One-line summary
 
-The dependency licenses are all permissive and GPL-3.0-compatible; the brand assets are entirely generated by project code; the shipped welcome book is original product documentation with the old Alice in Wonderland text verifiably removed in commit `e67ed56`; no book files are tracked in git; and no QA, dev, or third-party book material can reach a production package. The concrete problems are packaging rather than licensing: **`pdfjs-dist` is wired into the UI but excluded from `build.files` (B1)**, **the `dist/` artifact is two days stale and lacks the entire `js/reader/` layer (B2)**, **the runtime source files are untracked so the repository cannot satisfy GPL-3.0 §5 (B3)**, and **three MIT-licensed packages ship with no copyright notice while Apache-2.0 packages are under-documented in `THIRD_PARTY_NOTICES.md` (B4)**. Items R1 through R7 require human and legal judgement and are not resolvable from the repository.
+The dependency licenses are all permissive and GPL-3.0-compatible; the brand assets are entirely generated by project code; the shipped welcome book is original product documentation with the old Alice in Wonderland text verifiably removed in commit `e67ed56`; no book files are tracked in git; and no QA, dev, or third-party book material can reach a production package. Scraping tooling (`download_*.py`, `downloads/`, `debug_page.html`) has been deleted. The concrete problems are packaging rather than licensing: **`pdfjs-dist` is wired into the UI but excluded from `build.files` (B1)**, **the `dist/` artifact is stale and lacks the entire `js/reader/` layer (B2)**, **the runtime source files are untracked so the repository cannot satisfy GPL-3.0 §5 (B3)**, and **three MIT-licensed packages ship with no copyright notice while Apache-2.0 packages are now documented in `THIRD_PARTY_NOTICES.md` (B4)**. Items R1 through R7 require human and legal judgement and are not resolvable from the repository.

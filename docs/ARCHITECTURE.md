@@ -7,7 +7,7 @@ Lirune Reader is an Electron desktop application with a local-only renderer, a p
 - `main.js` owns the BrowserWindow, Windows file association routing, managed EPUB storage, validation, and privileged filesystem operations.
 - `preload.js` exposes a narrow `contextBridge` API. Renderer code does not access Node.js or IndexedDB outside the centralized DB module.
 - `js/db.js` stores metadata, progress, annotations, preferences, collections, and favorites in IndexedDB.
-- EPUB binaries are stored under the existing `%APPDATA%/Novera/books/<sha256>.epub` compatibility path and are read only for the selected book.
+- EPUB binaries are stored under the existing `%APPDATA%/Lirune Reader/books/<sha256>.epub` path and are read only for the selected book.
 - `js/library.js` handles metadata rendering and import coordination.
 - `js/epubLoader.js` owns the active epub.js book/rendition and reader state.
 

@@ -1,6 +1,6 @@
 /**
  * QA-only Chrome DevTools Protocol driver for Lirune Reader.
- * Launches the real Electron app (same command as Launch-Novera.bat, plus a
+ * Launches the real Electron app (same command as Launch-Lirune.bat, plus a
  * remote debugging port so the test script can inspect and drive the UI) and
  * exposes helpers to evaluate expressions, send real key events and capture
  * screenshots. Not shipped: this directory is dev tooling only.

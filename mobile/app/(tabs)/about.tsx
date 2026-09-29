@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Linking, Pressable } from 'react-native';
 import { useTheme } from '@/theme';
-import { Card, globalStyles } from '@/components';
+import { Card } from '@/components';
 
 export default function AboutScreen() {
   const theme = useTheme();

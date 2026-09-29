@@ -1,29 +1,78 @@
+/**
+ * Lirune Reader Mobile — Main Bottom Tab Navigator
+ */
+
+import React from 'react';
 import { Tabs } from 'expo-router';
-import { useColorScheme } from 'react-native';
-import { Colors, type ColorScheme } from '@/theme/Colors';
+import { Ionicons } from '@expo/vector-icons';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme() ?? 'dark';
-  const scheme = (colorScheme === 'light' || colorScheme === 'dark') ? colorScheme : 'dark';
-  const activeTint = Colors[scheme].accent;
-  const inactiveTint = Colors[scheme].muted;
+  const { colors } = useThemeContext();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: activeTint,
-        tabBarInactiveTintColor: inactiveTint,
-        tabBarStyle: { backgroundColor: Colors[scheme].surface, borderTopWidth: 1, borderTopColor: Colors[scheme].border },
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
-        tabBarIconStyle: { marginBottom: 2 },
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopWidth: 1,
+          borderTopColor: colors.borderSubtle,
+          height: 60,
+          paddingBottom: 8,
+          paddingTop: 6,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+        },
         headerShown: false,
       }}
     >
-      <Tabs.Screen name="library" />
-      <Tabs.Screen name="collections" />
-      <Tabs.Screen name="search" />
-      <Tabs.Screen name="settings" />
-      <Tabs.Screen name="about" />
+      <Tabs.Screen
+        name="library"
+        options={{
+          title: 'Library',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="book-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="collections"
+        options={{
+          title: 'Collections',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="folder-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="search"
+        options={{
+          title: 'Search',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="search-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="settings-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      {/* Hide about from tab bar since it is accessible inside Settings */}
+      <Tabs.Screen
+        name="about"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

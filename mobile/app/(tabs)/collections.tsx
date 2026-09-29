@@ -1,145 +1,369 @@
+/**
+ * Lirune Reader Mobile — Collections Screen
+ * Manage, create, and organize custom reading collections.
+ */
+
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, TextInput } from 'react-native';
-import { useTheme } from '@/theme';
-import { useCollections, useBooks } from '@/hooks';
-import { Button, Card, EmptyCollectionsState, globalStyles } from '@/components';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  SafeAreaView,
+  StatusBar,
+  Modal,
+  TextInput,
+  Alert,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useLibraryStore } from '@/state/libraryStore';
+import { useThemeContext } from '@/theme/ThemeContext';
 import { Collection } from '@/models/Book';
 
+const PRESET_COLORS = [
+  '#C9B8FF',
+  '#4ECDC4',
+  '#FFB86C',
+  '#FF6B6B',
+  '#7DD3FC',
+  '#A7F3D0',
+  '#FDE047',
+  '#F472B6',
+];
+
 export default function CollectionsScreen() {
-  const theme = useTheme();
-  const { collections, loading, addCollection, removeCollection } = useCollections();
-  const { books } = useBooks();
+  const router = useRouter();
+  const { colors } = useThemeContext();
+  const { collections, books, createCollection, deleteCollection, setSelectedCollectionId } =
+    useLibraryStore();
 
-  const [showCreate, setShowCreate] = useState(false);
-  const [newCollectionName, setNewCollectionName] = useState('');
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [collectionName, setCollectionName] = useState('');
+  const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
 
-  const handleCreate = () => {
-    if (!newCollectionName.trim()) return;
-    const newCollection: Collection = {
-      id: `col-${Date.now()}`,
-      name: newCollectionName.trim(),
-      color: theme.colors.accent,
-      bookIds: [],
-      dateCreated: Date.now(),
-      dateModified: Date.now(),
-    };
-    addCollection(newCollection);
-    setShowCreate(false);
-    setNewCollectionName('');
+  const handleCreate = async () => {
+    if (!collectionName.trim()) return;
+    try {
+      await createCollection(collectionName.trim(), selectedColor);
+      setCollectionName('');
+      setIsModalVisible(false);
+    } catch {
+      Alert.alert('Error', 'Could not create collection.');
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (coll: Collection) => {
     Alert.alert(
       'Delete Collection',
-      'This will remove the collection but keep the books in your library.',
+      `Delete "${coll.name}"? Books in this collection will not be deleted from your library.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => removeCollection(id) },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteCollection(coll.id),
+        },
       ]
     );
   };
 
-  if (loading) {
-    return <View style={[styles(theme).container, { backgroundColor: theme.colors.background }]} />;
-  }
+  const handleSelectCollection = (coll: Collection) => {
+    setSelectedCollectionId(coll.id);
+    router.push('/(tabs)/library');
+  };
 
   return (
-    <View style={[styles(theme).container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView contentContainerStyle={styles(theme).scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles(theme).header}>
-          <View>
-            <Text style={[styles(theme).eyebrow, { color: theme.colors.accent }]}>ORGANIZE</Text>
-            <Text style={[styles(theme).wordmark, { color: theme.colors.text }]}>Collections</Text>
-          </View>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+
+      {/* Header */}
+      <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
+        <View>
+          <Text style={[styles.title, { color: colors.text }]}>Collections</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            {collections.length} custom {collections.length === 1 ? 'shelf' : 'shelves'}
+          </Text>
         </View>
 
-        {/* Create collection button */}
-        <View style={styles(theme).createSection}>
-          <Button
-            title="+ New Collection"
-            onPress={() => setShowCreate(true)}
-            variant="primary"
-            size="md"
-            fullWidth
-            accessibilityLabel="Create a new collection"
-          />
-        </View>
-
-        {showCreate && (
-          <View style={styles(theme).createForm}>
-            <Text style={[styles(theme).formLabel, { color: theme.colors.textMuted }]}>Collection Name</Text>
-            <View style={[styles(theme).inputRow, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
-              <TextInput
-                value={newCollectionName}
-                onChangeText={setNewCollectionName}
-                placeholder="e.g. Sci-Fi, To Read, Favorites"
-                placeholderTextColor={theme.colors.textFaint}
-                style={[styles(theme).formInput, { color: theme.colors.text }]}
-                autoFocus
-                onSubmitEditing={handleCreate}
-              />
-            </View>
-            <View style={styles(theme).formActions}>
-              <Button title="Cancel" onPress={() => setShowCreate(false)} variant="ghost" size="md" />
-              <Button title="Create" onPress={handleCreate} variant="primary" size="md" disabled={!newCollectionName.trim()} />
-            </View>
-          </View>
-        )}
-
-        {/* Collections list */}
-        {collections.length === 0 ? (
-          <EmptyCollectionsState onCreate={() => setShowCreate(true)} />
-        ) : (
-          <View style={styles(theme).list}>
-            {collections.map((collection) => (
-              <CollectionCard
-                key={collection.id}
-                collection={collection}
-                bookCount={books.filter((b) => collection.bookIds.includes(b.id)).length}
-                theme={theme}
-                onPress={() => {/* Navigate to collection detail */}}
-                onDelete={() => handleDelete(collection.id)}
-              />
-            ))}
-          </View>
-        )}
-      </ScrollView>
-    </View>
-  );
-}
-
-function CollectionCard({ collection, bookCount, theme, onPress, onDelete }: { collection: Collection; bookCount: number; theme: ReturnType<typeof import('@/theme').useTheme>; onPress: () => void; onDelete: () => void }) {
-  return (
-    <Card variant="default" padding="md" style={styles(theme).collectionCard} onPress={onPress} onLongPress={onDelete} accessibilityLabel={`Collection: ${collection.name}, ${bookCount} books`} accessibilityRole="button">
-      <View style={styles(theme).collectionHeader}>
-        <View style={[styles(theme).collectionColor, { backgroundColor: collection.color }]} />
-        <View style={styles(theme).collectionInfo}>
-          <Text style={[styles(theme).collectionName, { color: theme.colors.text }]}>{collection.name}</Text>
-          <Text style={[styles(theme).collectionCount, { color: theme.colors.textMuted }]}>{bookCount} book{bookCount !== 1 ? 's' : ''}</Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.createBtn, { backgroundColor: colors.accent }]}
+          onPress={() => setIsModalVisible(true)}
+        >
+          <Ionicons name="add" size={18} color={colors.accentForeground} />
+          <Text style={[styles.createBtnText, { color: colors.accentForeground }]}>
+            New Shelf
+          </Text>
+        </TouchableOpacity>
       </View>
-    </Card>
+
+      {/* Collections List */}
+      {collections.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="folder-open-outline" size={56} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>
+            No Collections Yet
+          </Text>
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+            Create collections like &quot;Sci-Fi&quot;, &quot;To Read&quot;, or &quot;Favorites&quot; to organize your reading.
+          </Text>
+          <TouchableOpacity
+            style={[styles.emptyActionBtn, { backgroundColor: colors.accent }]}
+            onPress={() => setIsModalVisible(true)}
+          >
+            <Text style={[styles.createBtnText, { color: colors.accentForeground }]}>
+              Create First Collection
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={collections}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => {
+            const count = books.filter((b) => b.collectionIds.includes(item.id)).length;
+            return (
+              <TouchableOpacity
+                style={[
+                  styles.collectionCard,
+                  { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+                ]}
+                onPress={() => handleSelectCollection(item)}
+              >
+                <View style={[styles.colorBar, { backgroundColor: item.color || '#C9B8FF' }]} />
+                <View style={styles.cardInfo}>
+                  <Text style={[styles.collectionName, { color: colors.text }]}>
+                    {item.name}
+                  </Text>
+                  <Text style={[styles.bookCount, { color: colors.textSecondary }]}>
+                    {count} {count === 1 ? 'book' : 'books'}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.deleteBtn}
+                  onPress={() => handleDelete(item)}
+                >
+                  <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            );
+          }}
+        />
+      )}
+
+      {/* Create Collection Modal */}
+      <Modal
+        visible={isModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { backgroundColor: colors.surfaceElevated }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              New Collection
+            </Text>
+
+            <TextInput
+              style={[
+                styles.modalInput,
+                { color: colors.text, borderColor: colors.borderSubtle },
+              ]}
+              placeholder="Collection name..."
+              placeholderTextColor={colors.textMuted}
+              value={collectionName}
+              onChangeText={setCollectionName}
+              autoFocus
+            />
+
+            <Text style={[styles.colorLabel, { color: colors.textSecondary }]}>
+              Select Color Tag
+            </Text>
+            <View style={styles.colorsRow}>
+              {PRESET_COLORS.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={[
+                    styles.colorCircle,
+                    { backgroundColor: c },
+                    selectedColor === c && styles.colorCircleSelected,
+                  ]}
+                  onPress={() => setSelectedColor(c)}
+                />
+              ))}
+            </View>
+
+            <View style={styles.modalButtonsRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setIsModalVisible(false)}
+              >
+                <Text style={{ color: colors.textSecondary }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalSaveBtn, { backgroundColor: colors.accent }]}
+                onPress={handleCreate}
+              >
+                <Text style={{ color: colors.accentForeground, fontWeight: '600' }}>
+                  Create
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
-const styles = (theme: ReturnType<typeof import('@/theme').useTheme>) => StyleSheet.create({
-  container: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 100 },
-  header: { marginBottom: 24 },
-  eyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 2, color: theme.colors.accent, marginBottom: 4 },
-  wordmark: { fontSize: 28, fontWeight: '700', letterSpacing: -0.5 },
-  createSection: { marginBottom: 20 },
-  createForm: { marginBottom: 24, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceElevated },
-  formLabel: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 },
-  inputRow: { flexDirection: 'row', alignItems: 'center', height: 48, borderRadius: 12, borderWidth: 1, paddingHorizontal: 14 },
-  formInput: { flex: 1, fontSize: 16 },
-  formActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 12 },
-  list: { gap: 12 },
-  collectionCard: { padding: 16 },
-  collectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  collectionColor: { width: 44, height: 44, borderRadius: 12 },
-  collectionInfo: { flex: 1 },
-  collectionName: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  collectionCount: { fontSize: 12, color: theme.colors.textMuted },
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  subtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  createBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 4,
+  },
+  createBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  listContent: {
+    padding: 16,
+    gap: 12,
+  },
+  collectionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    overflow: 'hidden',
+  },
+  colorBar: {
+    width: 6,
+    height: 36,
+    borderRadius: 3,
+    marginRight: 14,
+  },
+  cardInfo: {
+    flex: 1,
+  },
+  collectionName: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  bookCount: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  deleteBtn: {
+    padding: 8,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  emptyActionBtn: {
+    marginTop: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalBox: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    marginBottom: 16,
+  },
+  colorLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  colorsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 20,
+  },
+  colorCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  colorCircleSelected: {
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+  },
+  modalButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  modalCancelBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  modalSaveBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+  },
 });

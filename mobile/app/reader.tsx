@@ -1,118 +1,320 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, StatusBar, ScrollView, Pressable } from 'react-native';
-import { useTheme } from '@/theme';
-import { Button } from '@/components';
+/**
+ * Lirune Reader Mobile — Focused Full-Screen Reader Screen
+ * Dispatches to format-specific engines and handles Android back navigation.
+ */
 
-interface ReaderScreenProps {
-  book?: any;
-}
+import React, { useEffect, useCallback } from 'react';
+import {
+  View,
+  StyleSheet,
+  StatusBar,
+  BackHandler,
+  ActivityIndicator,
+  Text,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useReaderStore } from '@/state/readerStore';
+import { useLibraryStore } from '@/state/libraryStore';
+import { useSettingsStore } from '@/state/settingsStore';
+import { EpubReaderView } from '@/components/reader/EpubReaderView';
+import { PdfReaderView } from '@/components/reader/PdfReaderView';
+import { TxtReaderView } from '@/components/reader/TxtReaderView';
+import { HtmlReaderView } from '@/components/reader/HtmlReaderView';
+import { Fb2ReaderView } from '@/components/reader/Fb2ReaderView';
+import { CbzReaderView } from '@/components/reader/CbzReaderView';
+import { ReaderControls } from '@/components/reader/ReaderControls';
+import { ChapterSheet } from '@/components/reader/ChapterSheet';
+import { SearchSheet } from '@/components/reader/SearchSheet';
+import { SettingsSheet } from '@/components/reader/SettingsSheet';
+import { AnnotationsSheet } from '@/components/reader/AnnotationsSheet';
+import { READER_THEMES } from '@/theme/Colors';
+import { Bookmark, TOCItem, SearchResult } from '@/models/Book';
 
-export default function ReaderScreen({ book }: ReaderScreenProps) {
-  const theme = useTheme();
-  const [showControls, setShowControls] = useState(true);
-  const [fontSize, setFontSize] = useState(100);
-  const [themeMode, setThemeMode] = useState<'dark' | 'light' | 'sepia'>('dark');
+export default function ReaderScreen() {
+  const router = useRouter();
+  const { bookId } = useLocalSearchParams<{ bookId: string }>();
 
-  const handleBack = useCallback(() => {
-    // Navigation would go back to library
-  }, []);
+  const { books } = useLibraryStore();
+  const { readerSettings, updateReaderSettings, resetReaderSettings } = useSettingsStore();
 
-  const toggleControls = useCallback(() => {
-    setShowControls((prev) => !prev);
-  }, []);
+  const {
+    currentBook,
+    progressPercent,
+    currentCfi,
+    currentChapter,
+    toc,
+    bookmarks,
+    highlights,
+    notes,
+    isControlsVisible,
+    isTOCVisible,
+    isSearchVisible,
+    isSettingsVisible,
+    isAnnotationsVisible,
+    searchResults,
+    isSearching,
+    openBook,
+    closeBook,
+    updateProgress,
+    toggleBookmark,
+    deleteBookmark,
+    deleteHighlight,
+    addNote,
+    deleteNote,
+    setTOC,
+    setTOCVisible,
+    setSearchVisible,
+    setSettingsVisible,
+    setAnnotationsVisible,
+    toggleControls,
+    setSearchResults,
+  } = useReaderStore();
 
-  const mockBook = book || {
-    title: 'Sample Book',
-    author: 'Sample Author',
-    progress: 42,
-    chapter: 'Chapter 3 · The Beginning',
+  // 1. Initialize book if not already open
+  useEffect(() => {
+    if (bookId && (!currentBook || currentBook.id !== bookId)) {
+      const bookToOpen = books.find((b) => b.id === bookId);
+      if (bookToOpen) {
+        openBook(bookToOpen);
+      }
+    }
+  }, [bookId, books, currentBook, openBook]);
+
+  // 2. Android Hardware Back Button Handling
+  const handleExitReader = useCallback(async () => {
+    // If any overlay sheet is open, close it first
+    if (isTOCVisible) {
+      setTOCVisible(false);
+      return true;
+    }
+    if (isSearchVisible) {
+      setSearchVisible(false);
+      return true;
+    }
+    if (isSettingsVisible) {
+      setSettingsVisible(false);
+      return true;
+    }
+    if (isAnnotationsVisible) {
+      setAnnotationsVisible(false);
+      return true;
+    }
+
+    // Otherwise close reader and navigate back
+    await closeBook();
+    router.back();
+    return true;
+  }, [
+    isTOCVisible,
+    isSearchVisible,
+    isSettingsVisible,
+    isAnnotationsVisible,
+    closeBook,
+    router,
+    setTOCVisible,
+    setSearchVisible,
+    setSettingsVisible,
+    setAnnotationsVisible,
+  ]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        handleExitReader();
+        return true;
+      }
+    );
+    return () => subscription.remove();
+  }, [handleExitReader]);
+
+  if (!currentBook) {
+    return (
+      <View style={styles.loadingContainer}>
+        <StatusBar hidden={false} barStyle="light-content" />
+        <ActivityIndicator size="large" color="#C9B8FF" />
+        <Text style={styles.loadingText}>Opening book...</Text>
+      </View>
+    );
+  }
+
+  const isBookmarked = bookmarks.some((b) => b.cfi === currentCfi);
+  const palette = READER_THEMES[readerSettings.theme] || READER_THEMES.night;
+
+  // Jump handlers
+  const handleSelectChapter = (item: TOCItem, index: number) => {
+    if (item.href) {
+      updateProgress(progressPercent, item.href, item.label);
+    } else {
+      updateProgress(progressPercent, `spine:${index}`, item.label);
+    }
+  };
+
+  const handleSelectBookmark = (bookmark: Bookmark) => {
+    updateProgress(progressPercent, bookmark.cfi, bookmark.chapter);
+  };
+
+  const handleSelectSearchResult = (result: SearchResult) => {
+    updateProgress(progressPercent, result.cfi, result.label);
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.readingBackground }]}>
-      <StatusBar barStyle={themeMode === 'dark' ? 'light-content' : 'dark-content'} />
+    <View style={[styles.container, { backgroundColor: palette.bg }]}>
+      <StatusBar
+        hidden={!isControlsVisible}
+        barStyle={
+          readerSettings.theme === 'night' || readerSettings.theme.startsWith('contrast')
+            ? 'light-content'
+            : 'dark-content'
+        }
+      />
 
-      {/* Top Controls */}
-      {showControls && (
-        <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-          <Button
-            title="‹ Library"
-            onPress={handleBack}
-            variant="ghost"
-            size="sm"
-            accessibilityLabel="Go back to library"
-          />
-          <Text style={[styles.progressText, { color: theme.colors.readingMuted }]}>{mockBook.progress}%</Text>
-        </View>
+      {/* Format-Specific Engine View */}
+      {currentBook.format === 'epub' && (
+        <EpubReaderView
+          book={currentBook}
+          settings={readerSettings}
+          onToggleControls={toggleControls}
+          onProgressChange={updateProgress}
+          onTOCLoaded={setTOC}
+          targetCfi={currentCfi}
+          onSearchResults={setSearchResults}
+        />
       )}
 
-      {/* Reading Area */}
-      <Pressable style={styles.readerArea} onPress={toggleControls} accessible={true} accessibilityRole="button" accessibilityLabel="Tap to show controls">
-        <View style={styles.chapterWrapper}>
-          <Text style={[styles.chapterLabel, { color: theme.colors.accent }]}>{mockBook.chapter}</Text>
-          <Text style={[styles.chapterTitle, { color: theme.colors.readingText }]}>{mockBook.title}</Text>
-        </View>
+      {currentBook.format === 'pdf' && (
+        <PdfReaderView
+          book={currentBook}
+          settings={readerSettings}
+          onToggleControls={toggleControls}
+          onProgressChange={updateProgress}
+          targetCfi={currentCfi}
+          onSearchResults={setSearchResults}
+        />
+      )}
 
-        <ScrollView
-          style={styles.content}
-          contentContainerStyle={styles.contentContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={[styles.bodyText, { color: theme.colors.readingText }]}>
-            The room was quiet, save for the soft turn of a page. Outside, the evening gathered at the windows, but here the story held its own weather.
-          </Text>
-          <Text style={[styles.bodyText, { color: theme.colors.readingText }]}>
-            There are books that ask to be finished, and books that ask to be visited. Lirune Reader keeps the door open, remembering the place where you paused and leaving enough silence for you to return.
-          </Text>
-          <Text style={[styles.bodyText, { color: theme.colors.readingText }]}>
-            This mobile reader shell is ready for the EPUB rendering bridge, with typography, themes, progress, highlights, and offline storage designed as separate layers.
-          </Text>
-          <Text style={[styles.bodyText, { color: theme.colors.readingText }]}>
-            The architecture separates the reading engine from the UI layer, allowing the EPUB renderer to be swapped without affecting the rest of the application. This modularity ensures that future improvements to the rendering engine won't require rewriting the entire application.
-          </Text>
-          <Text style={[styles.bodyText, { color: theme.colors.readingText }]}>
-            Chapter navigation, bookmarks, highlights, and annotations are all managed through a central state layer, making it easy to persist and restore reading sessions across app launches.
-          </Text>
-        </ScrollView>
+      {currentBook.format === 'txt' && (
+        <TxtReaderView
+          book={currentBook}
+          settings={readerSettings}
+          onToggleControls={toggleControls}
+          onProgressChange={updateProgress}
+          targetCfi={currentCfi}
+          onSearchResults={setSearchResults}
+        />
+      )}
 
-        {/* Progress Bar */}
-        <View style={[styles.progressContainer, { backgroundColor: theme.colors.surfaceElevated }]}>
-          <View style={[styles.progressTrack, { backgroundColor: theme.colors.border }]}>
-            <View style={[styles.progressFill, { backgroundColor: theme.colors.accent, width: `${mockBook.progress}%` }]} />
-          </View>
-          <Text style={[styles.progressLabel, { color: theme.colors.readingMuted }]}>{mockBook.progress}% · {mockBook.chapter}</Text>
-        </View>
+      {currentBook.format === 'html' && (
+        <HtmlReaderView
+          book={currentBook}
+          settings={readerSettings}
+          onToggleControls={toggleControls}
+          onProgressChange={updateProgress}
+          onTOCLoaded={setTOC}
+          targetCfi={currentCfi}
+          onSearchResults={setSearchResults}
+        />
+      )}
 
-        {/* Bottom Controls */}
-        {showControls && (
-          <View style={[styles.bottomControls, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.border }]}>
-            <View style={styles.controlRow}>
-              <Button title="Aa" onPress={() => {}} variant="outline" size="sm" accessibilityLabel="Font settings" />
-              <Button title="🔖" onPress={() => {}} variant="outline" size="sm" accessibilityLabel="Add bookmark" />
-              <Button title="🖍" onPress={() => {}} variant="outline" size="sm" accessibilityLabel="Add highlight" />
-              <Button title="🔍" onPress={() => {}} variant="outline" size="sm" accessibilityLabel="Search in book" />
-            </View>
-          </View>
-        )}
-      </Pressable>
-      </SafeAreaView>
-    );
-  }
+      {currentBook.format === 'fb2' && (
+        <Fb2ReaderView
+          book={currentBook}
+          settings={readerSettings}
+          onToggleControls={toggleControls}
+          onProgressChange={updateProgress}
+          onTOCLoaded={setTOC}
+          targetCfi={currentCfi}
+          onSearchResults={setSearchResults}
+        />
+      )}
+
+      {currentBook.format === 'cbz' && (
+        <CbzReaderView
+          book={currentBook}
+          settings={readerSettings}
+          onToggleControls={toggleControls}
+          onProgressChange={updateProgress}
+          targetCfi={currentCfi}
+        />
+      )}
+
+      {/* Overlay Navigation Controls */}
+      {isControlsVisible && (
+        <ReaderControls
+          book={currentBook}
+          themeName={readerSettings.theme}
+          progressPercent={progressPercent}
+          currentChapter={currentChapter}
+          isBookmarked={isBookmarked}
+          onBack={handleExitReader}
+          onToggleBookmark={toggleBookmark}
+          onOpenTOC={() => setTOCVisible(true)}
+          onOpenSearch={() => setSearchVisible(true)}
+          onOpenSettings={() => setSettingsVisible(true)}
+          onOpenAnnotations={() => setAnnotationsVisible(true)}
+        />
+      )}
+
+      {/* Chapter Sheet (TOC) */}
+      <ChapterSheet
+        visible={isTOCVisible}
+        onClose={() => setTOCVisible(false)}
+        toc={toc}
+        currentCfi={currentCfi}
+        onSelectChapter={handleSelectChapter}
+      />
+
+      {/* In-Book Search Sheet */}
+      <SearchSheet
+        visible={isSearchVisible}
+        onClose={() => setSearchVisible(false)}
+        results={searchResults}
+        isSearching={isSearching}
+        onSearch={(_q) => {
+          // Handled within format views
+        }}
+        onSelectResult={handleSelectSearchResult}
+      />
+
+      {/* Reader Display Settings Sheet */}
+      <SettingsSheet
+        visible={isSettingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        settings={readerSettings}
+        onUpdateSettings={updateReaderSettings}
+        onResetSettings={resetReaderSettings}
+      />
+
+      {/* Bookmarks, Highlights & Notes Sheet */}
+      <AnnotationsSheet
+        visible={isAnnotationsVisible}
+        onClose={() => setAnnotationsVisible(false)}
+        bookmarks={bookmarks}
+        highlights={highlights}
+        notes={notes}
+        onSelectBookmark={handleSelectBookmark}
+        onDeleteBookmark={deleteBookmark}
+        onDeleteHighlight={deleteHighlight}
+        onAddNote={(text) => addNote(text, currentCfi || '', currentChapter)}
+        onDeleteNote={deleteNote}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { height: 56, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16 },
-  progressText: { fontSize: 12, fontWeight: '600' },
-  readerArea: { flex: 1 },
-  chapterWrapper: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 12 },
-  chapterLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1.4, marginBottom: 8 },
-  chapterTitle: { fontSize: 28, fontWeight: '700', lineHeight: 34, marginBottom: 24 },
-  content: { flex: 1 },
-  contentContainer: { paddingHorizontal: 24, paddingBottom: 100 },
-  bodyText: { fontSize: 19, lineHeight: 31, fontFamily: 'serif', marginBottom: 24 },
-  progressContainer: { paddingHorizontal: 24, paddingVertical: 12 },
-  progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 2 },
-  progressLabel: { fontSize: 11, fontWeight: '600', marginTop: 6, textAlign: 'center' },
-  bottomControls: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'center' },
-  controlRow: { flexDirection: 'row', gap: 12 },
+  container: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#1A1A1D',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: '#B8B8B0',
+    fontSize: 14,
+  },
 });

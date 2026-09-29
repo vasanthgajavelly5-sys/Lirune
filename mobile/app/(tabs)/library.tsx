@@ -1,295 +1,511 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, ScrollView, TextInput, StyleSheet, RefreshControl } from 'react-native';
-import { useTheme } from '@/theme';
-import { useBooks, useCollections } from '@/hooks';
-import { Button, Card, EmptyLibraryState, EmptySearchState, globalStyles } from '@/components';
-import { FilterType, SortCriterion, ViewMode } from '@/models/Book';
-import { Collection, Book } from '@/models/Book';
+/**
+ * Lirune Reader Mobile — Library Screen
+ * Grid/List presentation, format filters, collection filtering, sorting, and book imports.
+ */
+
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  SafeAreaView,
+  StatusBar,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useLibraryStore } from '@/state/libraryStore';
+import { useReaderStore } from '@/state/readerStore';
+import { useThemeContext } from '@/theme/ThemeContext';
+import { BookCard } from '@/components/BookCard';
+import { Book, FilterType } from '@/models/Book';
 
 export default function LibraryScreen() {
-  const theme = useTheme();
-  const { books, loading, addBook, searchBooks, getFavoriteBooks, refresh } = useBooks();
-  const { collections } = useCollections();
+  const router = useRouter();
+  const { colors } = useThemeContext();
 
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<FilterType>('all');
-  const [sort, setSort] = useState<SortCriterion>('recent');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string>('all');
-  const [showImport, setShowImport] = useState(false);
+  const {
+    books,
+    collections,
+    isLoading,
+    error,
+    viewMode,
+    sortCriterion,
+    sortDirection,
+    filter,
+    selectedCollectionId,
+    loadLibrary,
+    importBook,
+    deleteBook,
+    toggleFavorite,
+    setViewMode,
+    setFilter,
+    setSelectedCollectionId,
+    clearError,
+  } = useLibraryStore();
 
+  const { openBook } = useReaderStore();
+  const [isImporting, setIsImporting] = useState(false);
+
+  useEffect(() => {
+    loadLibrary();
+  }, [loadLibrary]);
+
+  // Display error alert if any
+  useEffect(() => {
+    if (error) {
+      Alert.alert('Library', error, [{ text: 'OK', onPress: clearError }]);
+    }
+  }, [error, clearError]);
+
+  // Filter & Sort books
   const filteredBooks = useMemo(() => {
-    let result = books;
+    let result = [...books];
 
-    // Filter by collection
+    // 1. Collection filter
     if (selectedCollectionId !== 'all') {
       result = result.filter((b) => b.collectionIds.includes(selectedCollectionId));
     }
 
-    // Filter by type
+    // 2. Status filter
     switch (filter) {
-      case 'unread':
-        result = result.filter((b) => b.progress === 0);
+      case 'favorites':
+        result = result.filter((b) => b.isFavorite);
         break;
       case 'reading':
         result = result.filter((b) => b.progress > 0 && b.progress < 100);
         break;
+      case 'unread':
+        result = result.filter((b) => b.progress === 0);
+        break;
       case 'finished':
         result = result.filter((b) => b.progress === 100);
         break;
-      case 'favorites':
-        result = result.filter((b) => b.isFavorite);
-        break;
-    }
-
-    // Search
-    if (query.trim()) {
-      const lower = query.toLowerCase();
-      result = result.filter(
-        (b) =>
-          b.title.toLowerCase().includes(lower) ||
-          b.author.toLowerCase().includes(lower) ||
-          b.description?.toLowerCase().includes(lower)
-      );
-    }
-
-    // Sort
-    switch (sort) {
-      case 'title':
-        result = [...result].sort((a, b) => a.title.localeCompare(b.title));
-        break;
-      case 'author':
-        result = [...result].sort((a, b) => a.author.localeCompare(b.author));
-        break;
-      case 'progress':
-        result = [...result].sort((a, b) => b.progress - a.progress);
-        break;
-      case 'added':
-        result = [...result].sort((a, b) => a.dateAdded - b.dateAdded);
-        break;
-      case 'recent':
+      case 'all':
       default:
-        result = [...result].sort((a, b) => b.dateAdded - a.dateAdded);
         break;
     }
+
+    // 3. Sorting
+    result.sort((a, b) => {
+      let cmp = 0;
+      switch (sortCriterion) {
+        case 'title':
+          cmp = a.title.localeCompare(b.title);
+          break;
+        case 'author':
+          cmp = a.author.localeCompare(b.author);
+          break;
+        case 'progress':
+          cmp = a.progress - b.progress;
+          break;
+        case 'added':
+          cmp = a.dateAdded - b.dateAdded;
+          break;
+        case 'recent':
+        default:
+          cmp = (a.lastReadDate || a.dateAdded) - (b.lastReadDate || b.dateAdded);
+          break;
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
 
     return result;
-  }, [books, query, filter, sort, selectedCollectionId]);
+  }, [books, selectedCollectionId, filter, sortCriterion, sortDirection]);
 
-  const handleRefresh = useCallback(async () => {
-    await refresh();
-  }, [refresh]);
+  // Actions
+  const handleOpenBook = async (book: Book) => {
+    await openBook(book);
+    router.push({
+      pathname: '/reader',
+      params: { bookId: book.id },
+    });
+  };
 
-  const handleImport = useCallback(async () => {
-    // Import functionality would go here
-    setShowImport(true);
-  }, []);
+  const handleImport = async () => {
+    setIsImporting(true);
+    try {
+      const newBook = await importBook();
+      if (newBook) {
+        // Automatically open the imported book
+        handleOpenBook(newBook);
+      }
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
-  const handleImportSuccess = useCallback(() => {
-    setShowImport(false);
-    refresh();
-  }, [refresh]);
-
-  if (loading) {
-    return (
-      <View style={[styles(theme).container, { backgroundColor: theme.colors.background }]}>
-        <Text style={[styles(theme).loadingText, { color: theme.colors.textMuted }]}>Loading your library…</Text>
-      </View>
+  const handleDeleteBook = (book: Book) => {
+    Alert.alert(
+      'Delete Book',
+      `Are you sure you want to remove "${book.title}" from your library? The file will be deleted from your device.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteBook(book.id),
+        },
+      ]
     );
-  }
+  };
+
+  const filterChips: { id: FilterType; label: string }[] = [
+    { id: 'all', label: 'All Books' },
+    { id: 'reading', label: 'Reading' },
+    { id: 'unread', label: 'Unread' },
+    { id: 'finished', label: 'Finished' },
+    { id: 'favorites', label: 'Favorites' },
+  ];
 
   return (
-    <View style={[styles(theme).container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView
-        contentContainerStyle={styles(theme).scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={handleRefresh}
-            colors={[theme.colors.accent]}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View style={styles(theme).header}>
-          <View>
-            <Text style={[styles(theme).eyebrow, { color: theme.colors.accent }]}>YOUR LIBRARY</Text>
-            <Text style={[styles(theme).wordmark, { color: theme.colors.text }]}>Lirune Reader</Text>
-          </View>
-          <Button
-            title="Import"
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+
+      {/* Header */}
+      <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
+        <View>
+          <Text style={[styles.appTitle, { color: colors.text }]}>Lirune Reader</Text>
+          <Text style={[styles.bookCountSubtitle, { color: colors.textSecondary }]}>
+            {books.length} {books.length === 1 ? 'book' : 'books'} in library
+          </Text>
+        </View>
+
+        <View style={styles.headerActions}>
+          {/* View Mode Toggle */}
+          <TouchableOpacity
+            style={styles.headerIconButton}
+            onPress={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+            accessibilityLabel="Toggle view mode"
+          >
+            <Ionicons
+              name={viewMode === 'grid' ? 'list' : 'grid'}
+              size={22}
+              color={colors.text}
+            />
+          </TouchableOpacity>
+
+          {/* Import Button */}
+          <TouchableOpacity
+            style={[styles.importButton, { backgroundColor: colors.accent }]}
             onPress={handleImport}
-            variant="outline"
-            size="sm"
-            accessibilityLabel="Import a new EPUB"
-          />
+            disabled={isImporting}
+            accessibilityLabel="Import book"
+          >
+            {isImporting ? (
+              <ActivityIndicator size="small" color={colors.accentForeground} />
+            ) : (
+              <>
+                <Ionicons name="add" size={20} color={colors.accentForeground} />
+                <Text style={[styles.importButtonText, { color: colors.accentForeground }]}>
+                  Import
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
+      </View>
 
-        {/* Search */}
-        <View style={[styles(theme).searchBar, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-          <Text style={[styles(theme).searchIcon, { color: theme.colors.textMuted }]}>⌕</Text>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search your library"
-            placeholderTextColor={theme.colors.textFaint}
-            style={[styles(theme).searchInput, { color: theme.colors.text }]}
-            accessibilityLabel="Search books"
-          />
-        </View>
+      {/* Filter Chips ScrollView */}
+      <View style={styles.chipsContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsScrollContent}
+        >
+          {filterChips.map((chip) => {
+            const isSelected = filter === chip.id;
+            return (
+              <TouchableOpacity
+                key={chip.id}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: isSelected ? colors.accent : colors.surface,
+                    borderColor: isSelected ? colors.accent : colors.borderSubtle,
+                  },
+                ]}
+                onPress={() => setFilter(chip.id)}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    {
+                      color: isSelected ? colors.accentForeground : colors.textSecondary,
+                      fontWeight: isSelected ? '600' : '500',
+                    },
+                  ]}
+                >
+                  {chip.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
-        {/* Filter/Sort/Collection chips */}
-        <View style={styles(theme).chipRow}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(theme).chipContainer}>
-            {(['all', 'unread', 'reading', 'finished', 'favorites'] as FilterType[]).map((f) => (
-              <FilterChip
-                key={f}
-                label={f.charAt(0).toUpperCase() + f.slice(1)}
-                selected={filter === f}
-                onPress={() => setFilter(f)}
-                theme={theme}
-              />
+      {/* Collection Filter row (if collections exist) */}
+      {collections.length > 0 && (
+        <View style={styles.collectionsRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipsScrollContent}
+          >
+            <TouchableOpacity
+              style={[
+                styles.collectionPill,
+                selectedCollectionId === 'all' && {
+                  backgroundColor: colors.accentSoft,
+                  borderColor: colors.accent,
+                },
+              ]}
+              onPress={() => setSelectedCollectionId('all')}
+            >
+              <Text
+                style={[
+                  styles.collectionPillText,
+                  {
+                    color:
+                      selectedCollectionId === 'all'
+                        ? colors.text
+                        : colors.textSecondary,
+                  },
+                ]}
+              >
+                All Collections
+              </Text>
+            </TouchableOpacity>
+
+            {collections.map((coll) => (
+              <TouchableOpacity
+                key={coll.id}
+                style={[
+                  styles.collectionPill,
+                  selectedCollectionId === coll.id && {
+                    backgroundColor: colors.accentSoft,
+                    borderColor: colors.accent,
+                  },
+                ]}
+                onPress={() => setSelectedCollectionId(coll.id)}
+              >
+                <View
+                  style={[styles.collDot, { backgroundColor: coll.color || '#C9B8FF' }]}
+                />
+                <Text
+                  style={[
+                    styles.collectionPillText,
+                    {
+                      color:
+                        selectedCollectionId === coll.id
+                          ? colors.text
+                          : colors.textSecondary,
+                    },
+                  ]}
+                >
+                  {coll.name}
+                </Text>
+              </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
+      )}
 
-        <View style={styles(theme).chipRow}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles(theme).chipContainer}>
-            {(['recent', 'title', 'author', 'progress', 'added'] as SortCriterion[]).map((s) => (
-              <FilterChip
-                key={s}
-                label={s.charAt(0).toUpperCase() + s.slice(1)}
-                selected={sort === s}
-                onPress={() => setSort(s)}
-                theme={theme}
-              />
-            ))}
-          </ScrollView>
+      {/* Book List / Grid */}
+      {isLoading && books.length === 0 ? (
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
-
-        {/* Collections dropdown */}
-        <View style={styles(theme).collectionRow}>
-          <Text style={[styles(theme).collectionLabel, { color: theme.colors.textMuted }]}>Collection</Text>
-          <CollectionSelector
-            collections={collections}
-            selectedId={selectedCollectionId}
-            onSelect={setSelectedCollectionId}
-            theme={theme}
+      ) : filteredBooks.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons
+            name={books.length === 0 ? 'book-outline' : 'filter-outline'}
+            size={56}
+            color={colors.textMuted}
           />
-        </View>
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>
+            {books.length === 0
+              ? 'Your Library is Empty'
+              : 'No matching books found'}
+          </Text>
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+            {books.length === 0
+              ? 'Import EPUB, PDF, TXT, HTML, FB2, or CBZ books from your device to begin reading.'
+              : 'Try selecting a different filter or collection.'}
+          </Text>
 
-        {/* Empty state or book grid */}
-        {filteredBooks.length === 0 ? (
-          books.length === 0 ? (
-            <EmptyLibraryState onImport={handleImport} />
-          ) : (
-            <EmptySearchState query={query} />
-          )
-        ) : (
-          <View style={styles(theme).grid}>
-            {filteredBooks.map((book) => (
-              <BookCard key={book.id} book={book} theme={theme} />
-            ))}
-          </View>
-        )}
-      </ScrollView>
-    </View>
+          {books.length === 0 && (
+            <TouchableOpacity
+              style={[styles.emptyImportBtn, { backgroundColor: colors.accent }]}
+              onPress={handleImport}
+            >
+              <Ionicons name="add" size={20} color={colors.accentForeground} />
+              <Text style={[styles.emptyImportText, { color: colors.accentForeground }]}>
+                Import Book
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : (
+        <FlatList
+          data={filteredBooks}
+          key={viewMode === 'grid' ? 'grid_2_cols' : 'list_1_col'}
+          numColumns={viewMode === 'grid' ? 2 : 1}
+          keyExtractor={(item) => item.id}
+          columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isLoading}
+              onRefresh={loadLibrary}
+              tintColor={colors.accent}
+            />
+          }
+          renderItem={({ item }) => (
+            <BookCard
+              book={item}
+              viewMode={viewMode}
+              onPress={() => handleOpenBook(item)}
+              onToggleFavorite={() => toggleFavorite(item.id)}
+              onDelete={() => handleDeleteBook(item)}
+            />
+          )}
+        />
+      )}
+    </SafeAreaView>
   );
 }
 
-function FilterChip({ label, selected, onPress, theme }: { label: string; selected: boolean; onPress: () => void; theme: ReturnType<typeof import('@/theme').useTheme> }) {
-  return (
-    <Button
-      title={label}
-      onPress={onPress}
-      variant={selected ? 'primary' : 'outline'}
-      size="sm"
-      style={styles(theme).filterChip}
-    />
-  );
-}
-
-function CollectionSelector({
-  collections,
-  selectedId,
-  onSelect,
-  theme,
-}: {
-  collections: Collection[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-  theme: ReturnType<typeof import('@/theme').useTheme>;
-}) {
-  return (
-    <View style={styles(theme).collectionSelector}>
-      <Text style={[styles(theme).selectorText, { color: theme.colors.text }]}>
-        {selectedId === 'all' ? 'All Collections' : collections.find((c) => c.id === selectedId)?.name || 'All Collections'}
-      </Text>
-    </View>
-  );
-}
-
-function BookCard({ book, theme }: { book: Book; theme: ReturnType<typeof import('@/theme').useTheme> }) {
-  return (
-    <Card variant="elevated" padding="none" style={styles(theme).bookCard}>
-      <View style={styles(theme).coverWrap}>
-        <View style={[styles(theme).cover, { backgroundColor: book.coverColor }]}>
-          <Text style={styles(theme).coverInitial}>{book.title.slice(0, 1)}</Text>
-        </View>
-        {book.isFavorite && <View style={styles(theme).favoriteBadge} />}
-        <View style={[styles(theme).progressBar, { backgroundColor: theme.colors.surfaceElevated }]}>
-          <View style={[styles(theme).progressFill, { backgroundColor: theme.colors.accent, width: `${book.progress}%` }]} />
-        </View>
-      </View>
-      <View style={styles(theme).bookInfo}>
-        <Text style={[styles(theme).bookTitle, { color: theme.colors.text }]} numberOfLines={2}>
-          {book.title}
-        </Text>
-        <Text style={[styles(theme).bookAuthor, { color: theme.colors.textMuted }]} numberOfLines={1}>
-          {book.author}
-        </Text>
-        <View style={styles(theme).progressRow}>
-          <View style={[styles(theme).progressTrack, { backgroundColor: theme.colors.surfaceElevated }]}>
-            <View style={[styles(theme).progressFillInner, { backgroundColor: theme.colors.accent, width: `${book.progress}%` }]} />
-          </View>
-          <Text style={[styles(theme).progressText, { color: theme.colors.accent }]}>{book.progress}%</Text>
-        </View>
-      </View>
-    </Card>
-  );
-}
-
-const styles = (theme: ReturnType<typeof import('@/theme').useTheme>) => StyleSheet.create({
-  container: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 100 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  eyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 2 },
-  wordmark: { fontSize: 28, fontWeight: '700', letterSpacing: -0.5 },
-  searchBar: { height: 48, borderRadius: 14, borderWidth: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, marginBottom: 12 },
-  searchIcon: { fontSize: 20, marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 15 },
-  chipRow: { marginBottom: 12 },
-  chipContainer: { flexDirection: 'row', gap: 8 },
-  collectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  collectionLabel: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5 },
-  collectionSelector: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end' },
-  selectorText: { fontSize: 13, fontWeight: '500' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 },
-  bookCard: { width: '48%', minWidth: 150 },
-  coverWrap: { position: 'relative', marginBottom: 12 },
-  cover: { width: '100%', height: 180, borderRadius: 12, justifyContent: 'flex-end', padding: 12 },
-  coverInitial: { color: '#fff', fontSize: 24, fontWeight: '700' },
-  favoriteBadge: { position: 'absolute', top: 8, right: 8, width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
-  progressBar: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 4 },
-  progressFill: { height: '100%', borderRadius: 2 },
-  bookInfo: { paddingTop: 10 },
-  bookTitle: { fontSize: 14, fontWeight: '700', lineHeight: 18, marginBottom: 4 },
-  bookAuthor: { fontSize: 11, marginBottom: 8 },
-  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  progressTrack: { height: 4, flex: 1, borderRadius: 2, overflow: 'hidden' },
-  progressFillInner: { height: '100%', borderRadius: 2 },
-  progressText: { fontSize: 10, fontWeight: '700' },
-  filterChip: { marginRight: 8 },
-  loadingText: { textAlign: 'center', marginTop: 50 },
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  appTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+  },
+  bookCountSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  importButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 4,
+  },
+  importButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  chipsContainer: {
+    paddingVertical: 10,
+  },
+  collectionsRow: {
+    paddingBottom: 8,
+  },
+  chipsScrollContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterChipText: {
+    fontSize: 13,
+  },
+  collectionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    gap: 6,
+  },
+  collDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  collectionPillText: {
+    fontSize: 12,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 24,
+  },
+  gridRow: {
+    justifyContent: 'space-between',
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  emptyImportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  emptyImportText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });

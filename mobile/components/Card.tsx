@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, ViewStyle, AccessibilityRole } from 'react-native';
+import { Pressable, ViewStyle, AccessibilityRole } from 'react-native';
 import { useTheme } from '@/theme';
 
 export interface CardProps {
@@ -13,9 +13,16 @@ export interface CardProps {
   accessibilityRole?: AccessibilityRole;
 }
 
+const paddingStylesMap = {
+  none: {},
+  sm: { padding: 8 },
+  md: { padding: 16 },
+  lg: { padding: 24 },
+} as const;
+
 export const Card = React.forwardRef<React.ElementRef<typeof Pressable>, CardProps>(
   (
-    { children, style, variant = 'default', padding = 'md', onPress, onLongPress, accessibilityLabel, accessibilityRole = 'button', ...props },
+    { children, style, variant = 'default', padding = 'md', onPress, onLongPress, accessibilityLabel, accessibilityRole, ...props },
     ref
   ) => {
     const theme = useTheme();
@@ -37,13 +44,6 @@ export const Card = React.forwardRef<React.ElementRef<typeof Pressable>, CardPro
       },
     };
 
-    const paddingStylesMap = {
-      none: {},
-      sm: { padding: 8 },
-      md: { padding: 16 },
-      lg: { padding: 24 },
-    } as const;
-
     return (
       <Pressable
         ref={ref}
@@ -54,7 +54,7 @@ export const Card = React.forwardRef<React.ElementRef<typeof Pressable>, CardPro
           style,
         ]}
         accessibilityLabel={accessibilityLabel}
-        accessibilityRole={onPress ? 'button' : undefined}
+        accessibilityRole={accessibilityRole ?? (onPress ? 'button' : undefined)}
         onPress={onPress}
         onLongPress={onLongPress}
         {...props}
@@ -66,10 +66,3 @@ export const Card = React.forwardRef<React.ElementRef<typeof Pressable>, CardPro
 );
 
 Card.displayName = 'Card';
-
-const paddingStylesMap = {
-  none: {},
-  sm: { padding: 8 },
-  md: { padding: 16 },
-  lg: { padding: 24 },
-} as const;

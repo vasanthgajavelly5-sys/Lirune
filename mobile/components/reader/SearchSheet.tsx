@@ -1,5 +1,6 @@
 /**
  * Lirune Reader Mobile — In-Book Search Sheet
+ * Clean in-book search with live match counters, jumping to matches, and theme matching.
  */
 
 import React, { useState } from 'react';
@@ -16,6 +17,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SearchResult } from '@/models/Book';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 interface SearchSheetProps {
   visible: boolean;
@@ -34,6 +36,7 @@ export function SearchSheet({
   onSearch,
   onSelectResult,
 }: SearchSheetProps) {
+  const { colors } = useThemeContext();
   const [query, setQuery] = useState('');
 
   const handleSubmit = () => {
@@ -50,62 +53,92 @@ export function SearchSheet({
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <SafeAreaView style={styles.sheetContainer}>
-          <View style={styles.header}>
-            <View style={styles.inputContainer}>
-              <Ionicons name="search" size={18} color="#888880" style={styles.searchIcon} />
+        <SafeAreaView style={[styles.sheetContainer, { backgroundColor: colors.surface, borderTopColor: colors.borderSubtle }]}>
+          {/* Header */}
+          <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
+            <View
+              style={[
+                styles.inputContainer,
+                { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle },
+              ]}
+            >
+              <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.text }]}
                 value={query}
-                onChangeText={setQuery}
+                onChangeText={(text) => {
+                  setQuery(text);
+                  if (text.trim().length > 1) {
+                    onSearch(text.trim());
+                  }
+                }}
                 placeholder="Search inside this book..."
-                placeholderTextColor="#888880"
+                placeholderTextColor={colors.textMuted}
                 returnKeyType="search"
                 onSubmitEditing={handleSubmit}
                 autoFocus={true}
               />
               {query.length > 0 && (
                 <TouchableOpacity onPress={() => setQuery('')} style={styles.clearBtn}>
-                  <Ionicons name="close-circle" size={18} color="#888880" />
+                  <Ionicons name="close-circle" size={18} color={colors.textMuted} />
                 </TouchableOpacity>
               )}
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.cancelText}>Cancel</Text>
+              <Text style={[styles.cancelText, { color: colors.accent }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
 
+          {/* Results Count Bar */}
+          {query.trim().length > 0 && !isSearching && (
+            <View style={[styles.countBar, { borderBottomColor: colors.borderSubtle }]}>
+              <Text style={[styles.countText, { color: colors.textSecondary }]}>
+                {results.length === 0
+                  ? 'No matches found in book'
+                  : `${results.length} match${results.length === 1 ? '' : 'es'} found`}
+              </Text>
+            </View>
+          )}
+
           {isSearching ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#C9B8FF" />
-              <Text style={styles.loadingText}>Searching document...</Text>
+              <ActivityIndicator size="small" color={colors.accent} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+                Searching document contents...
+              </Text>
             </View>
           ) : results.length > 0 ? (
             <FlatList
               data={results}
               keyExtractor={(_item, idx) => `search_res_${idx}`}
+              contentContainerStyle={styles.resultsList}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.resultItem}
+                  style={[styles.resultItem, { borderBottomColor: colors.borderSubtle }]}
                   onPress={() => {
                     onSelectResult(item);
                     onClose();
                   }}
+                  activeOpacity={0.7}
                 >
                   {item.label && (
-                    <Text style={styles.resultLabel}>{item.label}</Text>
+                    <Text style={[styles.resultLabel, { color: colors.accent }]}>
+                      {item.label}
+                    </Text>
                   )}
-                  <Text style={styles.resultExcerpt}>{item.excerpt}</Text>
+                  <Text style={[styles.resultExcerpt, { color: colors.text }]}>
+                    {item.excerpt}
+                  </Text>
                 </TouchableOpacity>
               )}
-              ItemSeparatorComponent={() => <View style={styles.separator} />}
             />
           ) : (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
+              <Ionicons name="search-outline" size={40} color={colors.textMuted} />
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                 {query.length > 0
-                  ? 'No occurrences found.'
-                  : 'Type a word or phrase to search.'}
+                  ? `No occurrences found for "${query}".`
+                  : 'Enter words or phrases to search within this publication.'}
               </Text>
             </View>
           )}
@@ -118,13 +151,13 @@ export function SearchSheet({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     justifyContent: 'flex-end',
   },
   sheetContainer: {
-    backgroundColor: '#202024',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 1,
     height: '75%',
   },
   header: {
@@ -133,23 +166,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#3A3A3E',
   },
   inputContainer: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2A2A2F',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    height: 44,
   },
   searchIcon: {
-    marginRight: 6,
+    marginRight: 8,
   },
   input: {
     flex: 1,
-    color: '#F0F0EB',
     fontSize: 15,
   },
   clearBtn: {
@@ -160,43 +191,54 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   cancelText: {
-    color: '#C9B8FF',
     fontSize: 15,
+    fontWeight: '600',
+  },
+  countBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  countText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   loadingContainer: {
     padding: 40,
     alignItems: 'center',
   },
   loadingText: {
-    color: '#888880',
     marginTop: 10,
     fontSize: 14,
   },
   emptyContainer: {
-    padding: 40,
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 12,
   },
   emptyText: {
-    color: '#888880',
     fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  resultsList: {
+    paddingBottom: 24,
   },
   resultItem: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   resultLabel: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#C9B8FF',
+    fontWeight: '700',
     marginBottom: 4,
+    letterSpacing: 0.2,
   },
   resultExcerpt: {
     fontSize: 14,
-    color: '#D8D8D0',
-    lineHeight: 20,
-  },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#2E2E32',
+    lineHeight: 21,
   },
 });

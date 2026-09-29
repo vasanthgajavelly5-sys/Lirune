@@ -9,8 +9,8 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Book } from '@/models/Book';
 
@@ -43,6 +43,7 @@ export function ReaderControls({
 }: ReaderControlsProps) {
   const isDark = themeName === 'night' || themeName.startsWith('contrast');
 
+  const insets = useSafeAreaInsets();
   const barBg = isDark ? 'rgba(26, 27, 33, 0.95)' : 'rgba(253, 252, 248, 0.95)';
   const textColor = isDark ? '#F0F0EB' : '#1A1410';
   const mutedColor = isDark ? '#A7A49B' : '#6B6055';
@@ -51,98 +52,94 @@ export function ReaderControls({
   return (
     <>
       {/* Top Navigation Bar */}
-      <View style={[styles.topBarWrapper, { backgroundColor: barBg }]}>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.topBar}>
+      <View style={[styles.topBarWrapper, { backgroundColor: barBg, paddingTop: insets.top }]}>
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            onPress={onBack}
+            style={styles.iconButton}
+            accessibilityLabel="Back to library"
+          >
+            <Ionicons name="arrow-back" size={24} color={iconColor} />
+          </TouchableOpacity>
+
+          <View style={styles.titleContainer}>
+            <Text style={[styles.bookTitle, { color: textColor }]} numberOfLines={1}>
+              {book.title}
+            </Text>
+            <Text style={[styles.chapterSubtitle, { color: mutedColor }]} numberOfLines={1}>
+              {currentChapter || book.author}
+            </Text>
+          </View>
+
+          <View style={styles.rightActions}>
             <TouchableOpacity
-              onPress={onBack}
+              onPress={onToggleBookmark}
               style={styles.iconButton}
-              accessibilityLabel="Back to library"
+              accessibilityLabel="Bookmark this page"
             >
-              <Ionicons name="arrow-back" size={24} color={iconColor} />
+              <Ionicons
+                name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
+                size={22}
+                color={isBookmarked ? '#C9B8FF' : iconColor}
+              />
             </TouchableOpacity>
 
-            <View style={styles.titleContainer}>
-              <Text style={[styles.bookTitle, { color: textColor }]} numberOfLines={1}>
-                {book.title}
-              </Text>
-              <Text style={[styles.chapterSubtitle, { color: mutedColor }]} numberOfLines={1}>
-                {currentChapter || book.author}
-              </Text>
-            </View>
+            <TouchableOpacity
+              onPress={onOpenSearch}
+              style={styles.iconButton}
+              accessibilityLabel="Search in book"
+            >
+              <Ionicons name="search-outline" size={22} color={iconColor} />
+            </TouchableOpacity>
 
-            <View style={styles.rightActions}>
-              <TouchableOpacity
-                onPress={onToggleBookmark}
-                style={styles.iconButton}
-                accessibilityLabel="Bookmark this page"
-              >
-                <Ionicons
-                  name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
-                  size={22}
-                  color={isBookmarked ? '#C9B8FF' : iconColor}
-                />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={onOpenSearch}
-                style={styles.iconButton}
-                accessibilityLabel="Search in book"
-              >
-                <Ionicons name="search-outline" size={22} color={iconColor} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={onOpenSettings}
-                style={styles.iconButton}
-                accessibilityLabel="Reader settings"
-              >
-                <Ionicons name="text-outline" size={22} color={iconColor} />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              onPress={onOpenSettings}
+              style={styles.iconButton}
+              accessibilityLabel="Reader settings"
+            >
+              <Ionicons name="text-outline" size={22} color={iconColor} />
+            </TouchableOpacity>
           </View>
-        </SafeAreaView>
+        </View>
       </View>
 
       {/* Bottom Bar */}
-      <View style={[styles.bottomBarWrapper, { backgroundColor: barBg }]}>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.bottomBar}>
-            <TouchableOpacity
-              onPress={onOpenTOC}
-              style={styles.iconButton}
-              accessibilityLabel="Table of contents"
-            >
-              <Ionicons name="list-outline" size={24} color={iconColor} />
-            </TouchableOpacity>
+      <View style={[styles.bottomBarWrapper, { backgroundColor: barBg, paddingBottom: insets.bottom }]}>
+        <View style={styles.bottomBar}>
+          <TouchableOpacity
+            onPress={onOpenTOC}
+            style={styles.iconButton}
+            accessibilityLabel="Table of contents"
+          >
+            <Ionicons name="list-outline" size={24} color={iconColor} />
+          </TouchableOpacity>
 
-            <View style={styles.progressContainer}>
-              {/* Progress Track */}
-              <View style={styles.progressBarBackground}>
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    {
-                      width: `${progressPercent}%`,
-                      backgroundColor: '#C9B8FF',
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={[styles.progressText, { color: mutedColor }]}>
-                {progressPercent}%
-              </Text>
+          <View style={styles.progressContainer}>
+            {/* Progress Track */}
+            <View style={styles.progressBarBackground}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: `${progressPercent}%`,
+                    backgroundColor: '#C9B8FF',
+                  },
+                ]}
+              />
             </View>
-
-            <TouchableOpacity
-              onPress={onOpenAnnotations}
-              style={styles.iconButton}
-              accessibilityLabel="Annotations and notes"
-            >
-              <Ionicons name="create-outline" size={22} color={iconColor} />
-            </TouchableOpacity>
+            <Text style={[styles.progressText, { color: mutedColor }]}>
+              {progressPercent}%
+            </Text>
           </View>
-        </SafeAreaView>
+
+          <TouchableOpacity
+            onPress={onOpenAnnotations}
+            style={styles.iconButton}
+            accessibilityLabel="Annotations and notes"
+          >
+            <Ionicons name="create-outline" size={22} color={iconColor} />
+          </TouchableOpacity>
+        </View>
       </View>
     </>
   );
@@ -176,9 +173,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
-  },
-  safeArea: {
-    width: '100%',
   },
   topBar: {
     height: 54,

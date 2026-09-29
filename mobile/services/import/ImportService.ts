@@ -56,6 +56,11 @@ export class ImportService {
           '*/*', // Allow Android file managers that might not report specific MIME types
         ],
         copyToCacheDirectory: true,
+        // Must be explicit: this legacy API defaults base64 to TRUE, which
+        // makes the native picker base64-encode the entire picked file before
+        // any JS runs. Nothing here uses `asset.base64`, so on a large comic or
+        // PDF that is tens of megabytes of dead string on the JS heap.
+        base64: false,
       });
 
       if (result.canceled || !result.assets || result.assets.length === 0) {
@@ -122,43 +127,49 @@ export class ImportService {
         fileName
       );
 
-      // 4. Extract format-specific metadata & cover
-      const metadata = await MetadataExtractor.extract(
-        destPath,
-        format,
-        fileName,
-        bookId
-      );
+      try {
+        // 4. Extract format-specific metadata & cover
+        const metadata = await MetadataExtractor.extract(
+          destPath,
+          format,
+          fileName,
+          bookId
+        );
 
-      // 5. Construct domain Book record
-      const now = Date.now();
-      const newBook: Book = {
-        id: bookId,
-        title: metadata.title,
-        author: metadata.author,
-        description: metadata.description,
-        format,
-        filePath: destPath,
-        fileSize: fileSize || fileSizeHint || 0,
-        coverUrl: metadata.coverUrl,
-        coverColor: metadata.coverColor,
-        progress: 0,
-        currentCfi: undefined,
-        currentChapter: undefined,
-        chapterCount: metadata.chapterCount || 1,
-        isFavorite: false,
-        collectionIds: [],
-        dateAdded: now,
-        lastReadDate: undefined,
-        availability: 'available',
-        metadata: metadata.metadata,
-      };
+        // 5. Construct domain Book record
+        const now = Date.now();
+        const newBook: Book = {
+          id: bookId,
+          title: metadata.title,
+          author: metadata.author,
+          description: metadata.description,
+          format,
+          filePath: destPath,
+          fileSize: fileSize || fileSizeHint || 0,
+          coverUrl: metadata.coverUrl,
+          coverColor: metadata.coverColor,
+          progress: 0,
+          currentCfi: undefined,
+          currentChapter: undefined,
+          chapterCount: metadata.chapterCount || 1,
+          isFavorite: false,
+          collectionIds: [],
+          dateAdded: now,
+          lastReadDate: undefined,
+          availability: 'available',
+          metadata: metadata.metadata,
+        };
 
-      // 6. Persist to SQLite
-      await repo.addBook(newBook);
-      logger.info(TAG, `Book successfully imported: "${newBook.title}" (${newBook.id})`);
+        // 6. Persist to SQLite
+        await repo.addBook(newBook);
+        logger.info(TAG, `Book successfully imported: "${newBook.title}" (${newBook.id})`);
 
-      return { success: true, book: newBook };
+        return { success: true, book: newBook };
+      } catch (innerErr) {
+        // Clean up copied file so a failed import does not leave orphaned files on disk
+        await fileStorage.deleteBookFiles(destPath);
+        throw innerErr;
+      }
     } catch (err) {
       logger.error(TAG, `Import failed for "${fileName}"`, err);
       const appErr =

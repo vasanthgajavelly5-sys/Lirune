@@ -18,6 +18,7 @@ interface SettingsState {
   appTheme: AppThemeOption;
   accentColor: string;
   readerSettings: ReaderSettings;
+  hasCompletedWelcome: boolean;
   isLoaded: boolean;
 
   // Actions
@@ -26,27 +27,31 @@ interface SettingsState {
   setAccentColor: (color: string) => Promise<void>;
   updateReaderSettings: (partial: Partial<ReaderSettings>) => Promise<void>;
   resetReaderSettings: () => Promise<void>;
+  setHasCompletedWelcome: (completed: boolean) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   appTheme: 'dark',
   accentColor: '#EEECF8',
   readerSettings: DEFAULT_READER_SETTINGS,
+  hasCompletedWelcome: false,
   isLoaded: false,
 
   loadSettings: async () => {
     const repo = getBookRepository() as any;
     try {
-      const [savedAppTheme, savedAccent, savedReaderSettings] = await Promise.all([
+      const [savedAppTheme, savedAccent, savedReaderSettings, savedWelcome] = await Promise.all([
         repo.getPreference?.('appTheme', 'dark'),
         repo.getPreference?.('accentColor', '#EEECF8'),
         repo.getPreference?.('readerSettings', DEFAULT_READER_SETTINGS),
+        repo.getPreference?.('hasCompletedWelcome', false),
       ]);
 
       set({
         appTheme: savedAppTheme || 'dark',
         accentColor: savedAccent || '#EEECF8',
         readerSettings: { ...DEFAULT_READER_SETTINGS, ...savedReaderSettings },
+        hasCompletedWelcome: !!savedWelcome,
         isLoaded: true,
       });
     } catch (err) {
@@ -94,6 +99,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await repo.setPreference?.('readerSettings', DEFAULT_READER_SETTINGS);
     } catch (err) {
       logger.warn(TAG, 'Failed to persist reset readerSettings', err);
+    }
+  },
+
+  setHasCompletedWelcome: async (hasCompletedWelcome: boolean) => {
+    set({ hasCompletedWelcome });
+    const repo = getBookRepository() as any;
+    try {
+      await repo.setPreference?.('hasCompletedWelcome', hasCompletedWelcome);
+    } catch (err) {
+      logger.warn(TAG, 'Failed to persist hasCompletedWelcome', err);
     }
   },
 }));

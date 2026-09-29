@@ -22,6 +22,7 @@ interface AnnotationsSheetProps {
   bookmarks: Bookmark[];
   highlights: Highlight[];
   notes: Note[];
+  format?: string;
   onSelectBookmark: (bookmark: Bookmark) => void;
   onDeleteBookmark: (id: string) => void;
   onDeleteHighlight: (id: string) => void;
@@ -35,6 +36,7 @@ export function AnnotationsSheet({
   bookmarks,
   highlights,
   notes,
+  format,
   onSelectBookmark,
   onDeleteBookmark,
   onDeleteHighlight,
@@ -223,7 +225,11 @@ export function AnnotationsSheet({
               contentContainerStyle={styles.listContent}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No highlights recorded yet.</Text>
+                  <Text style={styles.emptyText}>
+                    {!format || format === 'epub' || format === 'html' || format === 'fb2'
+                      ? 'No highlights recorded yet. Select text in the reader to create a highlight.'
+                      : `Highlighting via text selection is available for EPUB, HTML, and FB2. In ${format.toUpperCase()} documents, native text selection is an Android platform limitation.`}
+                  </Text>
                 </View>
               }
               renderItem={({ item }) => (

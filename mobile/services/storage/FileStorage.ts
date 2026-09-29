@@ -98,6 +98,70 @@ export class FileStorageService {
   }
 
   /**
+   * Writes a text file into app-private storage (e.g. a library export).
+   * Returns the path written, or throws.
+   */
+  async writeTextFile(fileName: string, contents: string): Promise<string> {
+    await this.ensureDirectories();
+    const exportsDir = `${FileSystem.documentDirectory || ''}exports/`;
+    const info = await FileSystem.getInfoAsync(exportsDir);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(exportsDir, { intermediates: true });
+    }
+    const safeName = fileName.replace(/[^\w.-]/g, '_');
+    const destPath = `${exportsDir}${safeName}`;
+    await FileSystem.writeAsStringAsync(destPath, contents, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+    return destPath;
+  }
+
+  /**
+   * Returns the size of a file in bytes, or 0 when it cannot be determined.
+   */
+  async getFileSize(filePath: string): Promise<number> {
+    if (Platform.OS === 'web') return 0;
+    try {
+      const info = await FileSystem.getInfoAsync(filePath);
+      return info.exists && !info.isDirectory ? info.size ?? 0 : 0;
+    } catch (err) {
+      logger.warn(TAG, `Unable to stat file: ${filePath}`, err);
+      return 0;
+    }
+  }
+
+  /**
+   * Reads a byte range from a file without loading the whole file into memory.
+   * `length` is a number of BYTES, not characters.
+   *
+   * Reads are clipped to the end of the file, so asking for more than remains is
+   * safe. Returns an empty string when nothing could be read.
+   */
+  async readRangeAsString(
+    filePath: string,
+    start: number,
+    length: number
+  ): Promise<string> {
+    if (Platform.OS === 'web') {
+      const full = await this.readAsString(filePath);
+      return full.slice(start, start + length);
+    }
+
+    if (length <= 0 || start < 0) return '';
+
+    try {
+      return await FileSystem.readAsStringAsync(filePath, {
+        position: start,
+        length: length,
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+    } catch (err) {
+      logger.warn(TAG, `readRangeAsString failed for ${filePath}`, err);
+      return '';
+    }
+  }
+
+  /**
    * Reads a stored file as text (e.g., for TXT, HTML, FB2).
    */
   async readAsString(filePath: string): Promise<string> {

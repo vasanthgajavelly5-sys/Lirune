@@ -10,17 +10,20 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  SafeAreaView,
   StatusBar,
   Modal,
   TextInput,
-  Alert,
+  ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useThemeContext } from '@/theme/ThemeContext';
 import { Collection } from '@/models/Book';
+import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
+import { LiruneDialog } from '@/components/LiruneDialog';
+import { EmptyCollectionsState } from '@/components/EmptyState';
 
 const PRESET_COLORS = [
   '#C9B8FF',
@@ -35,13 +38,17 @@ const PRESET_COLORS = [
 
 export default function CollectionsScreen() {
   const router = useRouter();
-  const { colors } = useThemeContext();
-  const { collections, books, createCollection, deleteCollection, setSelectedCollectionId } =
+  const { colors, scheme } = useThemeContext();
+  const isDark = scheme === 'dark';
+  const { collections, books, createCollection, deleteCollection, setSelectedCollectionId, addBookToCollection, removeBookFromCollection } =
     useLibraryStore();
 
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [collectionName, setCollectionName] = useState('');
   const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
+  const [assignTarget, setAssignTarget] = useState<Collection | null>(null);
+  const [collToDelete, setCollToDelete] = useState<Collection | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleCreate = async () => {
     if (!collectionName.trim()) return;
@@ -50,46 +57,57 @@ export default function CollectionsScreen() {
       setCollectionName('');
       setIsModalVisible(false);
     } catch {
-      Alert.alert('Error', 'Could not create collection.');
+      setErrorMessage('Could not create collection.');
     }
   };
 
-  const handleDelete = (coll: Collection) => {
-    Alert.alert(
-      'Delete Collection',
-      `Delete "${coll.name}"? Books in this collection will not be deleted from your library.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => deleteCollection(coll.id),
-        },
-      ]
-    );
+  const handleConfirmDelete = async () => {
+    if (collToDelete) {
+      await deleteCollection(collToDelete.id);
+      setCollToDelete(null);
+    }
   };
 
   const handleSelectCollection = (coll: Collection) => {
     setSelectedCollectionId(coll.id);
-    router.push('/(tabs)/library');
+    router.push('/');
+  };
+
+  const handleToggleMembership = async (bookId: string, coll: Collection) => {
+    try {
+      const isMember = books
+        .find((b) => b.id === bookId)
+        ?.collectionIds.includes(coll.id);
+      if (isMember) {
+        await removeBookFromCollection(bookId, coll.id);
+      } else {
+        await addBookToCollection(bookId, coll.id);
+      }
+    } catch {
+      setErrorMessage('Could not update collection membership.');
+    }
   };
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
 
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
-        <View>
-          <Text style={[styles.title, { color: colors.text }]}>Collections</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            {collections.length} custom {collections.length === 1 ? 'shelf' : 'shelves'}
-          </Text>
+        <View style={styles.headerLeft}>
+          <LiruneNavButton />
+          <View>
+            <Text style={[styles.title, { color: colors.text }]}>Collections</Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              {collections.length} custom {collections.length === 1 ? 'shelf' : 'shelves'}
+            </Text>
+          </View>
         </View>
 
         <TouchableOpacity
           style={[styles.createBtn, { backgroundColor: colors.accent }]}
           onPress={() => setIsModalVisible(true)}
+          activeOpacity={0.8}
         >
           <Ionicons name="add" size={18} color={colors.accentForeground} />
           <Text style={[styles.createBtnText, { color: colors.accentForeground }]}>
@@ -100,23 +118,7 @@ export default function CollectionsScreen() {
 
       {/* Collections List */}
       {collections.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="folder-open-outline" size={56} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>
-            No Collections Yet
-          </Text>
-          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-            Create collections like &quot;Sci-Fi&quot;, &quot;To Read&quot;, or &quot;Favorites&quot; to organize your reading.
-          </Text>
-          <TouchableOpacity
-            style={[styles.emptyActionBtn, { backgroundColor: colors.accent }]}
-            onPress={() => setIsModalVisible(true)}
-          >
-            <Text style={[styles.createBtnText, { color: colors.accentForeground }]}>
-              Create First Collection
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <EmptyCollectionsState onCreate={() => setIsModalVisible(true)} />
       ) : (
         <FlatList
           data={collections}
@@ -144,7 +146,14 @@ export default function CollectionsScreen() {
 
                 <TouchableOpacity
                   style={styles.deleteBtn}
-                  onPress={() => handleDelete(item)}
+                  onPress={() => setAssignTarget(item)}
+                >
+                  <Ionicons name="library-outline" size={18} color={colors.accent} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.deleteBtn}
+                  onPress={() => setCollToDelete(item)}
                 >
                   <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
                 </TouchableOpacity>
@@ -216,6 +225,100 @@ export default function CollectionsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Add / remove books in a collection */}
+      <Modal
+        visible={assignTarget !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setAssignTarget(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalBox,
+              { backgroundColor: colors.surfaceElevated, maxHeight: '80%' },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              {assignTarget ? `Books in "${assignTarget.name}"` : ''}
+            </Text>
+
+            {books.length === 0 ? (
+              <Text style={{ color: colors.textSecondary, marginBottom: 16 }}>
+                Import some books first.
+              </Text>
+            ) : (
+              <ScrollView style={{ marginBottom: 16 }}>
+                {books.map((b) => {
+                  const isMember = assignTarget
+                    ? b.collectionIds.includes(assignTarget.id)
+                    : false;
+                  return (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={[styles.assignRow, { borderColor: colors.borderSubtle }]}
+                      onPress={() => assignTarget && handleToggleMembership(b.id, assignTarget)}
+                    >
+                      <View style={styles.cardInfo}>
+                        <Text
+                          style={[styles.collectionName, { color: colors.text }]}
+                          numberOfLines={1}
+                        >
+                          {b.title}
+                        </Text>
+                        <Text
+                          style={[styles.bookCount, { color: colors.textSecondary }]}
+                          numberOfLines={1}
+                        >
+                          {b.author}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name={isMember ? 'checkbox' : 'square-outline'}
+                        size={22}
+                        color={isMember ? colors.accent : colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            <View style={styles.modalButtonsRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setAssignTarget(null)}
+              >
+                <Text style={{ color: colors.textSecondary }}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Collection Dialog */}
+      <LiruneDialog
+        visible={!!collToDelete}
+        title="Delete Collection"
+        message={`Delete "${collToDelete?.name}"? Books in this collection will not be deleted from your library.`}
+        icon="trash-outline"
+        confirmText="Delete"
+        cancelText="Cancel"
+        isDestructive={true}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setCollToDelete(null)}
+      />
+
+      {/* Error Dialog */}
+      <LiruneDialog
+        visible={!!errorMessage}
+        title="Notice"
+        message={errorMessage || ''}
+        icon="alert-circle-outline"
+        confirmText="OK"
+        onConfirm={() => setErrorMessage(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -231,6 +334,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   title: {
     fontSize: 22,
@@ -283,6 +391,12 @@ const styles = StyleSheet.create({
   },
   deleteBtn: {
     padding: 8,
+  },
+  assignRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   emptyContainer: {
     flex: 1,

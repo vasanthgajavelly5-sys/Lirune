@@ -3,7 +3,6 @@ import { SQLiteBookRepository } from './SQLiteBookRepository';
 
 export type { BookRepository } from './BookRepository';
 export { SQLiteBookRepository } from './SQLiteBookRepository';
-export { InMemoryBookRepository } from './InMemoryBookRepository';
 
 let defaultRepo: BookRepository = new SQLiteBookRepository();
 

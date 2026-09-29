@@ -814,7 +814,46 @@ export class SQLiteBookRepository implements BookRepository {
   async exportData(): Promise<string> {
     const books = await this.getBooks();
     const collections = await this.getCollections();
-    return JSON.stringify({ books, collections, exportedAt: Date.now() }, null, 2);
+    const db = await getDatabase();
+    let bookmarks: Bookmark[] = [];
+    let highlights: Highlight[] = [];
+    let notes: Note[] = [];
+    if (db && Platform.OS !== 'web') {
+      const bRows = await db.getAllAsync<BookmarkRow>('SELECT * FROM bookmarks');
+      bookmarks = bRows.map((r) => ({
+        id: r.id,
+        bookId: r.bookId,
+        cfi: r.cfi,
+        chapter: r.chapter || 'Chapter',
+        previewText: r.previewText || undefined,
+        dateCreated: r.dateCreated,
+      }));
+      const hRows = await db.getAllAsync<HighlightRow>('SELECT * FROM highlights');
+      highlights = hRows.map((r) => ({
+        id: r.id,
+        bookId: r.bookId,
+        cfiRange: r.cfiRange,
+        color: r.color,
+        text: r.text,
+        note: r.note || undefined,
+        dateCreated: r.dateCreated,
+      }));
+      const nRows = await db.getAllAsync<NoteRow>('SELECT * FROM notes');
+      notes = nRows.map((r) => ({
+        id: r.id,
+        bookId: r.bookId,
+        cfi: r.cfi,
+        text: r.text,
+        chapter: r.chapter || undefined,
+        dateCreated: r.dateCreated,
+        dateModified: r.dateModified,
+      }));
+    }
+    return JSON.stringify(
+      { books, collections, bookmarks, highlights, notes, exportedAt: Date.now() },
+      null,
+      2
+    );
   }
 
   async importData(json: string): Promise<void> {
@@ -828,6 +867,21 @@ export class SQLiteBookRepository implements BookRepository {
       if (Array.isArray(parsed.collections)) {
         for (const c of parsed.collections) {
           await this.addCollection(c);
+        }
+      }
+      if (Array.isArray(parsed.bookmarks)) {
+        for (const bm of parsed.bookmarks) {
+          await this.addBookmark(bm);
+        }
+      }
+      if (Array.isArray(parsed.highlights)) {
+        for (const hl of parsed.highlights) {
+          await this.addHighlight(hl);
+        }
+      }
+      if (Array.isArray(parsed.notes)) {
+        for (const n of parsed.notes) {
+          await this.addNote(n);
         }
       }
     } catch (err) {

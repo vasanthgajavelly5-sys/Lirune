@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, Text, View, StyleSheet, ViewStyle, TextStyle, AccessibilityProps, ColorValue } from 'react-native';
+import { Pressable, Text, View, StyleSheet, ViewStyle, AccessibilityProps, ColorValue } from 'react-native';
 import { useTheme } from '@/theme';
 
 export interface ButtonProps extends AccessibilityProps {

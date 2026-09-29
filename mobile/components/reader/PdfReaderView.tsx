@@ -3,7 +3,7 @@
  * Renders local PDF documents with page navigation, zoom, and progress tracking.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -13,10 +13,18 @@ import {
 import { WebView } from 'react-native-webview';
 import { Book, ReaderSettings, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
+import { PDFJS_SOURCE, PDFJS_WORKER } from '@/services/pdf/pdfjsAssets';
+import { escapeForInlineScript } from '@/services/pdf/escapeForTemplateLiteral';
+import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
 import { READER_THEMES } from '@/theme/Colors';
 import { logger } from '@/utils/logger';
 
 const TAG = 'PdfReaderView';
+
+// pdf.js is vendored into the bundle (see scripts/gen-pdfjs.js) and escaped once
+// at module load, so opening a PDF requires no network access at all.
+const PDFJS_INLINE = escapeForInlineScript(PDFJS_SOURCE);
+const PDFJS_WORKER_INLINE = escapeForInlineScript(PDFJS_WORKER);
 
 interface PdfReaderViewProps {
   book: Book;
@@ -40,6 +48,9 @@ export function PdfReaderView({
   const [totalPages, setTotalPages] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const webViewRef = useRef<WebView>(null);
+  /** Page to jump to once pdf.js has reported the document is ready. */
+  const pendingPageRef = useRef<number | null>(null);
+  const currentPageRef = useRef<number>(1);
 
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
 
@@ -64,30 +75,41 @@ export function PdfReaderView({
     };
   }, [book.filePath]);
 
-  const goToPage = (page: number) => {
+  const goToPage = useCallback((page: number) => {
     webViewRef.current?.injectJavaScript(`
       if (window.renderPage) window.renderPage(${page});
       true;
     `);
-  };
+  }, []);
 
-  // Jump to target page
+  // Queue a jump to the target page. If pdf.js is not ready yet the page is
+  // applied as soon as the document reports itself loaded.
   useEffect(() => {
-    if (targetCfi && targetCfi.startsWith('page:')) {
-      const p = parseInt(targetCfi.replace('page:', ''), 10);
-      if (!isNaN(p) && p >= 1) {
-        goToPage(p);
-      }
+    if (!targetCfi || !targetCfi.startsWith('page:')) return;
+    const p = parseInt(targetCfi.replace('page:', ''), 10);
+    if (isNaN(p) || p < 1) return;
+    if (totalPages > 0) {
+      goToPage(p);
+    } else {
+      pendingPageRef.current = p;
     }
-  }, [targetCfi]);
+  }, [targetCfi, totalPages, goToPage]);
 
-  // Self-contained PDF viewer HTML with pdf.js
-  const pdfViewerHtml = `
+  // Self-contained PDF viewer HTML with pdf.js.
+  //
+  // CRITICAL: this string must be STABLE across page changes. It is memoised on
+  // the document bytes alone, and the current page is deliberately NOT baked in.
+  // Previously `pageNum` was interpolated from React state, so every page turn
+  // produced a new `source` prop, which made react-native-webview tear down and
+  // reload the whole document — re-running atob() and getDocument() on the
+  // entire PDF for every single page.
+  const pdfViewerHtml = useMemo(
+    () => `
     <!DOCTYPE html>
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, user-scalable=yes">
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+      <script>${PDFJS_INLINE}</script>
       <style>
         * { box-sizing: border-box; }
         body {
@@ -122,10 +144,12 @@ export function PdfReaderView({
       </div>
 
       <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
+          new Blob(["${PDFJS_WORKER_INLINE}"], { type: 'application/javascript' })
+        );
 
         var pdfDoc = null;
-        var pageNum = ${currentPage};
+        var pageNum = 1;
         var canvas = document.getElementById('pdf-canvas');
         var ctx = canvas.getContext('2d');
         var rawData = atob("${pdfBase64 || ''}");
@@ -140,7 +164,13 @@ export function PdfReaderView({
             type: 'meta',
             numPages: doc.numPages
           }));
-          renderPage(pageNum);
+          if (window.__pendingPage) {
+            var p = window.__pendingPage;
+            window.__pendingPage = null;
+            renderPage(p);
+          } else {
+            renderPage(1);
+          }
         }).catch(function(err) {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'error',
@@ -149,7 +179,10 @@ export function PdfReaderView({
         });
 
         window.renderPage = function(num) {
-          if (!pdfDoc) return;
+          if (!pdfDoc) {
+            window.__pendingPage = num;
+            return;
+          }
           pageNum = Math.max(1, Math.min(pdfDoc.numPages, num));
           pdfDoc.getPage(pageNum).then(function(page) {
             var viewport = page.getViewport({ scale: 1.5 });
@@ -181,31 +214,48 @@ export function PdfReaderView({
       </script>
     </body>
     </html>
-  `;
+  `,
+    [pdfBase64, palette.bg]
+  );
 
-  const handleMessage = (event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'meta') {
-        setTotalPages(data.numPages);
-      } else if (data.type === 'pageChange') {
-        setCurrentPage(data.page);
-        const percent = Math.round((data.page / data.numPages) * 100);
-        onProgressChange(percent, `page:${data.page}`, `Page ${data.page} of ${data.numPages}`);
-      } else if (data.type === 'tap') {
-        const ratio = data.xRatio;
-        if (ratio < 0.25) {
-          goToPage(currentPage - 1);
-        } else if (ratio > 0.75) {
-          goToPage(currentPage + 1);
-        } else {
-          onToggleControls();
+  const handleMessage = useCallback(
+    (event: any) => {
+      try {
+        const data = JSON.parse(event.nativeEvent.data);
+        if (data.type === 'meta') {
+          setTotalPages(data.numPages);
+          const pending = pendingPageRef.current;
+          if (pending != null) {
+            pendingPageRef.current = null;
+            goToPage(pending);
+          }
+        } else if (data.type === 'pageChange') {
+          setCurrentPage(data.page);
+          currentPageRef.current = data.page;
+          const percent = Math.round((data.page / data.numPages) * 100);
+          onProgressChange(
+            percent,
+            `page:${data.page}`,
+            `Page ${data.page} of ${data.numPages}`
+          );
+        } else if (data.type === 'error') {
+          logger.error(TAG, `pdf.js reported: ${data.message}`);
+        } else if (data.type === 'tap') {
+          const ratio = data.xRatio;
+          if (ratio < 0.25) {
+            goToPage(currentPageRef.current - 1);
+          } else if (ratio > 0.75) {
+            goToPage(currentPageRef.current + 1);
+          } else {
+            onToggleControls();
+          }
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
-  };
+    },
+    [goToPage, onProgressChange, onToggleControls]
+  );
 
   if (isLoading) {
     return (
@@ -222,7 +272,7 @@ export function PdfReaderView({
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
       <WebView
         ref={webViewRef}
-        originWhitelist={['*']}
+        {...READER_WEBVIEW_PROPS}
         source={{ html: pdfViewerHtml }}
         style={{ backgroundColor: palette.bg }}
         onMessage={handleMessage}

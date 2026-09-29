@@ -1,6 +1,7 @@
 /**
  * Lirune Reader Mobile — Settings Screen
- * General, Appearance, Reading, Library, Storage & Data, and About.
+ * Organized into: General, Appearance, Reading, Library, Accessibility, Storage & Data, and About.
+ * All alerts themed with LiruneDialog / LiruneToast.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -10,19 +11,28 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   StatusBar,
-  Alert,
+  Linking,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
 import { useSettingsStore, AppThemeOption } from '@/state/settingsStore';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useThemeContext } from '@/theme/ThemeContext';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { getBookRepository } from '@/repositories';
+import { logger } from '@/utils/logger';
+import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
+import { LiruneDialog } from '@/components/LiruneDialog';
+import { LiruneToast } from '@/components/LiruneToast';
+import { WelcomeGuideModal } from '@/components/WelcomeGuideModal';
 
 export default function SettingsScreen() {
-  const { colors, setScheme } = useThemeContext();
+  const router = useRouter();
+  const { colors, scheme } = useThemeContext();
+  const isDark = scheme === 'dark';
   const {
     appTheme,
     readerSettings,
@@ -38,6 +48,21 @@ export default function SettingsScreen() {
     totalBytes: 0,
     bookCount: 0,
   });
+
+  // Modal / Dialog States
+  const [showClearDialog, setShowClearDialog] = useState(false);
+  const [showWelcomeGuide, setShowWelcomeGuide] = useState(false);
+  const [dialogInfo, setDialogInfo] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchStorage() {
@@ -57,64 +82,110 @@ export default function SettingsScreen() {
 
   const handleThemeChange = async (theme: AppThemeOption) => {
     await setAppTheme(theme);
-    if (theme === 'dark' || theme === 'light') {
-      setScheme(theme);
-    }
   };
 
   const handleExportData = async () => {
     try {
       const repo = getBookRepository();
       const exportedJson = await repo.exportData();
-      Alert.alert(
-        'Export Data',
-        `Successfully generated export payload (${exportedJson.length} characters). Books and collections are safely saved locally on this device.`,
-        [{ text: 'OK' }]
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const path = await fileStorage.writeTextFile(
+        `lirune-library-${stamp}.json`,
+        exportedJson
       );
+      const size = await fileStorage.getFileSize(path);
+      setDialogInfo({
+        visible: true,
+        title: 'Library Exported',
+        message: `Saved ${formatBytes(size)} of library data to:\n\n${path}`,
+        confirmText: 'Done',
+      });
     } catch {
-      Alert.alert('Error', 'Failed to export library data.');
+      setToastMessage('Failed to export library data.');
     }
   };
 
-  const handleClearData = () => {
-    Alert.alert(
-      'Clear All Data',
-      'This will delete all books, collections, bookmarks, and notes from this device. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear Everything',
-          style: 'destructive',
-          onPress: async () => {
-            const repo = getBookRepository();
-            await repo.clearAllData();
-            await loadLibrary();
-            const stats = await fileStorage.getStorageUsage();
-            setStorageStats(stats);
-            Alert.alert('Cleared', 'Library data has been reset.');
-          },
-        },
-      ]
-    );
+  const handleImportData = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/json', 'text/plain', '*/*'],
+        copyToCacheDirectory: true,
+        base64: false,
+      });
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+      const json = await fileStorage.readAsString(result.assets[0].uri);
+      const repo = getBookRepository();
+      await repo.importData?.(json);
+      await loadLibrary();
+      setToastMessage('Library data restored successfully.');
+    } catch (err) {
+      logger.error('SettingsScreen', 'Import failed', err);
+      setToastMessage('That file could not be restored as library data.');
+    }
+  };
+
+  const handleClearDataConfirmed = async () => {
+    setShowClearDialog(false);
+    try {
+      const repo = getBookRepository();
+      await repo.clearAllData();
+      await loadLibrary();
+      const stats = await fileStorage.getStorageUsage();
+      setStorageStats(stats);
+      setToastMessage('Library data has been cleared.');
+    } catch {
+      setToastMessage('Could not clear library data.');
+    }
+  };
+
+  const openSupportLink = () => {
+    Linking.openURL('https://buymeacoffee.com/vasanthgajavelly').catch(() => {
+      setToastMessage('Could not open support link.');
+    });
   };
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
 
+      {/* Top Header with Side Nav Button */}
       <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
-        <Text style={[styles.title, { color: colors.text }]}>Settings</Text>
+        <View style={styles.headerLeft}>
+          <LiruneNavButton />
+          <Text style={[styles.title, { color: colors.text }]}>Settings</Text>
+        </View>
       </View>
 
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* APPEARANCE */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-          Appearance
-        </Text>
+        {/* 1. GENERAL */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>General</Text>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => setShowWelcomeGuide(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.actionRowLeft}>
+              <Ionicons name="sparkles-outline" size={20} color={colors.accent} />
+              <View>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Welcome to Lirune Guide</Text>
+                <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
+                  Revisit key features, formats, and reading modes
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
+        {/* 2. APPEARANCE */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Appearance</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
           <Text style={[styles.rowLabel, { color: colors.text }]}>App Theme</Text>
           <View style={styles.segmentedRow}>
-            {(['dark', 'light'] as AppThemeOption[]).map((theme) => {
+            {(['dark', 'light', 'system'] as AppThemeOption[]).map((theme) => {
               const isSelected = appTheme === theme;
               return (
                 <TouchableOpacity
@@ -130,7 +201,7 @@ export default function SettingsScreen() {
                       styles.segmentOptionText,
                       {
                         color: isSelected ? colors.accentForeground : colors.textSecondary,
-                        fontWeight: isSelected ? '600' : '500',
+                        fontWeight: isSelected ? '700' : '500',
                       },
                     ]}
                   >
@@ -144,7 +215,7 @@ export default function SettingsScreen() {
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
           <View style={styles.infoRow}>
-            <Text style={[styles.rowLabel, { color: colors.text }]}>Brand Accent</Text>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Lirune Signature Accent</Text>
             <View style={styles.accentBadge}>
               <View style={[styles.accentDot, { backgroundColor: '#EEECF8' }]} />
               <Text style={[styles.accentCode, { color: colors.textSecondary }]}>#EEECF8</Text>
@@ -152,11 +223,49 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* READING PREFERENCES */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-          Reading
-        </Text>
+        {/* 3. READING */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Reading</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          {/* Default Flow Mode: Page vs Scroll */}
+          <View style={styles.infoRow}>
+            <View>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Default Reading Mode</Text>
+              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
+                {readerSettings.flow === 'paginated' ? 'Discrete horizontal pages' : 'Continuous vertical scroll'}
+              </Text>
+            </View>
+            <View style={styles.segmentedRow}>
+              {(['paginated', 'scrolled'] as const).map((flow) => {
+                const isSelected = readerSettings.flow === flow;
+                return (
+                  <TouchableOpacity
+                    key={flow}
+                    style={[
+                      styles.segmentOption,
+                      isSelected && { backgroundColor: colors.accent },
+                    ]}
+                    onPress={() => updateReaderSettings({ flow })}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentOptionText,
+                        {
+                          color: isSelected ? colors.accentForeground : colors.textSecondary,
+                          fontWeight: isSelected ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {flow === 'paginated' ? 'Page' : 'Scroll'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Font Size */}
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Default Font Size</Text>
             <View style={styles.stepperMini}>
@@ -166,7 +275,7 @@ export default function SettingsScreen() {
                     fontSize: Math.max(12, readerSettings.fontSize - 2),
                   })
                 }
-                style={styles.miniBtn}
+                style={[styles.miniBtn, { backgroundColor: colors.surfaceElevated }]}
               >
                 <Ionicons name="remove" size={16} color={colors.text} />
               </TouchableOpacity>
@@ -179,7 +288,39 @@ export default function SettingsScreen() {
                     fontSize: Math.min(36, readerSettings.fontSize + 2),
                   })
                 }
-                style={styles.miniBtn}
+                style={[styles.miniBtn, { backgroundColor: colors.surfaceElevated }]}
+              >
+                <Ionicons name="add" size={16} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Paragraph Spacing */}
+          <View style={styles.infoRow}>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Paragraph Spacing</Text>
+            <View style={styles.stepperMini}>
+              <TouchableOpacity
+                onPress={() =>
+                  updateReaderSettings({
+                    paragraphSpacing: Math.max(0.5, Math.round((readerSettings.paragraphSpacing - 0.25) * 100) / 100),
+                  })
+                }
+                style={[styles.miniBtn, { backgroundColor: colors.surfaceElevated }]}
+              >
+                <Ionicons name="remove" size={16} color={colors.text} />
+              </TouchableOpacity>
+              <Text style={[styles.miniValue, { color: colors.text }]}>
+                {readerSettings.paragraphSpacing} em
+              </Text>
+              <TouchableOpacity
+                onPress={() =>
+                  updateReaderSettings({
+                    paragraphSpacing: Math.min(2.5, Math.round((readerSettings.paragraphSpacing + 0.25) * 100) / 100),
+                  })
+                }
+                style={[styles.miniBtn, { backgroundColor: colors.surfaceElevated }]}
               >
                 <Ionicons name="add" size={16} color={colors.text} />
               </TouchableOpacity>
@@ -190,23 +331,27 @@ export default function SettingsScreen() {
 
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Default Typeface</Text>
-            <Text style={[styles.rowValue, { color: colors.accent }]}>
+            <Text style={[styles.rowValue, { color: colors.accent, fontWeight: '600' }]}>
               {readerSettings.fontFamily}
             </Text>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
-          <TouchableOpacity style={styles.actionRow} onPress={resetReaderSettings}>
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => {
+              resetReaderSettings();
+              setToastMessage('Reader appearance reset to defaults');
+            }}
+          >
             <Text style={{ color: colors.textSecondary }}>Reset Reader Appearance Defaults</Text>
             <Ionicons name="refresh-outline" size={18} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
 
-        {/* LIBRARY PREFERENCES */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-          Library
-        </Text>
+        {/* 4. LIBRARY */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Library</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Default View</Text>
@@ -227,7 +372,7 @@ export default function SettingsScreen() {
                         styles.segmentOptionText,
                         {
                           color: isSelected ? colors.accentForeground : colors.textSecondary,
-                          fontWeight: isSelected ? '600' : '500',
+                          fontWeight: isSelected ? '700' : '500',
                         },
                       ]}
                     >
@@ -243,21 +388,33 @@ export default function SettingsScreen() {
 
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Default Sort</Text>
-            <Text style={[styles.rowValue, { color: colors.accent }]}>
+            <Text style={[styles.rowValue, { color: colors.accent, fontWeight: '600' }]}>
               {sortCriterion.charAt(0).toUpperCase() + sortCriterion.slice(1)}
             </Text>
           </View>
         </View>
 
-        {/* STORAGE & DATA */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-          Storage & Data
-        </Text>
+        {/* 5. ACCESSIBILITY */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Accessibility</Text>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          <View style={styles.infoRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Screen Reader Support</Text>
+              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
+                Semantic labels and touch targets tuned for TalkBack
+              </Text>
+            </View>
+            <Ionicons name="checkmark-circle" size={22} color={colors.accent} />
+          </View>
+        </View>
+
+        {/* 6. STORAGE & DATA */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Storage & Data</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Books in Storage</Text>
             <Text style={[styles.rowValue, { color: colors.textSecondary }]}>
-              {storageStats.bookCount} items
+              {storageStats.bookCount} books
             </Text>
           </View>
 
@@ -279,17 +436,45 @@ export default function SettingsScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
-          <TouchableOpacity style={styles.actionRow} onPress={handleClearData}>
+          <TouchableOpacity style={styles.actionRow} onPress={handleImportData}>
+            <Text style={{ color: colors.text }}>Restore Library From Backup</Text>
+            <Ionicons name="cloud-upload-outline" size={18} color={colors.accent} />
+          </TouchableOpacity>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => setShowClearDialog(true)}
+          >
             <Text style={{ color: colors.error }}>Clear Local Library</Text>
             <Ionicons name="trash-outline" size={18} color={colors.error} />
           </TouchableOpacity>
         </View>
 
-        {/* ABOUT & PRIVACY */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-          About
-        </Text>
+        {/* 7. ABOUT & SUPPORT */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>About & Support</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          {/* Buy Me a Coffee Support Action */}
+          <TouchableOpacity
+            style={[styles.supportBtn, { backgroundColor: colors.surfaceElevated, borderColor: colors.accent }]}
+            onPress={openSupportLink}
+            activeOpacity={0.8}
+          >
+            <View style={styles.supportLeft}>
+              <Ionicons name="cafe" size={20} color="#FFDD00" />
+              <View>
+                <Text style={[styles.supportTitle, { color: colors.text }]}>Support Lirune Reader</Text>
+                <Text style={[styles.supportSubtitle, { color: colors.textSecondary }]}>
+                  Buy Me a Coffee to support indie development
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="open-outline" size={16} color={colors.accent} />
+          </TouchableOpacity>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Application</Text>
             <Text style={[styles.rowValue, { color: colors.textSecondary }]}>Lirune Reader</Text>
@@ -304,11 +489,21 @@ export default function SettingsScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => router.push('/about')}
+          >
+            <Text style={{ color: colors.text }}>About &amp; Acknowledgements</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
           <View style={styles.privacyBox}>
             <View style={styles.privacyHeader}>
               <Ionicons name="shield-checkmark-outline" size={20} color={colors.success} />
               <Text style={[styles.privacyTitle, { color: colors.text }]}>
-                100% Private & Offline
+                100% Private &amp; Offline
               </Text>
             </View>
             <Text style={[styles.privacyDesc, { color: colors.textSecondary }]}>
@@ -317,8 +512,42 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <View style={{ height: 40 }} />
+        <View style={{ height: 48 }} />
       </ScrollView>
+
+      {/* Themed Clear Data Dialog */}
+      <LiruneDialog
+        visible={showClearDialog}
+        title="Clear All Library Data?"
+        message="This will delete all imported books, collections, bookmarks, and reading progress from this device. This action cannot be undone."
+        confirmText="Clear Everything"
+        cancelText="Cancel"
+        isDestructive
+        onConfirm={handleClearDataConfirmed}
+        onCancel={() => setShowClearDialog(false)}
+      />
+
+      {/* Generic Themed Dialog for Export */}
+      <LiruneDialog
+        visible={dialogInfo.visible}
+        title={dialogInfo.title}
+        message={dialogInfo.message}
+        confirmText={dialogInfo.confirmText || 'OK'}
+        onConfirm={() => setDialogInfo((prev) => ({ ...prev, visible: false }))}
+      />
+
+      {/* Reopenable Welcome Guide */}
+      <WelcomeGuideModal
+        visible={showWelcomeGuide}
+        onClose={() => setShowWelcomeGuide(false)}
+      />
+
+      {/* Toast Notification */}
+      <LiruneToast
+        visible={!!toastMessage}
+        message={toastMessage || ''}
+        onDismiss={() => setToastMessage(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -329,26 +558,32 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   title: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
+    letterSpacing: -0.3,
   },
   scrollContent: {
     paddingHorizontal: 16,
   },
   sectionTitle: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    marginTop: 20,
+    marginTop: 22,
     marginBottom: 8,
   },
   card: {
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     padding: 14,
   },
@@ -364,9 +599,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 6,
   },
+  actionRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
   rowLabel: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
+  },
+  rowSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
   },
   rowValue: {
     fontSize: 14,
@@ -377,14 +622,15 @@ const styles = StyleSheet.create({
   },
   segmentedRow: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(128, 128, 128, 0.15)',
-    borderRadius: 8,
-    padding: 2,
+    backgroundColor: 'rgba(128, 128, 128, 0.12)',
+    borderRadius: 10,
+    padding: 3,
+    marginTop: 4,
   },
   segmentOption: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 6,
+    borderRadius: 8,
   },
   segmentOptionText: {
     fontSize: 12,
@@ -410,18 +656,39 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   miniBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: 'rgba(128, 128, 128, 0.2)',
+    width: 30,
+    height: 30,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   miniValue: {
     fontSize: 13,
     fontWeight: '600',
-    minWidth: 44,
+    minWidth: 48,
     textAlign: 'center',
+  },
+  supportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  supportLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  supportTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  supportSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
   },
   privacyBox: {
     marginTop: 4,

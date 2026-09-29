@@ -13,7 +13,7 @@ The Android app is built with:
 - **Navigation**: expo-router (file-based routing)
 - **State Management**: React hooks + custom repository pattern
 - **UI**: React Native components with custom design system
-- **Storage**: In-memory repository (placeholder for future Room/SQLite implementation)
+- **Storage**: expo-file-system (app-private files) + expo-sqlite (SQLite, WAL) via a repository abstraction
 
 ## Project Structure
 
@@ -43,7 +43,7 @@ mobile/
 │   └── Book.ts
 ├── repositories/           # Data layer abstraction
 │   ├── BookRepository.ts   # Repository interface
-│   ├── InMemoryBookRepository.ts  # In-memory implementation
+│   ├── SQLiteBookRepository.ts  # SQLite persistence implementation
 │   └── index.ts
 ├── theme/                  # Design system
 │   ├── Colors.ts           # Color tokens (dark/light)
@@ -89,18 +89,10 @@ Defined in `models/Book.ts`:
 ## Repository Abstraction
 
 `BookRepository` interface (`repositories/BookRepository.ts`) defines the data contract:
-- Books CRUD + search, favorites, recent, by collection
-- Collections CRUD + book membership
-- Bookmarks, Highlights, Notes CRUD
-- Reading progress tracking
-- Data export/import (JSON)
-
-Current implementation: `InMemoryBookRepository` (`repositories/InMemoryBookRepository.ts`)
-- Fully functional in-memory implementation
-- Ready to be replaced with Room/SQLite persistence
+- Schema, indexes and pragmas defined in `initSchema`
 - Includes data export/import for backup/restore
 
-Hook `useBooks` (`hooks/useBooks.ts`) provides React-friendly access to the repository.
+Hook `useBooks` (`hooks/useBooks.ts`) and `useLibraryStore` (`state/libraryStore.ts`) provide React-friendly access to the repository and library state.
 
 ## Design System
 
@@ -122,6 +114,7 @@ Reusable components in `components/`:
 - **Card** - Default, elevated, outlined variants with padding options
 - **EmptyState** - Reusable empty states (Library, Collections, Search, etc.)
 - **Styles** - Global StyleSheet utilities and theme hook
+- **reader/** - Multi-format reader components (`EpubReaderView`, `PdfReaderView`, `TxtReaderView`, `HtmlReaderView`, `Fb2ReaderView`, `CbzReaderView`)
 
 ## Screens
 
@@ -142,86 +135,63 @@ Reusable components in `components/`:
 - Empty state for no results
 
 ### Settings
-- Theme selection (dark/light)
+- Theme selection (dark/light/system)
 - Reader preferences (font, size, spacing, margins)
-- Import/export data
-- Privacy notice
+- Backup / restore library data (JSON export/import)
+- Storage usage reporting
+- Navigation link to About screen
 - Danger zone (clear all data)
 
 ### About
-- Version info
-- Description
+- Version info (4.0.4)
+- Description and privacy guarantee
 - Feature list
 - Links (GitHub, issues, privacy, licenses)
-- GPL-3.0 license
+- Top bar with back navigation to Settings
 
-### Reader (Shell)
-- Chapter/title display
-- Scrollable reading area
-- Progress bar
-- Bottom controls (font, bookmark, highlight, search)
-- Theme switching
-- Tap to toggle controls
+### Reader
+- Multi-format book viewer:
+  - **EPUB**: Rendered via Foliate/epubjs WebView bridge with pagination, scrolling, and theme injection.
+  - **PDF**: Rendered via embedded pdf.js in WebView.
+  - **TXT**: Chunk-indexed reader with windowed virtualization for fast rendering of large files.
+  - **HTML**: Rendered via sanitized WebView.
+  - **FB2**: XML parsed and rendered via WebView.
+  - **CBZ**: Extracted comic archives rendered natively via Image / FlatList.
+- Reading progress tracking and persistent position restore.
+- Highlights:
+  - Supported for web-rendered formats (**EPUB**, **HTML**, **FB2**) via WebView JavaScript text selection bridge.
+  - Documented limitation: Native-rendered formats (**TXT**, **PDF**, **CBZ**) do not support custom text selection highlight creation because React Native's `Text.onSelectionChange` is iOS-only.
 
 ## Data Flow
 
 ```
-User Action → Hook (useBooks/useCollections) → Repository → In-Memory Store
+User Action → Zustand Store / Hooks → SQLiteBookRepository → expo-sqlite (Disk)
                                     ↓
-                              React State Update
+                            React State Update
                                     ↓
-                              UI Re-render
+                               UI Re-render
 ```
-
-## Future Work
-
-### Phase 2: EPUB Rendering
-- Integrate EPUB.js or native EPUB renderer
-- Replace Reader shell with actual rendering
-- CFI navigation, pagination, text selection
-
-### Phase 3: Persistence
-- Replace InMemoryBookRepository with Room database
-- Background sync, migration support
-- Encrypted storage for highlights/notes
-
-### Phase 4: Advanced Features
-- Cloud sync (optional, opt-in)
-- TTS integration
-- Dictionary lookup
-- OPDS catalog browsing
 
 ## Relationship to Windows Desktop
 
 - **Windows** (`lirune-store-home`): Primary product, Electron + epub.js, NSIS/MSIX packaging
-- **Android** (`android`): Experimental mobile companion, Expo/React Native
+- **Android** (`android`): Mobile edition, Expo SDK 57 / React Native 0.86
 - Shared concepts: domain models, repository pattern, design tokens, feature set
-- No code sharing currently; separate codebases for platform-appropriate tech stacks
-
-## Build & Run
-
-```bash
-cd mobile
-npm install
-npm run start          # Start Expo dev server
-npm run android        # Run on Android device/emulator
-npm run ios            # Run on iOS simulator
-npm run web            # Run in browser
-npm run lint           # ESLint
-npm run typecheck      # TypeScript check
-```
+- Strictly offline, privacy-first, zero telemetry
 
 ## Build Configuration
 
 - **Package**: `com.lirune.reader`
-- **Version**: 4.0.3 (matches desktop)
-- **Scheme**: `lirune://`
-- **Icons/Splash**: In `assets/`
+- **Version**: 4.0.4 (matches desktop release)
+- **Target SDK**: Android 35 / 36 (JDK 17, NDK 27.1)
+- **Architectures**: x86_64, arm64-v8a
 
-## Testing
+## Testing & Quality Assurance
 
 ```bash
-npm run test           # Not yet configured
+npm run test           # Unit & regression tests (node --test)
+npm run typecheck      # TypeScript compilation check (tsc --noEmit)
+npm run lint           # ESLint validation
 ```
 
 ## Accessibility
@@ -233,15 +203,6 @@ npm run test           # Not yet configured
 - Touch targets ≥ 48dp
 - Screen reader labels on all interactive elements
 
-## Known Limitations (Phase 1)
-
-- No EPUB rendering (reader is shell only)
-- In-memory only (data lost on app close)
-- No background import/parsing
-- No OPDS catalog
-- No cloud sync
-- Single-file TypeScript (no separate test files yet)
-
 ---
 
-*This document describes the Android branch architecture as of Phase 1 completion. The Android branch is experimental and not part of the Windows desktop release.*
+*Lirune Reader Android (v4.0.4) — 100% Private, Offline-First Mobile Companion.*

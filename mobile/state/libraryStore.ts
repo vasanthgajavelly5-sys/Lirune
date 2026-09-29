@@ -122,6 +122,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       }
       set((state) => ({
         books: state.books.filter((b) => b.id !== bookId),
+        collections: state.collections.map((c) => ({
+          ...c,
+          bookIds: c.bookIds.filter((id) => id !== bookId),
+        })),
       }));
     } catch (err) {
       logger.error(TAG, `Failed to delete book ${bookId}`, err);
@@ -193,6 +197,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
             ? { ...b, collectionIds: [...new Set([...b.collectionIds, collectionId])] }
             : b
         ),
+        collections: state.collections.map((c) =>
+          c.id === collectionId
+            ? { ...c, bookIds: [...new Set([...c.bookIds, bookId])] }
+            : c
+        ),
       }));
     } catch (err) {
       logger.error(TAG, 'Failed to add book to collection', err);
@@ -208,6 +217,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           b.id === bookId
             ? { ...b, collectionIds: b.collectionIds.filter((c) => c !== collectionId) }
             : b
+        ),
+        collections: state.collections.map((c) =>
+          c.id === collectionId
+            ? { ...c, bookIds: c.bookIds.filter((id) => id !== bookId) }
+            : c
         ),
       }));
     } catch (err) {

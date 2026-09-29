@@ -319,8 +319,12 @@ export class MetadataExtractor {
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
     try {
-      const content = await fileStorage.readAsString(filePath);
-      const firstLine = content.slice(0, 300).split(/\r?\n/).find((l) => l.trim().length > 0);
+      // Read only the first 1 KB. Reading the whole file here would decode a
+      // multi-megabyte book into memory a second time, purely to look at 300
+      // characters, and is the reason large TXT imports were slow and memory
+      // hungry before the reader was made streaming.
+      const head = await fileStorage.readRangeAsString(filePath, 0, 1024);
+      const firstLine = head.split(/\r?\n/).find((l) => l.trim().length > 0);
       const title = firstLine && firstLine.length < 80 ? firstLine.trim() : fallbackTitle;
 
       return {

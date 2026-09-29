@@ -1,6 +1,7 @@
 /**
  * Lirune Reader Mobile — Book Card Component
- * Supports both Grid and List presentation modes with covers, progress, and favorites.
+ * Supports both Grid and List presentation modes with covers, progress,
+ * Lirune heart favorites, and unified long-press context interactions.
  */
 
 import React from 'react';
@@ -16,22 +17,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { Book, ViewMode } from '@/models/Book';
 import { useThemeContext } from '@/theme/ThemeContext';
 
-interface BookCardProps {
+export interface BookCardProps {
   book: Book;
   viewMode: ViewMode;
   onPress: () => void;
+  onLongPress?: () => void;
   onToggleFavorite: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
 }
 
 export function BookCard({
   book,
   viewMode,
   onPress,
+  onLongPress,
   onToggleFavorite,
-  onDelete,
 }: BookCardProps) {
-  const { colors } = useThemeContext();
+  const { colors, scheme } = useThemeContext();
+  const isDark = scheme === 'dark';
 
   const formatLabels: Record<string, string> = {
     epub: 'EPUB',
@@ -48,9 +51,17 @@ export function BookCard({
   if (viewMode === 'grid') {
     return (
       <TouchableOpacity
-        style={[styles.gridCard, { backgroundColor: colors.surface }]}
+        style={[
+          styles.gridCard,
+          {
+            backgroundColor: isDark ? '#202026' : '#FFFFFF',
+            borderColor: colors.borderSubtle,
+          },
+        ]}
         onPress={onPress}
-        activeOpacity={0.8}
+        onLongPress={onLongPress}
+        delayLongPress={280}
+        activeOpacity={0.82}
       >
         {/* Cover Container */}
         <View
@@ -67,7 +78,8 @@ export function BookCard({
             />
           ) : (
             <View style={styles.fallbackCoverContent}>
-              <Text style={styles.fallbackTitle} numberOfLines={3}>
+              <Ionicons name="book" size={28} color="rgba(255,255,255,0.7)" style={{ marginBottom: 8 }} />
+              <Text style={styles.fallbackTitle} numberOfLines={2}>
                 {book.title}
               </Text>
               <Text style={styles.fallbackAuthor} numberOfLines={1}>
@@ -81,19 +93,23 @@ export function BookCard({
             <Text style={styles.badgeText}>{badgeText}</Text>
           </View>
 
-          {/* Favorite Star Button */}
+          {/* Favorite Heart Button */}
           <TouchableOpacity
             style={styles.favoriteButton}
             onPress={(e) => {
               e.stopPropagation();
               onToggleFavorite();
             }}
+            accessibilityLabel={book.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons
-              name={book.isFavorite ? 'star' : 'star-outline'}
-              size={18}
-              color={book.isFavorite ? '#FFB86C' : '#FFFFFF'}
-            />
+            <View style={styles.favoriteIconBg}>
+              <Ionicons
+                name={book.isFavorite ? 'heart' : 'heart-outline'}
+                size={16}
+                color={book.isFavorite ? '#FF6584' : '#FFFFFF'}
+              />
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -114,12 +130,17 @@ export function BookCard({
 
           {book.progress > 0 && (
             <View style={styles.progressRow}>
-              <View style={styles.progressBarBg}>
+              <View
+                style={[
+                  styles.progressBarBg,
+                  { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' },
+                ]}
+              >
                 <View
                   style={[
                     styles.progressBarFill,
                     {
-                      width: `${book.progress}%`,
+                      width: `${Math.min(100, Math.max(0, book.progress))}%`,
                       backgroundColor: colors.accent,
                     },
                   ]}
@@ -140,10 +161,15 @@ export function BookCard({
     <TouchableOpacity
       style={[
         styles.listCard,
-        { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+        {
+          backgroundColor: isDark ? '#202026' : '#FFFFFF',
+          borderColor: colors.borderSubtle,
+        },
       ]}
       onPress={onPress}
-      activeOpacity={0.8}
+      onLongPress={onLongPress}
+      delayLongPress={280}
+      activeOpacity={0.82}
     >
       {/* Small Cover Thumbnail */}
       <View
@@ -159,9 +185,7 @@ export function BookCard({
             resizeMode="cover"
           />
         ) : (
-          <Text style={styles.listFallbackTitle} numberOfLines={2}>
-            {book.title}
-          </Text>
+          <Ionicons name="book" size={20} color="rgba(255,255,255,0.7)" />
         )}
       </View>
 
@@ -174,8 +198,8 @@ export function BookCard({
           >
             {book.title}
           </Text>
-          <View style={styles.listBadge}>
-            <Text style={styles.listBadgeText}>{badgeText}</Text>
+          <View style={[styles.listBadge, { backgroundColor: colors.accentSoft }]}>
+            <Text style={[styles.listBadgeText, { color: colors.accent }]}>{badgeText}</Text>
           </View>
         </View>
 
@@ -197,22 +221,21 @@ export function BookCard({
             </Text>
           )}
 
-          <View style={styles.listActions}>
-            <TouchableOpacity
-              onPress={onToggleFavorite}
-              style={styles.actionBtn}
-            >
-              <Ionicons
-                name={book.isFavorite ? 'star' : 'star-outline'}
-                size={18}
-                color={book.isFavorite ? '#FFB86C' : colors.textMuted}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={onDelete} style={styles.actionBtn}>
-              <Ionicons name="trash-outline" size={17} color={colors.textMuted} />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              onToggleFavorite();
+            }}
+            style={styles.listActionBtn}
+            accessibilityLabel={book.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name={book.isFavorite ? 'heart' : 'heart-outline'}
+              size={18}
+              color={book.isFavorite ? '#FF6584' : colors.textMuted}
+            />
+          </TouchableOpacity>
         </View>
       </View>
     </TouchableOpacity>
@@ -226,18 +249,19 @@ const styles = StyleSheet.create({
   // Grid
   gridCard: {
     width: gridCardWidth,
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 16,
+    borderWidth: 1,
     overflow: 'hidden',
-    elevation: 2,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
   },
   gridCoverWrapper: {
     width: '100%',
-    height: gridCardWidth * 1.42,
+    height: gridCardWidth * 1.38,
     position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',
@@ -247,7 +271,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   fallbackCoverContent: {
-    padding: 16,
+    padding: 14,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
@@ -255,61 +279,70 @@ const styles = StyleSheet.create({
   },
   fallbackTitle: {
     color: '#F0F0EB',
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontSize: 13,
+    fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 6,
+    lineHeight: 18,
+    marginBottom: 4,
   },
   fallbackAuthor: {
-    color: '#B8B8B0',
+    color: '#C0C0BA',
     fontSize: 11,
     textAlign: 'center',
   },
   badge: {
     position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    paddingHorizontal: 6,
+    top: 10,
+    left: 10,
+    backgroundColor: 'rgba(26, 26, 29, 0.85)',
+    paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 4,
+    borderRadius: 6,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   badgeText: {
-    color: '#FFFFFF',
-    fontSize: 9,
+    color: '#EEECF8',
+    fontSize: 9.5,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
   favoriteButton: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    padding: 6,
-    borderRadius: 16,
+    top: 10,
+    right: 10,
+  },
+  favoriteIconBg: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(26, 26, 29, 0.82)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   gridInfoContainer: {
-    padding: 10,
+    padding: 12,
   },
   gridTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 19,
+    marginBottom: 4,
   },
   gridAuthor: {
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: 12,
+    marginBottom: 8,
   },
   progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    gap: 6,
+    gap: 8,
   },
   progressBarBg: {
     flex: 1,
-    height: 3,
-    backgroundColor: 'rgba(128, 128, 128, 0.25)',
+    height: 4,
     borderRadius: 2,
     overflow: 'hidden',
   },
@@ -318,83 +351,76 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   progressLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
   },
 
   // List
   listCard: {
     flexDirection: 'row',
-    borderRadius: 10,
-    marginBottom: 10,
-    padding: 10,
-    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
+    padding: 12,
+    borderRadius: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
   },
   listCoverWrapper: {
-    width: 48,
-    height: 68,
-    borderRadius: 6,
+    width: 50,
+    height: 70,
+    borderRadius: 8,
     overflow: 'hidden',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   listCoverImage: {
     width: '100%',
     height: '100%',
   },
-  listFallbackTitle: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    padding: 4,
-  },
   listInfoContainer: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 14,
   },
   listTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 4,
   },
   listTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     flex: 1,
+    marginRight: 8,
   },
   listBadge: {
-    backgroundColor: 'rgba(128, 128, 128, 0.2)',
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 4,
-    marginLeft: 8,
+    borderRadius: 6,
   },
   listBadgeText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
-    color: '#B8B8B0',
+    letterSpacing: 0.3,
   },
   listAuthor: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 13,
+    marginBottom: 8,
   },
   listMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
   },
   listProgressText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
   },
-  listActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionBtn: {
+  listActionBtn: {
     padding: 4,
   },
 });

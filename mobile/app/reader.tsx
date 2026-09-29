@@ -3,7 +3,7 @@
  * Dispatches to format-specific engines and handles Android back navigation.
  */
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,6 +11,7 @@ import {
   BackHandler,
   ActivityIndicator,
   Text,
+  TouchableOpacity,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useReaderStore } from '@/state/readerStore';
@@ -29,6 +30,9 @@ import { SettingsSheet } from '@/components/reader/SettingsSheet';
 import { AnnotationsSheet } from '@/components/reader/AnnotationsSheet';
 import { READER_THEMES } from '@/theme/Colors';
 import { Bookmark, TOCItem, SearchResult } from '@/models/Book';
+import type { SelectionPayload } from '@/services/reader/selectionBridge';
+
+const HIGHLIGHT_COLORS = ['#FFEB3B', '#4ECDC4', '#FF8A80'];
 
 export default function ReaderScreen() {
   const router = useRouter();
@@ -52,6 +56,7 @@ export default function ReaderScreen() {
     isSettingsVisible,
     isAnnotationsVisible,
     searchResults,
+    searchQuery,
     isSearching,
     openBook,
     closeBook,
@@ -68,7 +73,30 @@ export default function ReaderScreen() {
     setAnnotationsVisible,
     toggleControls,
     setSearchResults,
+    setSearchQuery,
+    setIsSearching,
+    addHighlight,
   } = useReaderStore();
+
+  // Live text selection reported by the reader engine, used to offer the
+  // highlight action. Empty text means the selection was dismissed.
+  const [selection, setSelection] = useState<SelectionPayload>({ text: '', top: 0 });
+
+  const handleSelectionChange = useCallback((next: SelectionPayload) => {
+    setSelection((prev) =>
+      prev.text === next.text ? prev : next
+    );
+  }, []);
+
+  const handleCreateHighlight = useCallback(
+    async (color: string) => {
+      const text = selection.text.trim();
+      if (!text) return;
+      await addHighlight(text, color, currentCfi || '', undefined);
+      setSelection({ text: '', top: 0 });
+    },
+    [selection.text, currentCfi, addHighlight]
+  );
 
   // 1. Initialize book if not already open
   useEffect(() => {
@@ -128,6 +156,14 @@ export default function ReaderScreen() {
     return () => subscription.remove();
   }, [handleExitReader]);
 
+  const handleSearchResults = useCallback(
+    (results: SearchResult[]) => {
+      setSearchResults(results);
+      setIsSearching(false);
+    },
+    [setSearchResults, setIsSearching]
+  );
+
   if (!currentBook) {
     return (
       <View style={styles.loadingContainer}>
@@ -155,6 +191,7 @@ export default function ReaderScreen() {
   };
 
   const handleSelectSearchResult = (result: SearchResult) => {
+    setSearchVisible(false);
     updateProgress(progressPercent, result.cfi, result.label);
   };
 
@@ -178,7 +215,9 @@ export default function ReaderScreen() {
           onProgressChange={updateProgress}
           onTOCLoaded={setTOC}
           targetCfi={currentCfi}
-          onSearchResults={setSearchResults}
+          onSearchResults={handleSearchResults}
+          onSelectionChange={handleSelectionChange}
+          searchQuery={searchQuery}
         />
       )}
 
@@ -189,7 +228,8 @@ export default function ReaderScreen() {
           onToggleControls={toggleControls}
           onProgressChange={updateProgress}
           targetCfi={currentCfi}
-          onSearchResults={setSearchResults}
+          onSearchResults={handleSearchResults}
+          searchQuery={searchQuery}
         />
       )}
 
@@ -200,7 +240,8 @@ export default function ReaderScreen() {
           onToggleControls={toggleControls}
           onProgressChange={updateProgress}
           targetCfi={currentCfi}
-          onSearchResults={setSearchResults}
+          onSearchResults={handleSearchResults}
+          searchQuery={searchQuery}
         />
       )}
 
@@ -212,7 +253,9 @@ export default function ReaderScreen() {
           onProgressChange={updateProgress}
           onTOCLoaded={setTOC}
           targetCfi={currentCfi}
-          onSearchResults={setSearchResults}
+          onSearchResults={handleSearchResults}
+          onSelectionChange={handleSelectionChange}
+          searchQuery={searchQuery}
         />
       )}
 
@@ -224,7 +267,9 @@ export default function ReaderScreen() {
           onProgressChange={updateProgress}
           onTOCLoaded={setTOC}
           targetCfi={currentCfi}
-          onSearchResults={setSearchResults}
+          onSearchResults={handleSearchResults}
+          onSelectionChange={handleSelectionChange}
+          searchQuery={searchQuery}
         />
       )}
 
@@ -236,6 +281,27 @@ export default function ReaderScreen() {
           onProgressChange={updateProgress}
           targetCfi={currentCfi}
         />
+      )}
+
+      {/* Highlight action bar, shown while text is selected */}
+      {selection.text.trim().length > 0 && (
+        <View style={[styles.highlightBar, { backgroundColor: palette.surface ?? '#1A1A1D' }]}>
+          {HIGHLIGHT_COLORS.map((color) => (
+            <TouchableOpacity
+              key={color}
+              accessibilityLabel={`Highlight in ${color}`}
+              style={[styles.highlightSwatch, { backgroundColor: color }]}
+              onPress={() => handleCreateHighlight(color)}
+            />
+          ))}
+          <TouchableOpacity
+            accessibilityLabel="Dismiss selection"
+            onPress={() => setSelection({ text: '', top: 0 })}
+            style={styles.highlightCancel}
+          >
+            <Text style={{ color: palette.muted ?? '#B8B8B0', fontSize: 13 }}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* Overlay Navigation Controls */}
@@ -267,11 +333,16 @@ export default function ReaderScreen() {
       {/* In-Book Search Sheet */}
       <SearchSheet
         visible={isSearchVisible}
-        onClose={() => setSearchVisible(false)}
+        onClose={() => {
+          setSearchVisible(false);
+          setSearchQuery('');
+          setIsSearching(false);
+        }}
         results={searchResults}
         isSearching={isSearching}
-        onSearch={(_q) => {
-          // Handled within format views
+        onSearch={(q) => {
+          setSearchQuery(q);
+          setIsSearching(q.trim().length > 0);
         }}
         onSelectResult={handleSelectSearchResult}
       />
@@ -292,6 +363,7 @@ export default function ReaderScreen() {
         bookmarks={bookmarks}
         highlights={highlights}
         notes={notes}
+        format={currentBook.format}
         onSelectBookmark={handleSelectBookmark}
         onDeleteBookmark={deleteBookmark}
         onDeleteHighlight={deleteHighlight}
@@ -316,5 +388,28 @@ const styles = StyleSheet.create({
     marginTop: 16,
     color: '#B8B8B0',
     fontSize: 14,
+  },
+  highlightBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 24,
+    elevation: 6,
+  },
+  highlightSwatch: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  highlightCancel: {
+    marginLeft: 'auto',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
 });

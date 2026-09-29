@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "lib": ["ES2020"],
+    "lib": [
+      "ES2020"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
@@ -11,20 +13,46 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "ignoreDeprecations": "6.0",
     "paths": {
-      "@/*": ["./*"],
-      "@/theme/*": ["theme/*"],
-      "@/components/*": ["components/*"],
-      "@/hooks/*": ["hooks/*"],
-      "@/models/*": ["models/*"],
-      "@/repositories/*": ["repositories/*"],
-      "@/utils/*": ["utils/*"]
+      "@/*": [
+        "./*"
+      ],
+      "@/theme/*": [
+        "theme/*"
+      ],
+      "@/components/*": [
+        "components/*"
+      ],
+      "@/hooks/*": [
+        "hooks/*"
+      ],
+      "@/models/*": [
+        "models/*"
+      ],
+      "@/repositories/*": [
+        "repositories/*"
+      ],
+      "@/services/*": [
+        "services/*"
+      ],
+      "@/state/*": [
+        "state/*"
+      ],
+      "@/utils/*": [
+        "utils/*"
+      ]
     },
-    "types": ["react", "react-native", "jest", "@types/react", "@types/react-native"]
+    "types": [
+      "react",
+      "react-native",
+      "@types/react",
+      "@types/react-native"
+    ]
   },
   "include": [
     "app/**/*",
@@ -32,11 +60,20 @@
     "hooks/**/*",
     "models/**/*",
     "repositories/**/*",
+    "services/**/*",
+    "state/**/*",
     "theme/**/*",
-    "types/**/*",
     "utils/**/*",
+    "tests/**/*",
     "App.tsx",
-    "index.ts"
+    "index.ts",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
   ],
-  "exclude": ["node_modules", "dist", ".expo"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".expo"
+  ],
+  "extends": "expo/tsconfig.base"
 }

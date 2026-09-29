@@ -95,8 +95,9 @@ export const UNSUPPORTED_FORMATS: Record<UnsupportedBookFormat, FormatInfo> = {
   },
 };
 
-export function getFormatFromExtension(extension: string): FormatInfo {
-  const ext = extension.replace(/^\./, '').toLowerCase();
+export function getFormatFromExtension(filenameOrExt: string): FormatInfo {
+  const parts = filenameOrExt.split(/[./\\]/);
+  const ext = (parts[parts.length - 1] || '').toLowerCase();
   for (const format of Object.values(SUPPORTED_FORMATS)) {
     if (format.extensions.includes(ext)) return format;
   }
@@ -203,7 +204,7 @@ export interface SearchResult {
 export type ViewMode = 'grid' | 'list';
 export type SortCriterion = 'recent' | 'title' | 'author' | 'progress' | 'added';
 export type SortDirection = 'asc' | 'desc';
-export type FilterType = 'all' | 'unread' | 'reading' | 'finished' | 'favorites';
+export type FilterType = 'all' | 'reading' | 'favorites';
 
 export interface LibraryPreferences {
   viewMode: ViewMode;
@@ -228,6 +229,7 @@ export interface ReaderSettings {
   fontSize: number; // default 18, range 12 - 36
   fontFamily: string; // 'System', 'Serif', 'Sans-Serif', 'Monospace', 'Georgia'
   lineHeight: number; // 1.2 - 2.4, default 1.6
+  paragraphSpacing: number; // 0.4 - 2.5, default 1.0 (em)
   margin: number; // 2 - 24, default 12
   flow: 'paginated' | 'scrolled';
   alignment: 'left' | 'center' | 'right' | 'justify';
@@ -238,7 +240,8 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   fontSize: 18,
   fontFamily: 'Serif',
   lineHeight: 1.6,
+  paragraphSpacing: 1.0,
   margin: 12,
-  flow: 'scrolled',
+  flow: 'paginated',
   alignment: 'left',
 };

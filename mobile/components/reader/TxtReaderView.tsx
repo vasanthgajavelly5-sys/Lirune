@@ -1,25 +1,57 @@
 /**
  * Lirune Reader Mobile — Virtualized & Chunked TXT Reader
- * Eliminates large-file rendering stalls via chunked pagination.
+ *
+ * Large TXT files are NEVER loaded into the JS heap in full. On open the reader
+ * builds a byte-offset index by streaming the file in fixed-size windows and
+ * discarding the decoded text, then only the window covering the visible chunk
+ * is held in memory. A 25 MB book costs a few kilobytes of resident text plus a
+ * small array of integer offsets.
  */
 
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   ActivityIndicator,
-  TouchableWithoutFeedback,
+  PanResponder,
   Dimensions,
+  GestureResponderEvent,
 } from 'react-native';
 import { Book, ReaderSettings, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
+import {
+  appendChunkCuts,
+  byteLengthOf,
+  chunkIndexForByteOffset,
+  stripTrailingPartialChar,
+} from '@/services/txt/chunkIndex';
 import { READER_THEMES } from '@/theme/Colors';
 import { logger } from '@/utils/logger';
 
 const TAG = 'TxtReaderView';
-const CHUNK_SIZE = 4000; // ~800 words per chunk for smooth, instant mobile rendering
+/** How much of the file we pull into memory at a time while indexing/reading. */
+const WINDOW_BYTES = 128 * 1024;
+const MAX_SEARCH_RESULTS = 50;
+/** Vertical movement (px) beyond which a touch is a scroll, not a page turn. */
+const TAP_SLOP = 12;
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** The subset of PanResponder's gesture state this reader needs. */
+interface TapGesture {
+  dx: number;
+  dy: number;
+}
 
 interface TxtReaderViewProps {
   book: Book;
@@ -40,176 +72,341 @@ export function TxtReaderView({
   searchQuery,
   onSearchResults,
 }: TxtReaderViewProps) {
-  const [content, setContent] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [chunkOffsets, setChunkOffsets] = useState<number[]>([]);
   const [currentChunkIndex, setCurrentChunkIndex] = useState<number>(0);
+  const [chunkText, setChunkText] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
   const scrollViewRef = useRef<ScrollView>(null);
+  const offsetsRef = useRef<number[]>([]);
+  const fileSizeRef = useRef<number>(0);
+  const isMountedRef = useRef(true);
 
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
 
-  // 1. Load file text
+  // 1. Build the chunk index by streaming the file. Text is read in windows and
+  //    thrown away; only byte offsets survive.
   useEffect(() => {
-    let isMounted = true;
-    async function loadText() {
+    isMountedRef.current = true;
+    let cancelled = false;
+
+    async function buildIndex() {
       setIsLoading(true);
+      setError(null);
+      // Hoisted so the "choose the starting chunk" step below, which runs
+      // outside the try/catch, can see them.
+      const offsets: number[] = [0];
+      let size = 0;
       try {
-        const text = await fileStorage.readAsString(book.filePath);
-        if (isMounted) {
-          setContent(text);
-          setIsLoading(false);
+        size = await fileStorage.getFileSize(book.filePath);
+        if (cancelled || !isMountedRef.current) return;
+
+        if (!size) {
+          // Empty or unreadable file — still surface something rather than hang.
+          offsetsRef.current = [0];
+          fileSizeRef.current = 0;
+          if (!cancelled) {
+            setChunkOffsets([0]);
+            setChunkText('');
+            setIsLoading(false);
+          }
+          return;
         }
+
+        let bytePos = 0;
+        let windows = 0;
+
+        while (bytePos < size) {
+          if (cancelled || !isMountedRef.current) return;
+
+          const window = stripTrailingPartialChar(
+            await fileStorage.readRangeAsString(
+              book.filePath,
+              bytePos,
+              WINDOW_BYTES
+            )
+          );
+          if (!window) break;
+
+          // Re-encoding the cleaned window gives the exact byte length, because
+          // `bytePos` is always on a character boundary. This is what keeps us
+          // from ever splitting a multi-byte character (CJK, emoji) across chunks.
+          const windowBytes = byteLengthOf(window);
+          const windowEnd = bytePos + windowBytes;
+
+          appendChunkCuts(window, bytePos, offsets);
+
+          bytePos = windowEnd;
+          // Give the JS thread a chance to breathe between windows so the
+          // progress spinner and back button stay responsive on huge files.
+          if (++windows % 4 === 0) await yieldToEventLoop();
+        }
+
+        // Drop a trailing offset that points at/after EOF; it would be an
+        // empty final chunk.
+        while (offsets.length > 1 && offsets[offsets.length - 1] >= size) {
+          offsets.pop();
+        }
+
+        if (cancelled || !isMountedRef.current) return;
+
+        offsetsRef.current = offsets;
+        fileSizeRef.current = size;
+        setChunkOffsets(offsets);
       } catch (err) {
-        logger.error(TAG, `Failed to load TXT: ${book.filePath}`, err);
-        if (isMounted) {
-          setContent('Unable to load text content.');
+        logger.error(TAG, `Failed to index TXT: ${book.filePath}`, err);
+        if (!cancelled && isMountedRef.current) {
+          setError('Unable to load text content.');
           setIsLoading(false);
         }
-      }
-    }
-    loadText();
-    return () => {
-      isMounted = false;
-    };
-  }, [book.filePath]);
-
-  // 2. Compute chunks cleanly on paragraph/line boundaries
-  const chunks = useMemo(() => {
-    if (!content) return [];
-    const result: string[] = [];
-    let start = 0;
-
-    while (start < content.length) {
-      let end = start + CHUNK_SIZE;
-      if (end >= content.length) {
-        result.push(content.substring(start));
-        break;
-      }
-
-      // Try to break at a newline or space
-      const nextNewline = content.indexOf('\n', end);
-      const nextSpace = content.indexOf(' ', end);
-
-      if (nextNewline !== -1 && nextNewline - end < 300) {
-        end = nextNewline + 1;
-      } else if (nextSpace !== -1 && nextSpace - end < 150) {
-        end = nextSpace + 1;
-      }
-
-      result.push(content.substring(start, end));
-      start = end;
-    }
-
-    return result;
-  }, [content]);
-
-  // 3. Restore location
-  useEffect(() => {
-    if (chunks.length === 0) return;
-
-    if (targetCfi && targetCfi.startsWith('chunk:')) {
-      const idx = parseInt(targetCfi.replace('chunk:', ''), 10);
-      if (!isNaN(idx) && idx >= 0 && idx < chunks.length) {
-        setCurrentChunkIndex(idx);
         return;
       }
+
+      // 2. Decide the starting chunk, then let the loader effect read the text.
+      let start = 0;
+      if (targetCfi && targetCfi.startsWith('chunk:')) {
+        const idx = parseInt(targetCfi.replace('chunk:', ''), 10);
+        if (!isNaN(idx) && idx >= 0 && idx < offsets.length) {
+          start = idx;
+        }
+      } else if (book.progress && book.progress > 0) {
+        const wanted = (book.progress / 100) * size;
+        start = chunkIndexForByteOffset(offsets, wanted);
+        if (start < 0) start = 0;
+      }
+
+      if (!cancelled && isMountedRef.current) {
+        setCurrentChunkIndex(start);
+        setIsLoading(false);
+      }
     }
 
-    // Default restore from book progress
-    if (book.progress && book.progress > 0) {
-      const targetIndex = Math.min(
-        chunks.length - 1,
-        Math.floor((book.progress / 100) * chunks.length)
-      );
-      setCurrentChunkIndex(targetIndex);
-    }
-  }, [chunks.length, targetCfi, book.progress]);
+    buildIndex();
+    return () => {
+      cancelled = true;
+      isMountedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally runs only when filePath changes to stream index
+  }, [book.filePath]);
 
-  // 4. Update progress when chunk changes
+  // Restore explicitly requested position (TOC/bookmark jumps) after indexing.
   useEffect(() => {
-    if (chunks.length === 0) return;
-    const percent = Math.round(((currentChunkIndex + 1) / chunks.length) * 100);
-    const cfi = `chunk:${currentChunkIndex}`;
-    const chapter = `Section ${currentChunkIndex + 1} of ${chunks.length}`;
-    onProgressChange(percent, cfi, chapter);
-  }, [currentChunkIndex, chunks.length, onProgressChange]);
+    if (chunkOffsets.length === 0) return;
+    if (!targetCfi || !targetCfi.startsWith('chunk:')) return;
+    const idx = parseInt(targetCfi.replace('chunk:', ''), 10);
+    if (!isNaN(idx) && idx >= 0 && idx < chunkOffsets.length) {
+      setCurrentChunkIndex((prev) => (prev === idx ? prev : idx));
+    }
+  }, [chunkOffsets.length, targetCfi]);
 
-  // 5. In-book search
+  // 3. Read ONLY the window for the visible chunk.
   useEffect(() => {
-    if (!searchQuery || !content || !onSearchResults) return;
-    const q = searchQuery.toLowerCase();
-    const results: SearchResult[] = [];
+    const offsets = offsetsRef.current;
+    if (offsets.length === 0) return;
 
-    let pos = 0;
-    while (pos < content.length && results.length < 50) {
-      const index = content.toLowerCase().indexOf(q, pos);
-      if (index === -1) break;
-
-      // Find which chunk this belongs to
-      let chunkIdx = Math.floor(index / CHUNK_SIZE);
-      if (chunkIdx >= chunks.length) chunkIdx = chunks.length - 1;
-
-      const startExcerpt = Math.max(0, index - 40);
-      const endExcerpt = Math.min(content.length, index + q.length + 60);
-      const excerpt =
-        (startExcerpt > 0 ? '...' : '') +
-        content.substring(startExcerpt, endExcerpt).replace(/\s+/g, ' ') +
-        (endExcerpt < content.length ? '...' : '');
-
-      results.push({
-        cfi: `chunk:${chunkIdx}`,
-        excerpt,
-        label: `Match at Section ${chunkIdx + 1}`,
-      });
-
-      pos = index + Math.max(1, q.length);
+    let cancelled = false;
+    async function readChunk() {
+      try {
+        const start = offsets[currentChunkIndex];
+        const end =
+          currentChunkIndex + 1 < offsets.length
+            ? offsets[currentChunkIndex + 1]
+            : fileSizeRef.current;
+        const text = await fileStorage.readRangeAsString(
+          book.filePath,
+          start,
+          Math.max(0, end - start)
+        );
+        if (!cancelled && isMountedRef.current) {
+          setChunkText(text.replace(/\uFFFD+$/, ''));
+        }
+      } catch (err) {
+        logger.error(TAG, `Failed to read chunk ${currentChunkIndex}`, err);
+        if (!cancelled && isMountedRef.current) setChunkText('');
+      }
     }
 
-    onSearchResults(results);
-  }, [searchQuery, content, chunks.length, onSearchResults]);
+    readChunk();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentChunkIndex, chunkOffsets, book.filePath]);
 
-  // Handle tap zones: Left 25% prev, Right 25% next, Center 50% toggle controls
-  const handleTap = useCallback(
-    (x: number, width: number) => {
-      const ratio = x / width;
+  // 4. Report progress from the byte offset, so it is accurate for any file size.
+  useEffect(() => {
+    const offsets = offsetsRef.current;
+    if (offsets.length === 0) return;
+
+    const size = fileSizeRef.current;
+    const endOffset =
+      currentChunkIndex + 1 < offsets.length
+        ? offsets[currentChunkIndex + 1]
+        : size;
+    const percent = size > 0 ? Math.min(100, Math.round((endOffset / size) * 100)) : 0;
+    onProgressChange(
+      percent,
+      `chunk:${currentChunkIndex}`,
+      `Section ${currentChunkIndex + 1} of ${offsets.length}`
+    );
+  }, [currentChunkIndex, chunkOffsets, onProgressChange]);
+
+  // 5. Streaming in-book search. Scans window by window and yields, so a
+  //    multi-megabyte file never blocks the UI and is never fully resident.
+  useEffect(() => {
+    if (!searchQuery || !onSearchResults) return;
+
+    let cancelled = false;
+    const offsets = offsetsRef.current;
+    const size = fileSizeRef.current;
+    // Snapshot into locals so the async body does not depend on prop narrowing.
+    const query = searchQuery;
+    const report = onSearchResults;
+
+    async function runSearch() {
+      const needle = query.toLowerCase();
+      if (!needle) {
+        report([]);
+        return;
+      }
+
+      const results: SearchResult[] = [];
+      let bytePos = 0;
+      let carry = '';
+
+      while (bytePos < size && results.length < MAX_SEARCH_RESULTS) {
+        if (cancelled) return;
+
+        const window = await fileStorage.readRangeAsString(
+          book.filePath,
+          bytePos,
+          WINDOW_BYTES
+        );
+        if (!window) break;
+
+        const windowBytes = byteLengthOf(window);
+        const haystack = (carry + window).toLowerCase();
+
+        let from = 0;
+        for (;;) {
+          const idx = haystack.indexOf(needle, from);
+          if (idx === -1) break;
+
+          const excerptStart = Math.max(0, idx - 40);
+          const excerptEnd = Math.min(haystack.length, idx + needle.length + 60);
+          const excerpt =
+            (excerptStart > 0 ? '...' : '') +
+            haystack
+              .slice(excerptStart, excerptEnd)
+              .replace(/\s+/g, ' ') +
+            (excerptEnd < haystack.length ? '...' : '');
+
+          // Character index within the haystack -> byte offset in the file.
+          const byteOffset =
+            bytePos + byteLengthOf(haystack.slice(0, idx));
+          const chunkIdx = chunkIndexForByteOffset(offsets, byteOffset);
+
+          results.push({
+            cfi: `chunk:${chunkIdx}`,
+            excerpt,
+            label: `Match at Section ${chunkIdx + 1}`,
+          });
+
+          if (results.length >= MAX_SEARCH_RESULTS) break;
+          from = idx + Math.max(1, needle.length);
+        }
+
+        // Carry the tail so matches spanning a window boundary are still found.
+        carry = haystack.slice(Math.max(0, haystack.length - needle.length - 1));
+        bytePos += windowBytes;
+        await yieldToEventLoop();
+      }
+
+      if (!cancelled) report(results);
+    }
+
+    runSearch();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchQuery, chunkOffsets, book.filePath, onSearchResults]);
+
+  const goToChunk = useCallback(
+    (index: number) => {
+      const total = offsetsRef.current.length;
+      if (index < 0 || index >= total) return;
+      setCurrentChunkIndex(index);
+      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+    },
+    []
+  );
+
+  // Tap zones: left 25% prev, right 25% next, centre toggles controls.
+  // A PanResponder is used instead of TouchableWithoutFeedback so that dragging
+  // to scroll a chunk is no longer mistaken for a page turn.
+  const onPrevRef = useRef<() => void>(() => {});
+  const onNextRef = useRef<() => void>(() => {});
+  const onToggleControlsRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    onPrevRef.current = () => goToChunk(currentChunkIndex - 1);
+    onNextRef.current = () => goToChunk(currentChunkIndex + 1);
+    onToggleControlsRef.current = onToggleControls;
+  }, [currentChunkIndex, goToChunk, onToggleControls]);
+
+  const handleRelease = useCallback(
+    (e: GestureResponderEvent, g: TapGesture) => {
+      if (Math.abs(g.dy) > TAP_SLOP || Math.abs(g.dx) > TAP_SLOP) return;
+      const width = Dimensions.get('window').width;
+      const ratio = e.nativeEvent.locationX / width;
       if (ratio < 0.25) {
-        // Prev
-        if (currentChunkIndex > 0) {
-          setCurrentChunkIndex((prev) => prev - 1);
-          scrollViewRef.current?.scrollTo({ y: 0, animated: false });
-        }
+        onPrevRef.current();
       } else if (ratio > 0.75) {
-        // Next
-        if (currentChunkIndex < chunks.length - 1) {
-          setCurrentChunkIndex((prev) => prev + 1);
-          scrollViewRef.current?.scrollTo({ y: 0, animated: false });
-        }
+        onNextRef.current();
       } else {
-        // Center
-        onToggleControls();
+        onToggleControlsRef.current();
       }
     },
-    [currentChunkIndex, chunks.length, onToggleControls]
+    []
+  );
+
+  const panHandlers = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > TAP_SLOP,
+        onPanResponderRelease: handleRelease,
+      }).panHandlers,
+    [handleRelease]
   );
 
   if (isLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: palette.bg }]}>
         <ActivityIndicator size="large" color={palette.link} />
+        <Text style={[styles.loadingText, { color: palette.muted }]}>
+          Preparing text…
+        </Text>
       </View>
     );
   }
 
-  const currentText = chunks[currentChunkIndex] || 'No text found in this section.';
+  if (error) {
+    return (
+      <View style={[styles.centered, { backgroundColor: palette.bg }]}>
+        <Text style={{ color: palette.text }}>{error}</Text>
+      </View>
+    );
+  }
+
   const screenWidth = Dimensions.get('window').width;
+  void screenWidth;
 
   return (
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
-      <TouchableWithoutFeedback
-        onPress={(e) => handleTap(e.nativeEvent.locationX, screenWidth)}
-      >
+      <View style={styles.scrollView} {...panHandlers}>
         <ScrollView
           ref={scrollViewRef}
-          style={styles.scrollView}
           contentContainerStyle={[
             styles.scrollContent,
             { paddingHorizontal: settings.margin + 8 },
@@ -233,13 +430,15 @@ export function TxtReaderView({
               },
             ]}
           >
-            {currentText}
+            {chunkText || 'No text found in this section.'}
           </Text>
         </ScrollView>
-      </TouchableWithoutFeedback>
+      </View>
     </View>
   );
 }
+
+/** Index of the first entry in `sorted` that is strictly greater than `value`. */
 
 const styles = StyleSheet.create({
   container: {
@@ -249,6 +448,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
   },
   scrollView: {
     flex: 1,

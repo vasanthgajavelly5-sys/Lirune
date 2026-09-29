@@ -37,13 +37,13 @@ Lirune Reader does not require an account and does not upload book content, anno
 Requirements: Windows 10 or later, Node.js 20 or newer, and npm.
 
 ```powershell
-git clone https://github.com/vasanthgajavelly5-sys/Novera.git
-cd Novera
+git clone https://github.com/vasanthgajavelly5-sys/Lirune.git
+cd Lirune
 npm ci
 npm start
 ```
 
-> This repository is named **Novera** on GitHub but currently hosts **Lirune Reader** (v4.0.2+). The repository URL has not been renamed to preserve release history and issue links.
+> The repository was renamed from **Novera** to **Lirune** on GitHub. GitHub redirects the old URL, so existing clone links, issue links, and release links continue to work.
 
 Useful commands:
 

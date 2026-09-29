@@ -30,12 +30,12 @@
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vasanthgajavelly5-sys/Novera.git"
+    "url": "git+https://github.com/vasanthgajavelly5-sys/Lirune.git"
   },
   "bugs": {
-    "url": "https://github.com/vasanthgajavelly5-sys/Novera/issues"
+    "url": "https://github.com/vasanthgajavelly5-sys/Lirune/issues"
   },
-  "homepage": "https://github.com/vasanthgajavelly5-sys/Novera#readme",
+  "homepage": "https://github.com/vasanthgajavelly5-sys/Lirune#readme",
   "engines": {
     "node": ">=20"
   },

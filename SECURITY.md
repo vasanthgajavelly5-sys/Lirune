@@ -8,9 +8,9 @@ Security fixes are developed for the latest version on the `main` branch and the
 
 Please do not disclose security vulnerabilities in public issues.
 
-Report suspected vulnerabilities privately to the project maintainers through the private security reporting tools available on the GitHub repository (this repository is named Novera on GitHub but hosts Lirune Reader):
+Report suspected vulnerabilities privately to the project maintainers through the private security reporting tools available on the GitHub repository:
 
-<https://github.com/vasanthgajavelly5-sys/Novera/security/advisories/new>
+<https://github.com/vasanthgajavelly5-sys/Lirune/security/advisories/new>
 
 Include:
 

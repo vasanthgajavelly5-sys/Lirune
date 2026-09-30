@@ -34,6 +34,7 @@ import {
   stripTrailingPartialChar,
 } from '@/services/txt/chunkIndex';
 import { READER_THEMES } from '@/theme/Colors';
+import { getNativeFontFamily } from '@/theme/Typography';
 import { logger } from '@/utils/logger';
 
 const TAG = 'TxtReaderView';
@@ -421,12 +422,7 @@ export function TxtReaderView({
                 fontSize: settings.fontSize,
                 lineHeight: Math.round(settings.fontSize * settings.lineHeight),
                 textAlign: settings.alignment,
-                fontFamily:
-                  settings.fontFamily === 'Monospace'
-                    ? 'monospace'
-                    : settings.fontFamily === 'Serif'
-                    ? 'serif'
-                    : 'normal',
+                fontFamily: getNativeFontFamily(settings.fontFamily),
               },
             ]}
           >

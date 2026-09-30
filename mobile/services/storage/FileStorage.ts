@@ -57,16 +57,33 @@ export class FileStorageService {
         from: sourceUri,
         to: destPath,
       });
-
-      const info = await FileSystem.getInfoAsync(destPath);
-      const fileSize = info.exists && !info.isDirectory ? info.size : 0;
-
-      logger.info(TAG, `Saved book to app storage: ${destPath} (${fileSize} bytes)`);
-      return { destPath, fileSize };
-    } catch (err) {
-      logger.error(TAG, `Failed to copy file to storage: ${sourceUri}`, err);
-      throw err;
+    } catch (copyErr) {
+      logger.warn(TAG, `copyAsync failed, trying content stream fallback for: ${sourceUri}`);
+      try {
+        let base64Data: string;
+        if (sourceUri.startsWith('content://')) {
+          base64Data = await FileSystem.StorageAccessFramework.readAsStringAsync(sourceUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        } else {
+          base64Data = await FileSystem.readAsStringAsync(sourceUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
+        await FileSystem.writeAsStringAsync(destPath, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      } catch (readErr) {
+        logger.error(TAG, `Failed both copyAsync and readAsString fallback for ${sourceUri}`, readErr);
+        throw copyErr;
+      }
     }
+
+    const info = await FileSystem.getInfoAsync(destPath);
+    const fileSize = info.exists && !info.isDirectory ? info.size : 0;
+
+    logger.info(TAG, `Saved book to app storage: ${destPath} (${fileSize} bytes)`);
+    return { destPath, fileSize };
   }
 
   /**

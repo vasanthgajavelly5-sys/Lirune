@@ -16,35 +16,33 @@
     "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
-    "ignoreDeprecations": "6.0",
     "paths": {
       "@/*": [
         "./*"
       ],
       "@/theme/*": [
-        "theme/*"
+        "./theme/*"
       ],
       "@/components/*": [
-        "components/*"
+        "./components/*"
       ],
       "@/hooks/*": [
-        "hooks/*"
+        "./hooks/*"
       ],
       "@/models/*": [
-        "models/*"
+        "./models/*"
       ],
       "@/repositories/*": [
-        "repositories/*"
+        "./repositories/*"
       ],
       "@/services/*": [
-        "services/*"
+        "./services/*"
       ],
       "@/state/*": [
-        "state/*"
+        "./state/*"
       ],
       "@/utils/*": [
-        "utils/*"
+        "./utils/*"
       ]
     },
     "types": [

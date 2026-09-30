@@ -109,10 +109,20 @@ export class ImportService {
 
       // 2. Check for duplicate by filename and size if already in library
       const existingBooks = await repo.getBooks();
+      const cleanFileName = fileName.replace(/\.[^/.]+$/, '').toLowerCase();
+      const normFileName = cleanFileName.replace(/[^a-z0-9]/g, '');
       const duplicate = existingBooks.find(
-        (b) =>
-          b.title.toLowerCase() === fileName.replace(/\.[^/.]+$/, '').toLowerCase() &&
-          b.format === format
+        (b) => {
+          if (b.format !== format) return false;
+          const bTitle = b.title.toLowerCase();
+          const normTitle = bTitle.replace(/[^a-z0-9]/g, '');
+          return (
+            bTitle === cleanFileName ||
+            (normFileName.length > 3 && normTitle.includes(normFileName)) ||
+            (normTitle.length > 3 && normFileName.includes(normTitle)) ||
+            (fileSizeHint && b.fileSize === fileSizeHint && b.fileSize > 0)
+          );
+        }
       );
       if (duplicate) {
         logger.info(TAG, `Book already exists in library: ${duplicate.title}`);

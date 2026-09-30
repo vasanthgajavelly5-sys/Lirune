@@ -11,6 +11,7 @@ import { SELECTION_WATCHER_JS, parseSelectionMessage, type SelectionPayload } fr
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { READER_THEMES } from '@/theme/Colors';
+import { getCssFontFamily } from '@/theme/Typography';
 import { logger } from '@/utils/logger';
 
 const TAG = 'HtmlReaderView';
@@ -77,13 +78,7 @@ export function HtmlReaderView({
         body {
           background-color: ${palette.bg};
           color: ${palette.text};
-          font-family: ${
-            settings.fontFamily === 'Monospace'
-              ? 'monospace'
-              : settings.fontFamily === 'Serif'
-              ? 'Georgia, serif'
-              : 'system-ui, -apple-system, sans-serif'
-          };
+          font-family: ${getCssFontFamily(settings.fontFamily)};
           font-size: ${settings.fontSize}px;
           line-height: ${settings.lineHeight};
           padding: 24px ${settings.margin + 4}px 60px ${settings.margin + 4}px;

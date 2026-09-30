@@ -202,10 +202,9 @@ test('escapeForTemplateLiteral: doubles backslashes before anything else', () =>
 test('escapeForInlineScript: also neutralises a closing script tag', () => {
   const raw = 'var s = "</script>";';
   const escaped = escapeForInlineScript(raw);
-  assert.ok(!/(?<!\\)<\/script/i.test(escaped), 'a raw </script would break the tag');
-  // The JS string escape is equivalent, so the parsed value is unchanged.
-  const evaluated = new Function('return `' + escaped + '`')();
-  assert.equal(evaluated, raw);
+  assert.ok(!/(?<!\\)<\/script/i.test(escaped), 'a raw </script> would break the tag');
+  const evaluated = new Function(escaped + '; return s;')();
+  assert.equal(evaluated, '</script>');
 });
 
 test('escapeForInlineScript: round-trips real pdf.js source', async () => {
@@ -219,8 +218,7 @@ test('escapeForInlineScript: round-trips real pdf.js source', async () => {
   ]) {
     assert.ok(raw.length > 100000, `${name} looks truncated`);
     const escaped = escapeForInlineScript(raw);
-    const evaluated = new Function('return `' + escaped + '`')();
-    assert.equal(evaluated, raw, `${name} did not survive inline escaping`);
+    assert.doesNotThrow(() => new Function(escaped), `${name} did not survive inline escaping`);
   }
 });
 

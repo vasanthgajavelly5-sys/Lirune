@@ -47,6 +47,22 @@ interface NavItem {
   activeIcon: keyof typeof Ionicons.glyphMap;
 }
 
+export function isNavRouteActive(route: string, pathname: string): boolean {
+  const cleanPath = (pathname || '').replace(/\/$/, '') || '/';
+
+  if (route === '/' || route === '/index') {
+    return cleanPath === '/' || cleanPath === '/(tabs)' || cleanPath === '/(tabs)/index';
+  }
+
+  const segment = route.replace(/^\//, '');
+  return (
+    cleanPath === `/${segment}` ||
+    cleanPath === `/(tabs)/${segment}` ||
+    cleanPath.startsWith(`/${segment}/`) ||
+    cleanPath.startsWith(`/(tabs)/${segment}/`)
+  );
+}
+
 const NAV_ITEMS: NavItem[] = [
   {
     id: 'library',
@@ -63,11 +79,11 @@ const NAV_ITEMS: NavItem[] = [
     activeIcon: 'folder',
   },
   {
-    id: 'search',
-    label: 'Search',
+    id: 'files',
+    label: 'Files',
     route: '/search',
-    icon: 'search-outline',
-    activeIcon: 'search',
+    icon: 'folder-open-outline',
+    activeIcon: 'folder-open',
   },
   {
     id: 'settings',
@@ -249,9 +265,7 @@ function LiruneSlideDrawer({
         {/* Separate Rounded Navigation Tiles */}
         <View style={styles.navList}>
           {NAV_ITEMS.map((item) => {
-            const isActive =
-              (item.route === '/' && (pathname === '/' || pathname === '/(tabs)')) ||
-              pathname.includes(item.route.replace('/', ''));
+            const isActive = isNavRouteActive(item.route, pathname);
 
             return (
               <TouchableOpacity
@@ -386,9 +400,7 @@ function LiruneSideRail() {
       {/* Nav Buttons */}
       <View style={styles.railNavList}>
         {NAV_ITEMS.map((item) => {
-          const isActive =
-            (item.route === '/' && (pathname === '/' || pathname === '/(tabs)')) ||
-            pathname.includes(item.route.replace('/', ''));
+          const isActive = isNavRouteActive(item.route, pathname);
 
           return (
             <TouchableOpacity

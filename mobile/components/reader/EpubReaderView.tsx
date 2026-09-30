@@ -5,8 +5,9 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { Ionicons } from '@expo/vector-icons';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
 import { SELECTION_WATCHER_JS, parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
 import { resolveZipPath } from '@/services/epub/zipPaths';
@@ -14,6 +15,7 @@ import JSZip from 'jszip';
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { READER_THEMES } from '@/theme/Colors';
+import { getCssFontFamily } from '@/theme/Typography';
 import { logger } from '@/utils/logger';
 
 const TAG = 'EpubReaderView';
@@ -54,6 +56,7 @@ export function EpubReaderView({
   const [totalPages, setTotalPages] = useState<number>(1);
   const [startAtEnd, setStartAtEnd] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
 
   const isPaginated = settings.flow !== 'scrolled';
@@ -65,63 +68,124 @@ export function EpubReaderView({
     let isMounted = true;
     async function loadEpub() {
       setIsLoading(true);
+      setLoadError(null);
       try {
         const base64 = await fileStorage.readAsBase64(book.filePath);
+        if (!base64) {
+          throw new Error('EPUB file is empty or missing from storage.');
+        }
         const zip = await JSZip.loadAsync(base64, { base64: true });
 
         // A. Find OPF path via META-INF/container.xml
         const containerFile = zip.file('META-INF/container.xml');
-        if (!containerFile) throw new Error('Missing META-INF/container.xml');
+        if (!containerFile) throw new Error('Missing META-INF/container.xml in EPUB archive.');
 
         const containerXml = await containerFile.async('text');
         const opfMatch = containerXml.match(/full-path=["']([^"']+)["']/i);
         const opfPath = opfMatch ? opfMatch[1] : 'OEBPS/content.opf';
         const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
 
-        const opfFile = zip.file(opfPath);
-        if (!opfFile) throw new Error(`Missing OPF file at ${opfPath}`);
+        const opfFile = zip.file(opfPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === opfPath.toLowerCase());
+        if (!opfFile) throw new Error(`Missing OPF manifest at ${opfPath}`);
 
         const opfXml = await opfFile.async('text');
 
-        // B. Parse Manifest: <item id="..." href="..." media-type="..."/>
-        const manifest: Record<string, { href: string; mediaType: string }> = {};
-        const itemRegex = /<item\b[^>]*\bid=["']([^"']+)["'][^>]*\bhref=["']([^"']+)["'][^>]*\bmedia-type=["']([^"']+)["'][^>]*\/?>/gi;
-        let itemMatch;
-        while ((itemMatch = itemRegex.exec(opfXml)) !== null) {
-          manifest[itemMatch[1]] = {
-            href: itemMatch[2],
-            mediaType: itemMatch[3],
-          };
+        // B. Robust Manifest Parsing (attribute order agnostic)
+        const manifest: Record<string, { href: string; mediaType: string; properties?: string }> = {};
+        const itemTagRegex = /<item\b([^>]+)\/?>/gi;
+        let itemTagMatch;
+        while ((itemTagMatch = itemTagRegex.exec(opfXml)) !== null) {
+          const rawAttrs = itemTagMatch[1];
+          const idMatch = rawAttrs.match(/\bid=["']([^"']+)["']/i);
+          const hrefMatch = rawAttrs.match(/\bhref=["']([^"']+)["']/i);
+          const mediaTypeMatch = rawAttrs.match(/\bmedia-type=["']([^"']+)["']/i);
+          const propMatch = rawAttrs.match(/\bproperties=["']([^"']+)["']/i);
+          if (idMatch && hrefMatch) {
+            manifest[idMatch[1]] = {
+              href: hrefMatch[1],
+              mediaType: mediaTypeMatch ? mediaTypeMatch[1] : 'application/xhtml+xml',
+              properties: propMatch ? propMatch[1] : undefined,
+            };
+          }
         }
 
-        // C. Parse Spine: <itemref idref="..."/>
+        // C. Robust Spine Parsing
         const spineIdrefs: string[] = [];
-        const spineRegex = /<itemref\b[^>]*\bidref=["']([^"']+)["'][^>]*\/?>/gi;
-        let spineMatch;
-        while ((spineMatch = spineRegex.exec(opfXml)) !== null) {
-          spineIdrefs.push(spineMatch[1]);
+        const spineTagRegex = /<itemref\b([^>]+)\/?>/gi;
+        let spineTagMatch;
+        while ((spineTagMatch = spineTagRegex.exec(opfXml)) !== null) {
+          const rawAttrs = spineTagMatch[1];
+          const idrefMatch = rawAttrs.match(/\bidref=["']([^"']+)["']/i);
+          if (idrefMatch) {
+            spineIdrefs.push(idrefMatch[1]);
+          }
         }
 
-        // D. Extract TOC from NCX or NAV
-        const tocItems: TOCItem[] = [];
-        const ncxItem = Object.values(manifest).find(
-          (m) => m.mediaType === 'application/x-dtbncx+xml' || m.href.endsWith('.ncx')
-        );
+        // Fallback: If spine is empty, pick manifest items by mediaType
+        if (spineIdrefs.length === 0) {
+          for (const [id, item] of Object.entries(manifest)) {
+            const mt = (item.mediaType || '').toLowerCase();
+            const href = (item.href || '').toLowerCase();
+            if (mt.includes('xhtml') || mt.includes('html') || href.endsWith('.xhtml') || href.endsWith('.html')) {
+              spineIdrefs.push(id);
+            }
+          }
+        }
 
-        if (ncxItem) {
-          const ncxPath = resolveZipPath(opfDir, ncxItem.href);
-          const ncxFile = zip.file(ncxPath);
-          if (ncxFile) {
-            const ncxXml = await ncxFile.async('text');
-            const navPointRegex = /<navPoint\b[^>]*>[\s\S]*?<text>([^<]+)<\/text>[\s\S]*?<content[^>]+src=["']([^"']+)["'][\s\S]*?<\/navPoint>/gi;
-            let navMatch;
-            let navIdx = 0;
-            while ((navMatch = navPointRegex.exec(ncxXml)) !== null) {
-              tocItems.push({
-                id: `toc_${navIdx++}`,
-                label: navMatch[1].trim(),
-                href: navMatch[2],
-              });
+        // D. Extract TOC from EPUB 3 Navigation Document or EPUB 2 NCX
+        const tocItems: TOCItem[] = [];
+
+        // 1. Try EPUB 3 Nav first
+        const navItem = Object.values(manifest).find(
+          (m) => (m.properties && m.properties.includes('nav')) || m.href.toLowerCase().includes('nav.xhtml') || m.href.toLowerCase().includes('toc.xhtml')
+        );
+        if (navItem) {
+          const navPath = resolveZipPath(opfDir, navItem.href);
+          const navFile = zip.file(navPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === navPath.toLowerCase());
+          if (navFile) {
+            try {
+              const navXhtml = await navFile.async('text');
+              const navLinkRegex = /<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+              let linkMatch;
+              let navIdx = 0;
+              const navDir = navPath.includes('/') ? navPath.substring(0, navPath.lastIndexOf('/') + 1) : '';
+              while ((linkMatch = navLinkRegex.exec(navXhtml)) !== null) {
+                const href = resolveZipPath(navDir, linkMatch[1]);
+                const label = linkMatch[2].replace(/<[^>]+>/g, '').trim();
+                if (label) {
+                  tocItems.push({
+                    id: `nav_${navIdx++}`,
+                    label,
+                    href,
+                  });
+                }
+              }
+            } catch (navErr) {
+              logger.warn(TAG, 'Failed to parse EPUB 3 nav TOC', navErr);
+            }
+          }
+        }
+
+        // 2. If no TOC found, try EPUB 2 NCX
+        if (tocItems.length === 0) {
+          const ncxItem = Object.values(manifest).find(
+            (m) => m.mediaType === 'application/x-dtbncx+xml' || m.href.endsWith('.ncx')
+          );
+          if (ncxItem) {
+            const ncxPath = resolveZipPath(opfDir, ncxItem.href);
+            const ncxFile = zip.file(ncxPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === ncxPath.toLowerCase());
+            if (ncxFile) {
+              const ncxXml = await ncxFile.async('text');
+              const navPointRegex = /<navPoint\b[^>]*>[\s\S]*?<text>([^<]+)<\/text>[\s\S]*?<content[^>]+src=["']([^"']+)["'][\s\S]*?<\/navPoint>/gi;
+              let navMatch;
+              let navIdx = 0;
+              while ((navMatch = navPointRegex.exec(ncxXml)) !== null) {
+                tocItems.push({
+                  id: `toc_${navIdx++}`,
+                  label: navMatch[1].trim(),
+                  href: navMatch[2],
+                });
+              }
             }
           }
         }
@@ -164,7 +228,7 @@ export function EpubReaderView({
           if (!manItem) continue;
 
           const itemPath = resolveZipPath(opfDir, manItem.href);
-          const file = zip.file(itemPath);
+          const file = zip.file(itemPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === itemPath.toLowerCase());
           if (!file) continue;
 
           let rawHtml = await file.async('text');
@@ -177,7 +241,10 @@ export function EpubReaderView({
             rawHtml.match(/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i);
           const title = titleMatch ? titleMatch[1].trim() : `Chapter ${loadedChapters.length + 1}`;
 
-          const imgRegex = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*\/?>/gi;
+          // Image resolution relative to the CHAPTER directory
+          const chapterDir = itemPath.includes('/') ? itemPath.substring(0, itemPath.lastIndexOf('/') + 1) : '';
+
+          const imgRegex = /<(?:img|image)\b[^>]*\b(?:src|xlink:href|href)=["']([^"']+)["'][^>]*\/?>/gi;
           let imgMatch;
           const foundImages: string[] = [];
           while ((imgMatch = imgRegex.exec(rawHtml)) !== null) {
@@ -186,22 +253,30 @@ export function EpubReaderView({
 
           for (const imgSrc of foundImages) {
             if (imgSrc.startsWith('data:') || imgSrc.startsWith('http')) continue;
-            const fullImgPath = resolveZipPath(opfDir, imgSrc);
+            const fullImgPath = resolveZipPath(chapterDir, imgSrc);
             const imgEntry = zip.file(fullImgPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === fullImgPath.toLowerCase());
             if (imgEntry) {
               const b64 = await imgEntry.async('base64');
               const ext = imgSrc.split('.').pop()?.toLowerCase() || 'jpeg';
-              const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+              let mime = 'image/jpeg';
+              if (ext === 'png') mime = 'image/png';
+              else if (ext === 'svg') mime = 'image/svg+xml';
+              else if (ext === 'webp') mime = 'image/webp';
+              else if (ext === 'gif') mime = 'image/gif';
               const dataUri = `data:${mime};base64,${b64}`;
               rawHtml = rawHtml.split(imgSrc).join(dataUri);
             }
           }
 
+          // Extract inner body content if present to avoid invalid nested <html> inside <div>
+          const bodyMatch = rawHtml.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+          const chapterHtmlContent = bodyMatch ? bodyMatch[1] : rawHtml;
+
           loadedChapters.push({
             id: idref,
             href: manItem.href,
             title,
-            html: rawHtml,
+            html: chapterHtmlContent,
           });
 
           if (tocItems.length === 0) {
@@ -211,6 +286,10 @@ export function EpubReaderView({
               href: `spine:${loadedChapters.length - 1}`,
             });
           }
+        }
+
+        if (loadedChapters.length === 0) {
+          throw new Error('This EPUB publication contains no readable chapter items.');
         }
 
         if (isMounted) {
@@ -231,9 +310,10 @@ export function EpubReaderView({
             setCurrentChapterIndex(idx);
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         logger.error(TAG, `Failed to load EPUB: ${book.filePath}`, err);
         if (isMounted) {
+          setLoadError(err?.message || 'Unable to open EPUB publication.');
           setIsLoading(false);
         }
       }
@@ -333,6 +413,24 @@ export function EpubReaderView({
     );
   }
 
+  if (loadError || chapters.length === 0) {
+    return (
+      <View style={[styles.centered, { backgroundColor: palette.bg, padding: 32 }]}>
+        <Ionicons name="alert-circle-outline" size={48} color={palette.link} />
+        <Text style={[styles.errorTitle, { color: palette.text }]}>Unable to Read Publication</Text>
+        <Text style={[styles.errorMessage, { color: palette.muted }]}>
+          {loadError || 'No readable chapters or content found in this EPUB file.'}
+        </Text>
+        <TouchableOpacity
+          style={[styles.errorBtn, { backgroundColor: palette.link }]}
+          onPress={onToggleControls}
+        >
+          <Text style={styles.errorBtnText}>Show Reader Controls</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const activeChapter = chapters[currentChapterIndex];
   const chapterHtml = activeChapter?.html || '<p>No content in this chapter.</p>';
 
@@ -351,13 +449,7 @@ export function EpubReaderView({
           overflow: hidden;
           background-color: ${palette.bg};
           color: ${palette.text};
-          font-family: ${
-            settings.fontFamily === 'Monospace'
-              ? 'monospace'
-              : settings.fontFamily === 'Serif'
-              ? 'Georgia, serif'
-              : 'system-ui, -apple-system, sans-serif'
-          };
+          font-family: ${getCssFontFamily(settings.fontFamily)};
           font-size: ${settings.fontSize}px;
           line-height: ${settings.lineHeight};
           text-align: ${settings.alignment};
@@ -526,13 +618,7 @@ export function EpubReaderView({
         body {
           background-color: ${palette.bg};
           color: ${palette.text};
-          font-family: ${
-            settings.fontFamily === 'Monospace'
-              ? 'monospace'
-              : settings.fontFamily === 'Serif'
-              ? 'Georgia, serif'
-              : 'system-ui, -apple-system, sans-serif'
-          };
+          font-family: ${getCssFontFamily(settings.fontFamily)};
           font-size: ${settings.fontSize}px;
           line-height: ${settings.lineHeight};
           padding: 24px ${settings.margin + 4}px 60px ${settings.margin + 4}px;
@@ -651,6 +737,30 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
+    fontSize: 14,
+  },
+  errorTitle: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  errorMessage: {
+    marginTop: 8,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    maxWidth: 320,
+  },
+  errorBtn: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  errorBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
     fontSize: 14,
   },
   pageFooter: {

@@ -21,13 +21,12 @@ export function escapeForTemplateLiteral(raw: string): string {
 }
 
 /**
- * Escapes library source for inlining directly into a `<script>` element.
+ * Escapes library source for inlining directly into an HTML `<script>` element.
  *
- * In addition to the template-literal escaping, this neutralises any literal
- * `</script` sequence, which would otherwise terminate the script element early.
- * `<\/script` is an identical JS string escape, so the parsed source is
- * unchanged.
+ * In an HTML document, `<script>` contains raw script data, which terminates only
+ * when `</script` is encountered. Escaping it as `<\/script` prevents the HTML parser
+ * from breaking out of the script tag while remaining 100% valid JavaScript syntax.
  */
 export function escapeForInlineScript(raw: string): string {
-  return escapeForTemplateLiteral(raw).replace(/<\/script/gi, '<\\/script');
+  return raw.replace(/<\/script/gi, '<\\/script');
 }

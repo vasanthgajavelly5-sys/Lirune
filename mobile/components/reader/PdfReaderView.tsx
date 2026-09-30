@@ -47,6 +47,7 @@ export function PdfReaderView({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [renderError, setRenderError] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
   /** Page to jump to once pdf.js has reported the document is ready. */
   const pendingPageRef = useRef<number | null>(null);
@@ -60,13 +61,19 @@ export function PdfReaderView({
     async function loadPdf() {
       try {
         const b64 = await fileStorage.readAsBase64(book.filePath);
+        if (!b64) {
+          throw new Error('PDF file could not be read or is empty.');
+        }
         if (active) {
           setPdfBase64(b64);
           setIsLoading(false);
         }
-      } catch (err) {
+      } catch (err: any) {
         logger.error(TAG, `Error loading PDF: ${book.filePath}`, err);
-        if (active) setIsLoading(false);
+        if (active) {
+          setRenderError(err?.message || 'Failed to load PDF file.');
+          setIsLoading(false);
+        }
       }
     }
     loadPdf();
@@ -95,21 +102,25 @@ export function PdfReaderView({
     }
   }, [targetCfi, totalPages, goToPage]);
 
-  // Self-contained PDF viewer HTML with pdf.js.
-  //
-  // CRITICAL: this string must be STABLE across page changes. It is memoised on
-  // the document bytes alone, and the current page is deliberately NOT baked in.
-  // Previously `pageNum` was interpolated from React state, so every page turn
-  // produced a new `source` prop, which made react-native-webview tear down and
-  // reload the whole document — re-running atob() and getDocument() on the
-  // entire PDF for every single page.
+  // Self-contained PDF viewer HTML with in-thread pdf.js.
   const pdfViewerHtml = useMemo(
     () => `
     <!DOCTYPE html>
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, user-scalable=yes">
+      <script>
+        window.onerror = function(msg, url, line, col, err) {
+          try {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'error',
+              message: String(msg) + ' (' + line + ':' + col + ')'
+            }));
+          } catch(e) {}
+        };
+      </script>
       <script>${PDFJS_INLINE}</script>
+      <script>${PDFJS_WORKER_INLINE}</script>
       <style>
         * { box-sizing: border-box; }
         body {
@@ -144,14 +155,20 @@ export function PdfReaderView({
       </div>
 
       <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
-          new Blob(["${PDFJS_WORKER_INLINE}"], { type: 'application/javascript' })
-        );
+        // Wire in-thread worker handler from preloaded pdf.worker bundle
+        if (window.pdfjsWorker && window.pdfjsWorker.WorkerMessageHandler) {
+          try {
+            pdfjsLib.PDFWorker._mainThreadWorkerMessageHandler = window.pdfjsWorker.WorkerMessageHandler;
+          } catch(e) {}
+        }
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 
         var pdfDoc = null;
         var pageNum = 1;
         var canvas = document.getElementById('pdf-canvas');
         var ctx = canvas.getContext('2d');
+        var renderTask = null;
+
         var rawData = atob("${pdfBase64 || ''}");
         var uint8 = new Uint8Array(rawData.length);
         for (var i = 0; i < rawData.length; i++) {
@@ -174,7 +191,7 @@ export function PdfReaderView({
         }).catch(function(err) {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'error',
-            message: err.message
+            message: err.message || 'Unable to open PDF document.'
           }));
         });
 
@@ -183,9 +200,17 @@ export function PdfReaderView({
             window.__pendingPage = num;
             return;
           }
+          if (renderTask) {
+            try { renderTask.cancel(); } catch(e) {}
+            renderTask = null;
+          }
           pageNum = Math.max(1, Math.min(pdfDoc.numPages, num));
           pdfDoc.getPage(pageNum).then(function(page) {
-            var viewport = page.getViewport({ scale: 1.5 });
+            var screenW = window.innerWidth || 360;
+            var unscaledViewport = page.getViewport({ scale: 1.0 });
+            var targetScale = (screenW * 0.96) / unscaledViewport.width;
+            var viewport = page.getViewport({ scale: Math.max(1.0, targetScale) });
+
             canvas.height = viewport.height;
             canvas.width = viewport.width;
 
@@ -193,13 +218,26 @@ export function PdfReaderView({
               canvasContext: ctx,
               viewport: viewport
             };
-            page.render(renderContext).promise.then(function() {
+            renderTask = page.render(renderContext);
+            renderTask.promise.then(function() {
+              renderTask = null;
               window.ReactNativeWebView.postMessage(JSON.stringify({
                 type: 'pageChange',
                 page: pageNum,
                 numPages: pdfDoc.numPages
               }));
+            }).catch(function(rErr) {
+              if (rErr && rErr.name === 'RenderingCancelledException') return;
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'error',
+                message: rErr.message
+              }));
             });
+          }).catch(function(err) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'error',
+              message: err.message
+            }));
           });
         };
 
@@ -240,6 +278,7 @@ export function PdfReaderView({
           );
         } else if (data.type === 'error') {
           logger.error(TAG, `pdf.js reported: ${data.message}`);
+          setRenderError(data.message);
         } else if (data.type === 'tap') {
           const ratio = data.xRatio;
           if (ratio < 0.25) {
@@ -264,6 +303,15 @@ export function PdfReaderView({
         <Text style={[styles.loadingText, { color: palette.muted }]}>
           Loading PDF document...
         </Text>
+      </View>
+    );
+  }
+
+  if (renderError) {
+    return (
+      <View style={[styles.centered, { backgroundColor: palette.bg, padding: 32 }]}>
+        <Text style={[styles.errorTitle, { color: palette.text }]}>Unable to Render PDF</Text>
+        <Text style={[styles.errorMessage, { color: palette.muted }]}>{renderError}</Text>
       </View>
     );
   }
@@ -302,6 +350,18 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  errorMessage: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    maxWidth: 320,
   },
   floatingPagePill: {
     position: 'absolute',

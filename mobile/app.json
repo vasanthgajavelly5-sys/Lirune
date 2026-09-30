@@ -24,6 +24,26 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            { "scheme": "content", "mimeType": "application/epub+zip" },
+            { "scheme": "file", "mimeType": "application/epub+zip" },
+            { "scheme": "content", "mimeType": "*/*", "pathPattern": ".*\\.epub" },
+            { "scheme": "file", "mimeType": "*/*", "pathPattern": ".*\\.epub" }
+          ],
+          "category": ["DEFAULT", "BROWSABLE"]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            { "scheme": "content", "mimeType": "application/pdf" },
+            { "scheme": "file", "mimeType": "application/pdf" }
+          ],
+          "category": ["DEFAULT", "BROWSABLE"]
+        }
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {

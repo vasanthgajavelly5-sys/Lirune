@@ -37,7 +37,7 @@ export default function TabLayout() {
         <Tabs.Screen
           name="search"
           options={{
-            title: 'Search',
+            title: 'Files',
           }}
         />
         <Tabs.Screen

@@ -33,3 +33,14 @@ ehthumbs.db
 [Dd]esktop.ini
 .vscode/
 .idea/
+
+# QA artifacts & scratch
+.qa-userdata/
+.kilo/
+*.zip
+Lirune-RealFile-QA*
+.tempmediaStorage/
+scratch/
+Batch*-Fixes/
+start-emulator.bat
+

@@ -1,7 +1,7 @@
 /**
  * Lirune Reader Mobile — Settings Screen
- * Organized into: General, Appearance, Reading, Library, Accessibility, Storage & Data, and About.
- * All alerts themed with LiruneDialog / LiruneToast.
+ * Organized into: General, Appearance, Reading Defaults, Accessibility, Library, Storage & Data, About & Support.
+ * Single source of truth backed by SQLite preferences & useSettingsStore.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -13,14 +13,21 @@ import {
   TouchableOpacity,
   StatusBar,
   Linking,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
-import { useSettingsStore, AppThemeOption } from '@/state/settingsStore';
+import {
+  useSettingsStore,
+  AppThemeOption,
+} from '@/state/settingsStore';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useThemeContext } from '@/theme/ThemeContext';
+import { READER_THEMES } from '@/theme/Colors';
+import { READER_FONTS, getNativeFontFamily } from '@/theme/Typography';
+import { ReaderThemeName } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
@@ -33,15 +40,18 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { colors, scheme } = useThemeContext();
   const isDark = scheme === 'dark';
+
   const {
     appTheme,
     readerSettings,
+    accessibility,
     setAppTheme,
     updateReaderSettings,
     resetReaderSettings,
+    updateAccessibility,
   } = useSettingsStore();
 
-  const { viewMode, setViewMode, sortCriterion, loadLibrary } =
+  const { viewMode, setViewMode, sortCriterion, setSortCriterion, loadLibrary } =
     useLibraryStore();
 
   const [storageStats, setStorageStats] = useState<{ totalBytes: number; bookCount: number }>({
@@ -49,7 +59,7 @@ export default function SettingsScreen() {
     bookCount: 0,
   });
 
-  // Modal / Dialog States
+  // Modal & Dialog States
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showWelcomeGuide, setShowWelcomeGuide] = useState(false);
   const [dialogInfo, setDialogInfo] = useState<{
@@ -78,10 +88,6 @@ export default function SettingsScreen() {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
-  const handleThemeChange = async (theme: AppThemeOption) => {
-    await setAppTheme(theme);
   };
 
   const handleExportData = async () => {
@@ -146,6 +152,26 @@ export default function SettingsScreen() {
     });
   };
 
+  const alignments: ('left' | 'center' | 'right' | 'justify')[] = [
+    'left',
+    'center',
+    'right',
+    'justify',
+  ];
+
+  const marginOptions = [
+    { label: 'Compact', value: 12 },
+    { label: 'Standard', value: 20 },
+    { label: 'Wide', value: 28 },
+  ];
+
+  const sortOptions = [
+    { id: 'title', label: 'Title' },
+    { id: 'author', label: 'Author' },
+    { id: 'dateAdded', label: 'Date Added' },
+    { id: 'lastRead', label: 'Last Read' },
+  ] as const;
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
@@ -194,7 +220,7 @@ export default function SettingsScreen() {
                     styles.segmentOption,
                     isSelected && { backgroundColor: colors.accent },
                   ]}
-                  onPress={() => handleThemeChange(theme)}
+                  onPress={() => setAppTheme(theme)}
                 >
                   <Text
                     style={[
@@ -214,34 +240,40 @@ export default function SettingsScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
+          {/* Active Accent Color */}
           <View style={styles.infoRow}>
-            <Text style={[styles.rowLabel, { color: colors.text }]}>Lirune Signature Accent</Text>
+            <View>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Active Lirune Accent</Text>
+              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
+                {isDark ? 'Signature Lilac-Glow (#EEECF8)' : 'Deep Amethyst (#4C4666)'}
+              </Text>
+            </View>
             <View style={styles.accentBadge}>
-              <View style={[styles.accentDot, { backgroundColor: '#EEECF8' }]} />
-              <Text style={[styles.accentCode, { color: colors.textSecondary }]}>#EEECF8</Text>
+              <View style={[styles.accentDot, { backgroundColor: colors.accent }]} />
+              <Text style={[styles.accentCode, { color: colors.text }]}>{colors.accent}</Text>
             </View>
           </View>
         </View>
 
-        {/* 3. READING */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Reading</Text>
+        {/* 3. READING DEFAULTS */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Reader Defaults</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          {/* Default Flow Mode: Page vs Scroll */}
+          {/* Default Flow Mode */}
           <View style={styles.infoRow}>
             <View>
-              <Text style={[styles.rowLabel, { color: colors.text }]}>Default Reading Mode</Text>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Reading Flow</Text>
               <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
                 {readerSettings.flow === 'paginated' ? 'Discrete horizontal pages' : 'Continuous vertical scroll'}
               </Text>
             </View>
-            <View style={styles.segmentedRow}>
+            <View style={styles.segmentedRowSmall}>
               {(['paginated', 'scrolled'] as const).map((flow) => {
                 const isSelected = readerSettings.flow === flow;
                 return (
                   <TouchableOpacity
                     key={flow}
                     style={[
-                      styles.segmentOption,
+                      styles.segmentOptionSmall,
                       isSelected && { backgroundColor: colors.accent },
                     ]}
                     onPress={() => updateReaderSettings({ flow })}
@@ -261,6 +293,87 @@ export default function SettingsScreen() {
                 );
               })}
             </View>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Default Typeface Selection */}
+          <Text style={[styles.rowLabel, { color: colors.text, marginBottom: 8 }]}>Default Typeface</Text>
+          <View style={styles.fontGrid}>
+            {READER_FONTS.map((font) => {
+              const isSelected =
+                readerSettings.fontFamily === font.name ||
+                readerSettings.fontFamily.toLowerCase() === font.id.toLowerCase() ||
+                (font.id === 'serif' && readerSettings.fontFamily.toLowerCase() === 'serif') ||
+                (font.id === 'sans' && readerSettings.fontFamily.toLowerCase() === 'sans-serif') ||
+                (font.id === 'mono' && readerSettings.fontFamily.toLowerCase() === 'monospace');
+
+              const nativeFamily = getNativeFontFamily(font.name);
+
+              return (
+                <TouchableOpacity
+                  key={font.id}
+                  style={[
+                    styles.fontChip,
+                    {
+                      backgroundColor: isSelected
+                        ? isDark
+                          ? 'rgba(238, 236, 248, 0.14)'
+                          : 'rgba(76, 70, 102, 0.1)'
+                        : colors.surfaceElevated,
+                      borderColor: isSelected ? colors.accent : colors.borderSubtle,
+                      borderWidth: isSelected ? 1.5 : 1,
+                    },
+                  ]}
+                  onPress={() => updateReaderSettings({ fontFamily: font.name })}
+                >
+                  <Text
+                    style={[
+                      styles.fontChipText,
+                      {
+                        color: isSelected ? colors.accent : colors.text,
+                        fontFamily: nativeFamily,
+                        fontWeight: isSelected ? '700' : '500',
+                      },
+                    ]}
+                  >
+                    {font.name}
+                  </Text>
+                  <Text style={[styles.fontChipCat, { color: colors.textMuted }]}>
+                    {font.preview}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Default Theme Palette */}
+          <Text style={[styles.rowLabel, { color: colors.text, marginBottom: 8 }]}>Default Theme Palette</Text>
+          <View style={styles.themePaletteRow}>
+            {Object.values(READER_THEMES).slice(0, 5).map((theme) => {
+              const isSelected = readerSettings.theme === theme.id;
+              return (
+                <TouchableOpacity
+                  key={theme.id}
+                  style={[
+                    styles.miniSwatch,
+                    {
+                      backgroundColor: theme.bg,
+                      borderColor: isSelected ? colors.accent : colors.borderSubtle,
+                      borderWidth: isSelected ? 2.5 : 1,
+                    },
+                  ]}
+                  onPress={() => updateReaderSettings({ theme: theme.id as ReaderThemeName })}
+                >
+                  <Text style={[styles.miniSwatchText, { color: theme.text }]}>Aa</Text>
+                  <Text style={[styles.miniSwatchLabel, { color: theme.muted }]} numberOfLines={1}>
+                    {theme.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
@@ -297,9 +410,41 @@ export default function SettingsScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
+          {/* Line Spacing */}
+          <View style={styles.infoRow}>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Default Line Spacing</Text>
+            <View style={styles.stepperMini}>
+              <TouchableOpacity
+                onPress={() =>
+                  updateReaderSettings({
+                    lineHeight: Number(Math.max(1.2, readerSettings.lineHeight - 0.2).toFixed(1)),
+                  })
+                }
+                style={[styles.miniBtn, { backgroundColor: colors.surfaceElevated }]}
+              >
+                <Ionicons name="remove" size={16} color={colors.text} />
+              </TouchableOpacity>
+              <Text style={[styles.miniValue, { color: colors.text }]}>
+                {readerSettings.lineHeight}x
+              </Text>
+              <TouchableOpacity
+                onPress={() =>
+                  updateReaderSettings({
+                    lineHeight: Number(Math.min(2.4, readerSettings.lineHeight + 0.2).toFixed(1)),
+                  })
+                }
+                style={[styles.miniBtn, { backgroundColor: colors.surfaceElevated }]}
+              >
+                <Ionicons name="add" size={16} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
           {/* Paragraph Spacing */}
           <View style={styles.infoRow}>
-            <Text style={[styles.rowLabel, { color: colors.text }]}>Paragraph Spacing</Text>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Default Paragraph Gap</Text>
             <View style={styles.stepperMini}>
               <TouchableOpacity
                 onPress={() =>
@@ -329,11 +474,68 @@ export default function SettingsScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
+          {/* Margins */}
           <View style={styles.infoRow}>
-            <Text style={[styles.rowLabel, { color: colors.text }]}>Default Typeface</Text>
-            <Text style={[styles.rowValue, { color: colors.accent, fontWeight: '600' }]}>
-              {readerSettings.fontFamily}
-            </Text>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Default Margins</Text>
+            <View style={styles.segmentedRowSmall}>
+              {marginOptions.map((opt) => {
+                const isSelected = readerSettings.margin === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[
+                      styles.segmentOptionSmall,
+                      isSelected && { backgroundColor: colors.accent },
+                    ]}
+                    onPress={() => updateReaderSettings({ margin: opt.value })}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentOptionText,
+                        {
+                          color: isSelected ? colors.accentForeground : colors.textSecondary,
+                          fontWeight: isSelected ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Alignment */}
+          <View style={styles.infoRow}>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Default Alignment</Text>
+            <View style={styles.segmentedRowSmall}>
+              {alignments.map((align) => {
+                const isSelected = readerSettings.alignment === align;
+                let iconName: any = 'reorder-three-outline';
+                if (align === 'center') iconName = 'reorder-two-outline';
+                if (align === 'justify') iconName = 'menu-outline';
+
+                return (
+                  <TouchableOpacity
+                    key={align}
+                    style={[
+                      styles.segmentOptionSmall,
+                      isSelected && { backgroundColor: colors.accent },
+                    ]}
+                    onPress={() => updateReaderSettings({ alignment: align })}
+                  >
+                    <Ionicons
+                      name={iconName}
+                      size={16}
+                      color={isSelected ? colors.accentForeground : colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
@@ -350,19 +552,130 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 4. LIBRARY */}
+        {/* 4. ACCESSIBILITY */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Accessibility</Text>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          {/* High Contrast */}
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>High Contrast Mode</Text>
+              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
+                Increases contrast for reading palettes, borders, and controls
+              </Text>
+            </View>
+            <Switch
+              value={accessibility.highContrast}
+              onValueChange={(val) => updateAccessibility({ highContrast: val })}
+              trackColor={{ false: colors.surfaceElevated, true: colors.accent }}
+              thumbColor={accessibility.highContrast ? colors.accentForeground : '#FFF'}
+            />
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Large Touch Targets */}
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Large Touch Targets</Text>
+              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
+                Expands button sizes and hit areas for easier navigation
+              </Text>
+            </View>
+            <Switch
+              value={accessibility.largeTouchTargets}
+              onValueChange={(val) => updateAccessibility({ largeTouchTargets: val })}
+              trackColor={{ false: colors.surfaceElevated, true: colors.accent }}
+              thumbColor={accessibility.largeTouchTargets ? colors.accentForeground : '#FFF'}
+            />
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Reduced Motion */}
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Reduced Motion</Text>
+              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
+                Minimizes slide and drawer animations throughout the app
+              </Text>
+            </View>
+            <Switch
+              value={accessibility.reduceMotion}
+              onValueChange={(val) => updateAccessibility({ reduceMotion: val })}
+              trackColor={{ false: colors.surfaceElevated, true: colors.accent }}
+              thumbColor={accessibility.reduceMotion ? colors.accentForeground : '#FFF'}
+            />
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Screen Reader Optimization */}
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Screen Reader / TalkBack Optimization</Text>
+              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
+                Enhanced descriptive labels and reading announcements for TalkBack
+              </Text>
+            </View>
+            <Switch
+              value={accessibility.screenReaderOptimized}
+              onValueChange={(val) => updateAccessibility({ screenReaderOptimized: val })}
+              trackColor={{ false: colors.surfaceElevated, true: colors.accent }}
+              thumbColor={accessibility.screenReaderOptimized ? colors.accentForeground : '#FFF'}
+            />
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Reader Font Scaling */}
+          <View style={styles.infoRow}>
+            <View>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Reader Text Scaling</Text>
+              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
+                Proportional text scale multiplier ({Math.round(accessibility.readerFontScaling * 100)}%)
+              </Text>
+            </View>
+            <View style={styles.stepperMini}>
+              <TouchableOpacity
+                onPress={() =>
+                  updateAccessibility({
+                    readerFontScaling: Math.max(1.0, Math.round((accessibility.readerFontScaling - 0.1) * 10) / 10),
+                  })
+                }
+                style={[styles.miniBtn, { backgroundColor: colors.surfaceElevated }]}
+              >
+                <Ionicons name="remove" size={16} color={colors.text} />
+              </TouchableOpacity>
+              <Text style={[styles.miniValue, { color: colors.text }]}>
+                {Math.round(accessibility.readerFontScaling * 100)}%
+              </Text>
+              <TouchableOpacity
+                onPress={() =>
+                  updateAccessibility({
+                    readerFontScaling: Math.min(1.5, Math.round((accessibility.readerFontScaling + 0.1) * 10) / 10),
+                  })
+                }
+                style={[styles.miniBtn, { backgroundColor: colors.surfaceElevated }]}
+              >
+                <Ionicons name="add" size={16} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* 5. LIBRARY */}
         <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Library</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Default View</Text>
-            <View style={styles.segmentedRow}>
+            <View style={styles.segmentedRowSmall}>
               {(['grid', 'list'] as const).map((mode) => {
                 const isSelected = viewMode === mode;
                 return (
                   <TouchableOpacity
                     key={mode}
                     style={[
-                      styles.segmentOption,
+                      styles.segmentOptionSmall,
                       isSelected && { backgroundColor: colors.accent },
                     ]}
                     onPress={() => setViewMode(mode)}
@@ -386,30 +699,42 @@ export default function SettingsScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
-          <View style={styles.infoRow}>
-            <Text style={[styles.rowLabel, { color: colors.text }]}>Default Sort</Text>
-            <Text style={[styles.rowValue, { color: colors.accent, fontWeight: '600' }]}>
-              {sortCriterion.charAt(0).toUpperCase() + sortCriterion.slice(1)}
-            </Text>
-          </View>
-        </View>
-
-        {/* 5. ACCESSIBILITY */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Accessibility</Text>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          <View style={styles.infoRow}>
-            <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={[styles.rowLabel, { color: colors.text }]}>Screen Reader Support</Text>
-              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
-                Semantic labels and touch targets tuned for TalkBack
-              </Text>
-            </View>
-            <Ionicons name="checkmark-circle" size={22} color={colors.accent} />
+          {/* Sort Selection */}
+          <Text style={[styles.rowLabel, { color: colors.text, marginBottom: 8 }]}>Default Sort</Text>
+          <View style={styles.sortRow}>
+            {sortOptions.map((opt) => {
+              const isSelected = sortCriterion === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  style={[
+                    styles.sortChip,
+                    {
+                      backgroundColor: isSelected ? colors.accent : colors.surfaceElevated,
+                      borderColor: isSelected ? colors.accent : colors.borderSubtle,
+                    },
+                  ]}
+                  onPress={() => setSortCriterion(opt.id as any)}
+                >
+                  <Text
+                    style={[
+                      styles.sortChipText,
+                      {
+                        color: isSelected ? colors.accentForeground : colors.textSecondary,
+                        fontWeight: isSelected ? '700' : '500',
+                      },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
         {/* 6. STORAGE & DATA */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Storage & Data</Text>
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Storage &amp; Data</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Books in Storage</Text>
@@ -453,9 +778,8 @@ export default function SettingsScreen() {
         </View>
 
         {/* 7. ABOUT & SUPPORT */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>About & Support</Text>
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>About &amp; Support</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          {/* Buy Me a Coffee Support Action */}
           <TouchableOpacity
             style={[styles.supportBtn, { backgroundColor: colors.surfaceElevated, borderColor: colors.accent }]}
             onPress={openSupportLink}
@@ -515,39 +839,41 @@ export default function SettingsScreen() {
         <View style={{ height: 48 }} />
       </ScrollView>
 
-      {/* Themed Clear Data Dialog */}
+      {/* Clear Library Dialog */}
       <LiruneDialog
         visible={showClearDialog}
-        title="Clear All Library Data?"
-        message="This will delete all imported books, collections, bookmarks, and reading progress from this device. This action cannot be undone."
-        confirmText="Clear Everything"
+        title="Clear Local Library?"
+        message="This will remove all imported books, reading progress, and annotations from this device. Downloaded files on your disk will not be deleted."
+        confirmText="Clear Library"
         cancelText="Cancel"
-        isDestructive
+        isDestructive={true}
         onConfirm={handleClearDataConfirmed}
         onCancel={() => setShowClearDialog(false)}
       />
 
-      {/* Generic Themed Dialog for Export */}
+      {/* Info Dialog */}
       <LiruneDialog
         visible={dialogInfo.visible}
         title={dialogInfo.title}
         message={dialogInfo.message}
         confirmText={dialogInfo.confirmText || 'OK'}
-        onConfirm={() => setDialogInfo((prev) => ({ ...prev, visible: false }))}
+        onConfirm={() => setDialogInfo((d) => ({ ...d, visible: false }))}
       />
 
-      {/* Reopenable Welcome Guide */}
+      {/* Welcome Guide Modal */}
       <WelcomeGuideModal
         visible={showWelcomeGuide}
         onClose={() => setShowWelcomeGuide(false)}
       />
 
-      {/* Toast Notification */}
-      <LiruneToast
-        visible={!!toastMessage}
-        message={toastMessage || ''}
-        onDismiss={() => setToastMessage(null)}
-      />
+      {/* Toast */}
+      {toastMessage && (
+        <LiruneToast
+          visible={!!toastMessage}
+          message={toastMessage}
+          onDismiss={() => setToastMessage(null)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -557,8 +883,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerLeft: {
@@ -573,37 +902,35 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
+    paddingTop: 12,
   },
   sectionTitle: {
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    marginTop: 22,
+    marginTop: 16,
     marginBottom: 8,
+    marginLeft: 4,
   },
   card: {
     borderRadius: 14,
     borderWidth: 1,
     padding: 14,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
+    gap: 12,
   },
   actionRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
+    justifyContent: 'space-between',
+    paddingVertical: 4,
   },
   actionRowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     flex: 1,
+    marginRight: 8,
   },
   rowLabel: {
     fontSize: 14,
@@ -612,25 +939,48 @@ const styles = StyleSheet.create({
   rowSubtitle: {
     fontSize: 12,
     marginTop: 2,
+    lineHeight: 16,
   },
   rowValue: {
-    fontSize: 14,
+    fontSize: 13,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginVertical: 10,
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
   },
   segmentedRow: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(128, 128, 128, 0.12)',
     borderRadius: 10,
     padding: 3,
+    backgroundColor: 'rgba(0,0,0,0.04)',
     marginTop: 4,
   },
   segmentOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    flex: 1,
+    paddingVertical: 7,
+    alignItems: 'center',
     borderRadius: 8,
+  },
+  segmentedRowSmall: {
+    flexDirection: 'row',
+    borderRadius: 8,
+    padding: 2,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  segmentOptionSmall: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   segmentOptionText: {
     fontSize: 12,
@@ -644,67 +994,127 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    borderWidth: 1,
-    borderColor: '#AAAAAA',
   },
   accentCode: {
     fontSize: 13,
+    fontWeight: '600',
+  },
+  fontGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  fontChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  fontChipText: {
+    fontSize: 12,
+  },
+  fontChipCat: {
+    fontSize: 9,
+    textTransform: 'uppercase',
+  },
+  themePaletteRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  miniSwatch: {
+    flex: 1,
+    height: 48,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 2,
+  },
+  miniSwatchText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  miniSwatchLabel: {
+    fontSize: 8,
+    marginTop: 1,
   },
   stepperMini: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    borderRadius: 8,
+    height: 32,
+    paddingHorizontal: 2,
   },
   miniBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   miniValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    minWidth: 48,
+    fontSize: 12,
+    fontWeight: '700',
+    minWidth: 46,
     textAlign: 'center',
+  },
+  sortRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  sortChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  sortChipText: {
+    fontSize: 11,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 4,
   },
   supportBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 12,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
   },
   supportLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    flex: 1,
+    gap: 10,
   },
   supportTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   supportSubtitle: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 11,
+    marginTop: 1,
   },
   privacyBox: {
-    marginTop: 4,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.03)',
   },
   privacyHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   privacyTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
   },
   privacyDesc: {
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 15,
   },
 });

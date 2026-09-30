@@ -82,6 +82,7 @@ export interface ReaderThemePalette {
   muted: string;
   link: string;
   selection: string;
+  border?: string;
 }
 
 export const READER_THEMES: Record<string, ReaderThemePalette> = {

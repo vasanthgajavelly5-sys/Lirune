@@ -86,6 +86,13 @@ const NAV_ITEMS: NavItem[] = [
     activeIcon: 'folder-open',
   },
   {
+    id: 'annotations',
+    label: 'Annotations',
+    route: '/annotations',
+    icon: 'create-outline',
+    activeIcon: 'create',
+  },
+  {
     id: 'settings',
     label: 'Settings',
     route: '/settings',

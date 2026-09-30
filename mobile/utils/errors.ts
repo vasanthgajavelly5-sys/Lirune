@@ -65,3 +65,14 @@ export class ReaderError extends AppError {
     this.name = 'ReaderError';
   }
 }
+
+export class SourceUnavailableError extends AppError {
+  constructor(uriOrPath: string, details?: string) {
+    super(
+      `Source unavailable for: ${uriOrPath} (${details || 'file missing or permission revoked'})`,
+      'SOURCE_UNAVAILABLE',
+      'The source file for this book is unavailable or permissions were revoked. You can re-link the file or return to the library.'
+    );
+    this.name = 'SourceUnavailableError';
+  }
+}

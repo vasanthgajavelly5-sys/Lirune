@@ -85,6 +85,7 @@ export function TxtReaderView({
   const isMountedRef = useRef(true);
 
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
+  const bookPath = book.filePath || book.uri || '';
 
   // 1. Build the chunk index by streaming the file. Text is read in windows and
   //    thrown away; only byte offsets survive.
@@ -100,7 +101,7 @@ export function TxtReaderView({
       const offsets: number[] = [0];
       let size = 0;
       try {
-        size = await fileStorage.getFileSize(book.filePath);
+        size = await fileStorage.getFileSize(bookPath);
         if (cancelled || !isMountedRef.current) return;
 
         if (!size) {
@@ -123,7 +124,7 @@ export function TxtReaderView({
 
           const window = stripTrailingPartialChar(
             await fileStorage.readRangeAsString(
-              book.filePath,
+              bookPath,
               bytePos,
               WINDOW_BYTES
             )
@@ -156,7 +157,7 @@ export function TxtReaderView({
         fileSizeRef.current = size;
         setChunkOffsets(offsets);
       } catch (err) {
-        logger.error(TAG, `Failed to index TXT: ${book.filePath}`, err);
+        logger.error(TAG, `Failed to index TXT: ${bookPath}`, err);
         if (!cancelled && isMountedRef.current) {
           setError('Unable to load text content.');
           setIsLoading(false);
@@ -189,7 +190,7 @@ export function TxtReaderView({
       isMountedRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally runs only when filePath changes to stream index
-  }, [book.filePath]);
+  }, [book.filePath, book.uri]);
 
   // Restore explicitly requested position (TOC/bookmark jumps) after indexing.
   useEffect(() => {
@@ -215,7 +216,7 @@ export function TxtReaderView({
             ? offsets[currentChunkIndex + 1]
             : fileSizeRef.current;
         const text = await fileStorage.readRangeAsString(
-          book.filePath,
+          bookPath,
           start,
           Math.max(0, end - start)
         );
@@ -232,7 +233,7 @@ export function TxtReaderView({
     return () => {
       cancelled = true;
     };
-  }, [currentChunkIndex, chunkOffsets, book.filePath]);
+  }, [currentChunkIndex, chunkOffsets, book.filePath, book.uri]);
 
   // 4. Report progress from the byte offset, so it is accurate for any file size.
   useEffect(() => {
@@ -279,7 +280,7 @@ export function TxtReaderView({
         if (cancelled) return;
 
         const window = await fileStorage.readRangeAsString(
-          book.filePath,
+          bookPath,
           bytePos,
           WINDOW_BYTES
         );
@@ -330,7 +331,7 @@ export function TxtReaderView({
     return () => {
       cancelled = true;
     };
-  }, [searchQuery, chunkOffsets, book.filePath, onSearchResults]);
+  }, [searchQuery, chunkOffsets, book.filePath, book.uri, onSearchResults]);
 
   const goToChunk = useCallback(
     (index: number) => {

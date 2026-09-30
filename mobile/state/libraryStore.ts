@@ -119,7 +119,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     try {
       await repo.removeBook(bookId);
       if (book) {
-        await fileStorage.deleteBookFiles(book.filePath, book.coverUrl);
+        if (book.filePath) {
+          await fileStorage.deleteBookFiles(book.filePath, book.coverUrl);
+        } else if (book.coverUrl) {
+          await fileStorage.deleteBookFiles('', book.coverUrl);
+        }
       }
       set((state) => ({
         books: state.books.filter((b) => b.id !== bookId),

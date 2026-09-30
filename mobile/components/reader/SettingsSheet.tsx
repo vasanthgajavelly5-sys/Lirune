@@ -245,6 +245,36 @@ export function SettingsSheet({
               </View>
             </View>
 
+            {/* Page Gap (Paginated Mode) */}
+            <View style={[styles.controlRow, { marginTop: 12 }]}>
+              <Text style={[styles.controlLabel, { color: textColor }]}>Page Gap</Text>
+              <View style={[styles.stepperRow, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
+                <TouchableOpacity
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() =>
+                    onUpdateSettings({
+                      pageGap: Math.max(0, settings.pageGap - 4),
+                    })
+                  }
+                >
+                  <Ionicons name="remove" size={16} color={textColor} />
+                </TouchableOpacity>
+                <Text style={[styles.stepValue, { color: textColor }]}>{settings.pageGap} px</Text>
+                <TouchableOpacity
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() =>
+                    onUpdateSettings({
+                      pageGap: Math.min(32, settings.pageGap + 4),
+                    })
+                  }
+                >
+                  <Ionicons name="add" size={16} color={textColor} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
             {/* 3. RICH TYPOGRAPHY */}
             <Text style={[styles.sectionTitle, { color: mutedColor, marginTop: 18 }]}>
               Typeface

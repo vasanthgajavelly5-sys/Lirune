@@ -25,7 +25,8 @@ interface BookRow {
   author: string | null;
   description: string | null;
   format: string;
-  filePath: string;
+  uri: string;
+  filePath: string | null;
   fileSize: number;
   coverUrl: string | null;
   coverColor: string | null;
@@ -104,13 +105,17 @@ function parseBookRow(row: BookRow): Book {
     metadata = {};
   }
 
+  // Use uri as primary, fall back to filePath for backward compatibility
+  const sourceUri = row.uri || row.filePath || '';
+
   return {
     id: row.id,
     title: row.title,
     author: row.author || 'Unknown Author',
     description: row.description || undefined,
     format: row.format as BookFormat,
-    filePath: row.filePath,
+    uri: sourceUri,
+    filePath: row.filePath || undefined,
     fileSize: row.fileSize || 0,
     coverUrl: row.coverUrl || undefined,
     coverColor: row.coverColor || '#3A3050',
@@ -182,18 +187,19 @@ export class SQLiteBookRepository implements BookRepository {
     try {
       await db.runAsync(
         `INSERT OR REPLACE INTO books (
-          id, title, author, description, format, filePath, fileSize,
+          id, title, author, description, format, uri, filePath, fileSize,
           coverUrl, coverColor, progress, currentCfi, currentChapter,
           chapterCount, isFavorite, collectionIds, dateAdded, lastReadDate,
           availability, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           book.id,
           book.title,
           book.author,
           book.description || null,
           book.format,
-          book.filePath,
+          book.uri,
+          book.filePath || null,
           book.fileSize,
           book.coverUrl || null,
           book.coverColor,
@@ -490,6 +496,31 @@ export class SQLiteBookRepository implements BookRepository {
     }
   }
 
+  async getAllBookmarks(): Promise<Bookmark[]> {
+    if (Platform.OS === 'web') {
+      return [];
+    }
+
+    const db = await getDatabase();
+    if (!db) return [];
+    try {
+      const rows = await db.getAllAsync<BookmarkRow>(
+        'SELECT * FROM bookmarks ORDER BY dateCreated DESC'
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        bookId: r.bookId,
+        cfi: r.cfi,
+        chapter: r.chapter || 'Chapter',
+        previewText: r.previewText || undefined,
+        dateCreated: r.dateCreated,
+      }));
+    } catch (err) {
+      logger.error(TAG, 'Error getting all bookmarks', err);
+      return [];
+    }
+  }
+
   async addBookmark(bookmark: Bookmark): Promise<void> {
     if (Platform.OS === 'web') {
       const bookmarks = await this.getBookmarks(bookmark.bookId);
@@ -564,6 +595,33 @@ export class SQLiteBookRepository implements BookRepository {
       }));
     } catch (err) {
       logger.error(TAG, `Error getting highlights for book ${bookId}`, err);
+      return [];
+    }
+  }
+
+  async getAllHighlights(): Promise<Highlight[]> {
+    if (Platform.OS === 'web') {
+      return [];
+    }
+
+    const db = await getDatabase();
+    if (!db) return [];
+    try {
+      const rows = await db.getAllAsync<HighlightRow>(
+        'SELECT * FROM highlights ORDER BY dateCreated DESC'
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        bookId: r.bookId,
+        cfiRange: r.cfiRange,
+        text: r.text,
+        color: r.color,
+        note: r.note || undefined,
+        chapter: r.chapter || undefined,
+        dateCreated: r.dateCreated,
+      }));
+    } catch (err) {
+      logger.error(TAG, 'Error getting all highlights', err);
       return [];
     }
   }
@@ -644,6 +702,32 @@ export class SQLiteBookRepository implements BookRepository {
       }));
     } catch (err) {
       logger.error(TAG, `Error getting notes for book ${bookId}`, err);
+      return [];
+    }
+  }
+
+  async getAllNotes(): Promise<Note[]> {
+    if (Platform.OS === 'web') {
+      return [];
+    }
+
+    const db = await getDatabase();
+    if (!db) return [];
+    try {
+      const rows = await db.getAllAsync<NoteRow>(
+        'SELECT * FROM notes ORDER BY dateCreated DESC'
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        bookId: r.bookId,
+        cfi: r.cfi,
+        text: r.text,
+        chapter: r.chapter || undefined,
+        dateCreated: r.dateCreated,
+        dateModified: r.dateModified,
+      }));
+    } catch (err) {
+      logger.error(TAG, 'Error getting all notes', err);
       return [];
     }
   }

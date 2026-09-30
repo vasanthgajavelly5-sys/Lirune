@@ -44,7 +44,12 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
           }
           logger.info(TAG, `Received external file intent: ${fileName} (${url})`);
 
-          const res = await ImportService.importFile(url, fileName);
+          let targetUri = url;
+          if (targetUri.startsWith('file:///sdcard/')) {
+            targetUri = targetUri.replace('file:///sdcard/', 'file:///storage/emulated/0/');
+          }
+
+          const res = await ImportService.importFile(targetUri, fileName);
           if (res.success && res.book) {
             await loadLibrary();
             await useReaderStore.getState().openBook(res.book);

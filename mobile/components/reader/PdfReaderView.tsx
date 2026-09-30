@@ -58,9 +58,10 @@ export function PdfReaderView({
   // Load PDF base64
   useEffect(() => {
     let active = true;
+    const bookPath = book.filePath || book.uri || '';
     async function loadPdf() {
       try {
-        const b64 = await fileStorage.readAsBase64(book.filePath);
+        const b64 = await fileStorage.readAsBase64(bookPath);
         if (!b64) {
           throw new Error('PDF file could not be read or is empty.');
         }
@@ -69,7 +70,7 @@ export function PdfReaderView({
           setIsLoading(false);
         }
       } catch (err: any) {
-        logger.error(TAG, `Error loading PDF: ${book.filePath}`, err);
+        logger.error(TAG, `Error loading PDF: ${bookPath}`, err);
         if (active) {
           setRenderError(err?.message || 'Failed to load PDF file.');
           setIsLoading(false);
@@ -80,7 +81,7 @@ export function PdfReaderView({
     return () => {
       active = false;
     };
-  }, [book.filePath]);
+  }, [book.filePath, book.uri]);
 
   const goToPage = useCallback((page: number) => {
     webViewRef.current?.injectJavaScript(`

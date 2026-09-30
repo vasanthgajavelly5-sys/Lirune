@@ -122,15 +122,17 @@ export function EpubReaderView({
   const isPaginated = settings.flow !== 'scrolled';
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
   const paragraphSpacing = settings.paragraphSpacing || 1.0;
+  const pageGap = settings.pageGap ?? 16;
 
   // 1. Load and parse EPUB package
   useEffect(() => {
     let isMounted = true;
+    const bookPath = book.filePath || book.uri || '';
     async function loadEpub() {
       setIsLoading(true);
       setLoadError(null);
       try {
-        const base64 = await fileStorage.readAsBase64(book.filePath);
+        const base64 = await fileStorage.readAsBase64(bookPath);
         if (!base64) {
           throw new Error('EPUB file is empty or missing from storage.');
         }
@@ -563,14 +565,13 @@ export function EpubReaderView({
         }
         #book-content {
           width: 100vw;
-          height: calc(100vh - 54px);
-          margin-top: 20px;
+          height: 100vh;
+          margin: 0;
           box-sizing: border-box;
-          column-width: calc(100vw - ${(settings.margin + 16) * 2}px);
-          column-gap: ${(settings.margin + 16) * 2}px;
+          column-width: calc(100vw - ${settings.margin * 2}px);
+          column-gap: ${settings.margin * 2}px;
           column-fill: auto;
-          padding-left: ${settings.margin + 16}px;
-          padding-right: ${settings.margin + 16}px;
+          padding: ${Math.max(16, settings.margin)}px ${settings.margin}px ${Math.max(20, settings.margin)}px ${settings.margin}px;
           overflow: visible;
           transition: transform 0.22s cubic-bezier(0.25, 1, 0.5, 1);
           word-wrap: break-word;

@@ -47,15 +47,16 @@ export function HtmlReaderView({
 
   useEffect(() => {
     let active = true;
+    const bookPath = book.filePath || book.uri || '';
     async function loadHtml() {
       try {
-        const raw = await fileStorage.readAsString(book.filePath);
+        const raw = await fileStorage.readAsString(bookPath);
         if (active) {
           setHtmlContent(raw);
           setIsLoading(false);
         }
       } catch (err) {
-        logger.error(TAG, `Error reading HTML file: ${book.filePath}`, err);
+        logger.error(TAG, `Error reading HTML file: ${bookPath}`, err);
         if (active) {
           setHtmlContent('<p>Unable to read HTML file.</p>');
           setIsLoading(false);
@@ -66,7 +67,7 @@ export function HtmlReaderView({
     return () => {
       active = false;
     };
-  }, [book.filePath]);
+  }, [book.filePath, book.uri]);
 
   // Generate styled, secure wrapper HTML
   const styledHtml = `

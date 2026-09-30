@@ -27,6 +27,8 @@ interface ReaderControlsProps {
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenAnnotations: () => void;
+  onOpenTTS?: () => void;
+  onOpenThumbnails?: () => void;
 }
 
 export function ReaderControls({
@@ -41,6 +43,8 @@ export function ReaderControls({
   onOpenSearch,
   onOpenSettings,
   onOpenAnnotations,
+  onOpenTTS,
+  onOpenThumbnails,
 }: ReaderControlsProps) {
   const activeTheme = READER_THEMES[themeName] || READER_THEMES.neutral;
   const isDark = themeName === 'night' || themeName.startsWith('contrast');
@@ -75,6 +79,16 @@ export function ReaderControls({
           </View>
 
           <View style={styles.rightActions}>
+            {onOpenTTS && (
+              <TouchableOpacity
+                onPress={onOpenTTS}
+                style={styles.iconButton}
+                accessibilityLabel="Read aloud (TTS)"
+              >
+                <Ionicons name="volume-high-outline" size={22} color={iconColor} />
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               onPress={onToggleBookmark}
               style={styles.iconButton}
@@ -116,6 +130,16 @@ export function ReaderControls({
           >
             <Ionicons name="list-outline" size={24} color={iconColor} />
           </TouchableOpacity>
+
+          {onOpenThumbnails && (
+            <TouchableOpacity
+              onPress={onOpenThumbnails}
+              style={styles.iconButton}
+              accessibilityLabel="Page thumbnails"
+            >
+              <Ionicons name="grid-outline" size={20} color={iconColor} />
+            </TouchableOpacity>
+          )}
 
           <View style={styles.progressContainer}>
             {/* Progress Track */}
@@ -190,8 +214,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   iconButton: {
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
     justifyContent: 'center',
     alignItems: 'center',
   },

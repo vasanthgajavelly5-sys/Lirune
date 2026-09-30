@@ -219,15 +219,15 @@ export default function LibraryScreen() {
         </View>
 
         <View style={styles.headerActions}>
-          {/* View Mode Toggle */}
+          {/* View Mode Toggle (Grid -> List -> Compact) */}
           <TouchableOpacity
             style={[styles.headerIconButton, { backgroundColor: colors.surfaceElevated }]}
-            onPress={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-            accessibilityLabel="Toggle view mode"
+            onPress={() => setViewMode(viewMode === 'grid' ? 'list' : viewMode === 'list' ? 'compact' : 'grid')}
+            accessibilityLabel={`Current view: ${viewMode}. Tap to change.`}
             activeOpacity={0.7}
           >
             <Ionicons
-              name={viewMode === 'grid' ? 'list' : 'grid'}
+              name={viewMode === 'grid' ? 'grid-outline' : viewMode === 'list' ? 'list-outline' : 'menu-outline'}
               size={18}
               color={colors.text}
             />
@@ -437,7 +437,7 @@ export default function LibraryScreen() {
       ) : (
         <FlatList
           data={filteredBooks}
-          key={viewMode === 'grid' ? 'grid_2_cols' : 'list_1_col'}
+          key={viewMode === 'grid' ? 'grid_2_cols' : `single_col_${viewMode}`}
           numColumns={viewMode === 'grid' ? 2 : 1}
           keyExtractor={(item) => item.id}
           columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}

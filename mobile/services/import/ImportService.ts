@@ -185,6 +185,7 @@ export class ImportService {
           author: metadata.author,
           description: metadata.description,
           format,
+          uri: sourceUri,
           filePath: destPath,
           fileSize: fileSize || fileSizeHint || 0,
           coverUrl: metadata.coverUrl,

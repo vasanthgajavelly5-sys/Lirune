@@ -93,9 +93,10 @@ export function CbzReaderView({
           await FileSystem.makeDirectoryAsync(cacheRoot, { intermediates: true });
         }
 
+        const bookPath = book.filePath || book.uri || '';
         // Read as raw bytes. `readAsBase64` would materialise a base64 string
         // ~1.33x the archive size in the JS heap first.
-        const buffer = await new FsFile(book.filePath).arrayBuffer();
+        const buffer = await new FsFile(bookPath).arrayBuffer();
         const zip = await JSZip.loadAsync(new Uint8Array(buffer));
 
         const images = Object.keys(zip.files)
@@ -154,7 +155,7 @@ export function CbzReaderView({
         setPageUris(uris);
         setIsLoadingZip(false);
       } catch (err) {
-        logger.error(TAG, `Failed to load CBZ archive: ${book.filePath}`, err);
+        logger.error(TAG, `Failed to load CBZ archive: ${book.filePath || book.uri}`, err);
         if (!cancelled && isMountedRef.current) {
           setLoadError('Unable to open comic archive.');
           setIsLoadingZip(false);
@@ -167,7 +168,7 @@ export function CbzReaderView({
       cancelled = true;
       isMountedRef.current = false;
     };
-  }, [book.filePath, book.id]);
+  }, [book.filePath, book.uri, book.id]);
 
   // 2. Restore the saved page, once, after the page list is known.
   useEffect(() => {

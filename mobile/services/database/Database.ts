@@ -58,7 +58,8 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       author TEXT,
       description TEXT,
       format TEXT NOT NULL,
-      filePath TEXT NOT NULL,
+      uri TEXT NOT NULL,
+      filePath TEXT,
       fileSize INTEGER DEFAULT 0,
       coverUrl TEXT,
       coverColor TEXT,
@@ -139,13 +140,49 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS saved_words (
+      id TEXT PRIMARY KEY,
+      word TEXT NOT NULL,
+      definition TEXT NOT NULL,
+      bookId TEXT,
+      bookTitle TEXT,
+      context TEXT,
+      dateCreated INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_fonts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      fontUri TEXT NOT NULL,
+      dateAdded INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_books_format ON books(format);
     CREATE INDEX IF NOT EXISTS idx_books_last_read ON books(lastReadDate);
     CREATE INDEX IF NOT EXISTS idx_books_favorite ON books(isFavorite);
     CREATE INDEX IF NOT EXISTS idx_bookmarks_book ON bookmarks(bookId);
     CREATE INDEX IF NOT EXISTS idx_highlights_book ON highlights(bookId);
     CREATE INDEX IF NOT EXISTS idx_notes_book ON notes(bookId);
+    CREATE INDEX IF NOT EXISTS idx_saved_words_word ON saved_words(word);
+    CREATE INDEX IF NOT EXISTS idx_saved_words_book ON saved_words(bookId);
   `);
+
+  // Safe idempotent migration: add columns to existing books table only if they don't exist
+  try {
+    const tableInfo = await db.getAllAsync<{ name: string }>('PRAGMA table_info(books)');
+    const columns = new Set(tableInfo.map((col) => col.name));
+    if (!columns.has('uri')) {
+      await db.execAsync("ALTER TABLE books ADD COLUMN uri TEXT DEFAULT '';");
+    }
+    if (!columns.has('availability')) {
+      await db.execAsync("ALTER TABLE books ADD COLUMN availability TEXT DEFAULT 'available';");
+    }
+    if (!columns.has('metadata')) {
+      await db.execAsync("ALTER TABLE books ADD COLUMN metadata TEXT DEFAULT '{}';");
+    }
+  } catch (e) {
+    logger.warn('Database', 'Column migration check failed or unnecessary', String(e));
+  }
 }
 
 /** Web Fallback Storage API */

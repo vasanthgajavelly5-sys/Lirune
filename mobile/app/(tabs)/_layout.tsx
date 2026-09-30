@@ -41,6 +41,12 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="annotations"
+          options={{
+            title: 'Annotations',
+          }}
+        />
+        <Tabs.Screen
           name="settings"
           options={{
             title: 'Settings',

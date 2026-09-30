@@ -39,6 +39,13 @@ ehthumbs.db
 .kilo/
 *.zip
 Lirune-RealFile-QA*
+# QA corpus: generated sample book files are gitignored, but the README and
+# the generator/verifier scripts are tracked so the corpus stays reproducible.
+Lirune-Android-RealFile-QA/*
+!Lirune-Android-RealFile-QA/README.md
+!Lirune-Android-RealFile-QA/generate_corpus.py
+!Lirune-Android-RealFile-QA/verify_corpus.py
+!Lirune-Android-RealFile-QA/verify_corpus.mjs
 .tempmediaStorage/
 scratch/
 Batch*-Fixes/

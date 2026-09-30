@@ -45,7 +45,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const getReaderPalette = useCallback(
     (themeName: string): ReaderThemePalette => {
-      return READER_THEMES[themeName] || READER_THEMES.night;
+      return READER_THEMES[themeName] || READER_THEMES.sepia;
     },
     []
   );

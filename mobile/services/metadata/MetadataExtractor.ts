@@ -7,6 +7,14 @@ import JSZip from 'jszip';
 import { BookFormat } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { resolveZipPath } from '@/services/epub/zipPaths';
+import { MobiParser } from '@/services/mobi/MobiParser';
+import { DocxParser } from '@/services/docx/DocxParser';
+import { OdtParser } from '@/services/odt/OdtParser';
+import { RtfParser } from '@/services/rtf/RtfParser';
+import { DocParser } from '@/services/doc/DocParser';
+import { ChmParser } from '@/services/chm/ChmParser';
+import { DjvuParser } from '@/services/djvu/DjvuParser';
+import { RarExtractor } from '@/services/archive/RarExtractor';
 import { logger } from '@/utils/logger';
 
 const TAG = 'MetadataExtractor';
@@ -49,6 +57,31 @@ export function cleanTitleFromFilename(fileName: string): string {
   return withoutExt.replace(/[_-]+/g, ' ').trim() || 'Untitled Book';
 }
 
+function base64ToUint8(base64: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(base64, 'base64'));
+  }
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 export class MetadataExtractor {
   /**
    * Main metadata extraction entry point for all supported formats.
@@ -70,12 +103,30 @@ export class MetadataExtractor {
           return await this.extractFb2(filePath, originalName, fileId, coverColor);
         case 'cbz':
           return await this.extractCbz(filePath, originalName, fileId, coverColor);
+        case 'cbr':
+          return await this.extractCbr(filePath, originalName, fileId, coverColor);
         case 'html':
           return await this.extractHtml(filePath, originalName, coverColor);
         case 'txt':
           return await this.extractTxt(filePath, originalName, coverColor);
         case 'pdf':
           return await this.extractPdf(filePath, originalName, coverColor);
+        case 'mobi':
+        case 'azw':
+        case 'azw3':
+          return await this.extractMobi(filePath, originalName, fileId, coverColor);
+        case 'docx':
+          return await this.extractDocx(filePath, originalName, coverColor);
+        case 'odt':
+          return await this.extractOdt(filePath, originalName, coverColor);
+        case 'rtf':
+          return await this.extractRtf(filePath, originalName, coverColor);
+        case 'doc':
+          return await this.extractDoc(filePath, originalName, coverColor);
+        case 'chm':
+          return await this.extractChm(filePath, originalName, coverColor);
+        case 'djvu':
+          return await this.extractDjvu(filePath, originalName, coverColor);
         default:
           return {
             title: fallbackTitle,
@@ -448,5 +499,245 @@ export class MetadataExtractor {
       coverColor: getCoverColorForTitle(title),
       chapterCount: 1,
     };
+  }
+
+  // ================= MOBI / AZW / AZW3 =================
+  private static async extractMobi(
+    filePath: string,
+    originalName: string,
+    fileId: string,
+    coverColor: string
+  ): Promise<ExtractedMetadata> {
+    const fallbackTitle = cleanTitleFromFilename(originalName);
+    try {
+      const base64 = await fileStorage.readAsBase64(filePath);
+      const bytes = base64ToUint8(base64);
+      const parsed = MobiParser.parse(bytes);
+
+      let coverUrl: string | undefined;
+      if (parsed.metadata.coverImage && parsed.metadata.coverImage.length > 0) {
+        const coverB64 = uint8ToBase64(parsed.metadata.coverImage);
+        coverUrl = await fileStorage.saveCoverImage(fileId, coverB64, 'jpg');
+      }
+
+      const title = parsed.metadata.title || fallbackTitle;
+      return {
+        title,
+        author: parsed.metadata.author || 'Unknown Author',
+        description: parsed.metadata.description,
+        coverUrl,
+        coverColor: getCoverColorForTitle(title),
+        chapterCount: 1,
+        metadata: {
+          publisher: parsed.metadata.publisher,
+          publishedDate: parsed.metadata.publishedDate,
+          language: parsed.metadata.language,
+        },
+      };
+    } catch (err) {
+      logger.warn(TAG, `MOBI metadata error: ${originalName}`, err);
+      return { title: fallbackTitle, author: 'Kindle Document', coverColor };
+    }
+  }
+
+  // ================= DOCX =================
+  private static async extractDocx(
+    filePath: string,
+    originalName: string,
+    coverColor: string
+  ): Promise<ExtractedMetadata> {
+    const fallbackTitle = cleanTitleFromFilename(originalName);
+    try {
+      const base64 = await fileStorage.readAsBase64(filePath);
+      const parsed = await DocxParser.parse(base64);
+      const title = parsed.metadata.title && parsed.metadata.title !== 'Untitled Document'
+        ? parsed.metadata.title
+        : fallbackTitle;
+
+      return {
+        title,
+        author: parsed.metadata.author || 'Word Document',
+        description: parsed.metadata.description,
+        coverColor: getCoverColorForTitle(title),
+        chapterCount: 1,
+      };
+    } catch (err) {
+      logger.warn(TAG, `DOCX metadata error: ${originalName}`, err);
+      return { title: fallbackTitle, author: 'Word Document', coverColor };
+    }
+  }
+
+  // ================= ODT =================
+  private static async extractOdt(
+    filePath: string,
+    originalName: string,
+    coverColor: string
+  ): Promise<ExtractedMetadata> {
+    const fallbackTitle = cleanTitleFromFilename(originalName);
+    try {
+      const base64 = await fileStorage.readAsBase64(filePath);
+      const parsed = await OdtParser.parse(base64);
+      const title = parsed.metadata.title && parsed.metadata.title !== 'Untitled ODT Document'
+        ? parsed.metadata.title
+        : fallbackTitle;
+
+      return {
+        title,
+        author: parsed.metadata.author || 'OpenDocument Text',
+        description: parsed.metadata.description,
+        coverColor: getCoverColorForTitle(title),
+        chapterCount: 1,
+      };
+    } catch (err) {
+      logger.warn(TAG, `ODT metadata error: ${originalName}`, err);
+      return { title: fallbackTitle, author: 'OpenDocument Text', coverColor };
+    }
+  }
+
+  // ================= RTF =================
+  private static async extractRtf(
+    filePath: string,
+    originalName: string,
+    coverColor: string
+  ): Promise<ExtractedMetadata> {
+    const fallbackTitle = cleanTitleFromFilename(originalName);
+    try {
+      const text = await fileStorage.readAsString(filePath);
+      const parsed = RtfParser.parse(text);
+      const title = parsed.metadata.title && parsed.metadata.title !== 'Untitled RTF'
+        ? parsed.metadata.title
+        : fallbackTitle;
+
+      return {
+        title,
+        author: parsed.metadata.author || 'Rich Text Format',
+        coverColor: getCoverColorForTitle(title),
+        chapterCount: 1,
+      };
+    } catch (err) {
+      logger.warn(TAG, `RTF metadata error: ${originalName}`, err);
+      return { title: fallbackTitle, author: 'Rich Text Format', coverColor };
+    }
+  }
+
+  // ================= DOC =================
+  private static async extractDoc(
+    filePath: string,
+    originalName: string,
+    coverColor: string
+  ): Promise<ExtractedMetadata> {
+    const fallbackTitle = cleanTitleFromFilename(originalName);
+    try {
+      const base64 = await fileStorage.readAsBase64(filePath);
+      const bytes = base64ToUint8(base64);
+      const parsed = DocParser.parse(bytes);
+      const title = parsed.metadata.title && parsed.metadata.title !== 'Untitled Word Document'
+        ? parsed.metadata.title
+        : fallbackTitle;
+
+      return {
+        title,
+        author: parsed.metadata.author || 'Word 97-2003',
+        coverColor: getCoverColorForTitle(title),
+        chapterCount: 1,
+      };
+    } catch (err) {
+      logger.warn(TAG, `DOC metadata error: ${originalName}`, err);
+      return { title: fallbackTitle, author: 'Word 97-2003', coverColor };
+    }
+  }
+
+  // ================= CHM =================
+  private static async extractChm(
+    filePath: string,
+    originalName: string,
+    coverColor: string
+  ): Promise<ExtractedMetadata> {
+    const fallbackTitle = cleanTitleFromFilename(originalName);
+    try {
+      const base64 = await fileStorage.readAsBase64(filePath);
+      const bytes = base64ToUint8(base64);
+      const parsed = ChmParser.parse(bytes);
+      const title = parsed.metadata.title && parsed.metadata.title !== 'Compiled HTML Help'
+        ? parsed.metadata.title
+        : fallbackTitle;
+
+      return {
+        title,
+        author: parsed.metadata.author || 'Help Archive',
+        coverColor: getCoverColorForTitle(title),
+        chapterCount: 1,
+      };
+    } catch (err) {
+      logger.warn(TAG, `CHM metadata error: ${originalName}`, err);
+      return { title: fallbackTitle, author: 'Help Archive', coverColor };
+    }
+  }
+
+  // ================= DJVU =================
+  private static async extractDjvu(
+    filePath: string,
+    originalName: string,
+    coverColor: string
+  ): Promise<ExtractedMetadata> {
+    const fallbackTitle = cleanTitleFromFilename(originalName);
+    try {
+      const base64 = await fileStorage.readAsBase64(filePath);
+      const bytes = base64ToUint8(base64);
+      const parsed = DjvuParser.parse(bytes);
+      const title = parsed.metadata.title && parsed.metadata.title !== 'DjVu Document'
+        ? parsed.metadata.title
+        : fallbackTitle;
+
+      return {
+        title,
+        author: parsed.metadata.author || 'DjVu Document',
+        coverColor: getCoverColorForTitle(title),
+        chapterCount: parsed.pages.length || 1,
+      };
+    } catch (err) {
+      logger.warn(TAG, `DjVu metadata error: ${originalName}`, err);
+      return { title: fallbackTitle, author: 'DjVu Document', coverColor };
+    }
+  }
+
+  // ================= CBR =================
+  private static async extractCbr(
+    filePath: string,
+    originalName: string,
+    fileId: string,
+    coverColor: string
+  ): Promise<ExtractedMetadata> {
+    const fallbackTitle = cleanTitleFromFilename(originalName);
+    try {
+      const base64 = await fileStorage.readAsBase64(filePath);
+      const bytes = base64ToUint8(base64);
+      const entries = RarExtractor.inspect(bytes);
+
+      const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+      const imageEntries = entries.filter((e) => {
+        const ext = e.name.split('.').pop()?.toLowerCase();
+        return ext && imageExtensions.includes(ext) && e.data && e.data.length > 0;
+      });
+
+      let coverUrl: string | undefined;
+      if (imageEntries.length > 0) {
+        const first = imageEntries[0];
+        const ext = first.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const coverB64 = uint8ToBase64(first.data);
+        coverUrl = await fileStorage.saveCoverImage(fileId, coverB64, ext);
+      }
+
+      return {
+        title: fallbackTitle,
+        author: 'Comic Archive (RAR)',
+        coverUrl,
+        coverColor,
+        chapterCount: imageEntries.length || 1,
+      };
+    } catch (err) {
+      logger.warn(TAG, `CBR metadata error: ${originalName}`, err);
+      return { title: fallbackTitle, author: 'Comic Archive (RAR)', coverColor };
+    }
   }
 }

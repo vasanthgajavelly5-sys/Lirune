@@ -35,6 +35,10 @@ import {
   ZipInspectionService,
   ZipBookEntry,
 } from '@/services/import/ZipInspectionService';
+import {
+  RarInspectionService,
+  RarBookEntry,
+} from '@/services/import/RarInspectionService';
 import { ZipInspectionModal } from '@/components/ZipInspectionModal';
 import { getFormatFromExtension, BookFormat } from '@/models/Book';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
@@ -54,17 +58,40 @@ interface DiscoveredFile {
   selected: boolean;
 }
 
-const SUPPORTED_EXTENSIONS = ['.epub', '.pdf', '.txt', '.html', '.htm', '.fb2', '.cbz', '.zip'];
+const SUPPORTED_EXTENSIONS = [
+  '.epub',
+  '.pdf',
+  '.txt',
+  '.html',
+  '.htm',
+  '.fb2',
+  '.cbz',
+  '.mobi',
+  '.azw',
+  '.azw3',
+  '.djvu',
+  '.doc',
+  '.docx',
+  '.rtf',
+  '.odt',
+  '.chm',
+  '.cbr',
+  '.zip',
+  '.rar',
+];
 
 const FORMAT_FILTERS: { id: string; label: string }[] = [
   { id: 'all', label: 'All Formats' },
   { id: 'epub', label: 'EPUB' },
   { id: 'pdf', label: 'PDF' },
+  { id: 'mobi', label: 'Kindle (MOBI/AZW)' },
+  { id: 'fb2', label: 'FB2' },
+  { id: 'cbz', label: 'Comics (CBZ/CBR)' },
+  { id: 'docx', label: 'Word/ODT' },
   { id: 'txt', label: 'TXT' },
   { id: 'html', label: 'HTML' },
-  { id: 'fb2', label: 'FB2' },
-  { id: 'cbz', label: 'CBZ' },
-  { id: 'zip', label: 'ZIP' },
+  { id: 'djvu', label: 'DjVu' },
+  { id: 'archives', label: 'Archives (ZIP/RAR)' },
 ];
 
 export default function FilesScreen() {
@@ -80,6 +107,7 @@ export default function FilesScreen() {
   const [selectedFormat, setSelectedFormat] = useState<string>('all');
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [hasScanned, setHasScanned] = useState<boolean>(false);
   const [scanStatus, setScanStatus] = useState<string>('');
   const [importProgress, setImportProgress] = useState<{
     total: number;
@@ -88,9 +116,10 @@ export default function FilesScreen() {
   } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // ZIP Container Inspection State
+  // Archive Container Inspection State (ZIP & RAR)
   const [zipModalVisible, setZipModalVisible] = useState(false);
   const [zipName, setZipName] = useState('');
+  const [isRarArchive, setIsRarArchive] = useState(false);
   const [zipEntries, setZipEntries] = useState<ZipBookEntry[]>([]);
   const [inspectingZipUri, setInspectingZipUri] = useState<string | null>(null);
   const [isExtractingZip, setIsExtractingZip] = useState(false);
@@ -108,7 +137,8 @@ export default function FilesScreen() {
         (b) =>
           b.format === format &&
           (b.title.toLowerCase().trim() === cleanName ||
-            b.filePath.toLowerCase().endsWith(fileName.toLowerCase()))
+            (b.filePath && b.filePath.toLowerCase().endsWith(fileName.toLowerCase())) ||
+            b.uri.toLowerCase().endsWith(fileName.toLowerCase()))
       );
     },
     [books]
@@ -248,17 +278,75 @@ export default function FilesScreen() {
   };
 
   /**
-   * Action 1: Scan Device Storage via SAF folder authorization
+   * Action 1: Scan Phone
+   * Discovers user-accessible documents in internal storage and common directories (Downloads, Documents, app sandbox)
    */
-  const handleScanStorageFolder = async () => {
+  const handleScanPhone = async () => {
     setIsScanning(true);
-    setScanStatus('Requesting storage folder access...');
+    setScanStatus('Scanning device storage and downloads...');
+
+    try {
+      setHasScanned(true);
+      const allFound: DiscoveredFile[] = [];
+
+      // 1. Scan app documentDirectory if present
+      if (FileSystem.documentDirectory) {
+        const docResults = await scanDirectoryRecursive(
+          FileSystem.documentDirectory,
+          'Lirune Documents',
+          0,
+          3
+        );
+        allFound.push(...docResults);
+      }
+
+      // 2. Scan last authorized folder if present
+      if (lastAuthorizedFolderUri) {
+        const folderName = decodeURIComponent(lastAuthorizedFolderUri.split('%3A').pop() || 'Authorized Folder');
+        const authResults = await scanDirectoryRecursive(lastAuthorizedFolderUri, folderName, 0, 4);
+        allFound.push(...authResults);
+      }
+
+      // 3. Prompt user to select/scan Downloads or Storage root via SAF if no authorized folder
+      if (allFound.length === 0) {
+        setScanStatus('Select Downloads or Phone folder to scan...');
+        const { StorageAccessFramework } = FileSystem;
+        const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (permissions.granted) {
+          await setLastAuthorizedFolderUri(permissions.directoryUri);
+          const folderName = decodeURIComponent(permissions.directoryUri.split('%3A').pop() || 'Phone Storage');
+          const safResults = await scanDirectoryRecursive(permissions.directoryUri, folderName, 0, 5);
+          allFound.push(...safResults);
+        }
+      }
+
+      setDiscoveredFiles((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id));
+        const newItems = allFound.filter((f) => !existingIds.has(f.id));
+        return [...prev, ...newItems];
+      });
+
+      setToastMessage(
+        `Discovered ${allFound.length} document${allFound.length === 1 ? '' : 's'} on device`
+      );
+    } catch (err) {
+      logger.error(TAG, 'Error during phone scan', err);
+      setToastMessage('Failed to scan device storage.');
+    } finally {
+      setIsScanning(false);
+      setScanStatus('');
+    }
+  };
+
+  /**
+   * Action 2: Scan Folder via SAF folder authorization
+   */
+  const handleScanFolder = async () => {
+    setIsScanning(true);
+    setScanStatus('Requesting folder access...');
 
     try {
       const { StorageAccessFramework } = FileSystem;
-      let targetUri = lastAuthorizedFolderUri;
-
-      // If we don't have an authorized folder or user wants to pick a new one
       const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (!permissions.granted) {
         setToastMessage('Folder access was not granted.');
@@ -267,14 +355,14 @@ export default function FilesScreen() {
         return;
       }
 
-      targetUri = permissions.directoryUri;
+      setHasScanned(true);
+      const targetUri = permissions.directoryUri;
       await setLastAuthorizedFolderUri(targetUri);
 
       setScanStatus('Scanning folder and subfolders recursively...');
       const folderName = decodeURIComponent(targetUri.split('%3A').pop() || 'Storage Folder');
       const files = await scanDirectoryRecursive(targetUri, folderName);
 
-      // Merge results avoiding duplicate file IDs
       setDiscoveredFiles((prev) => {
         const existingIds = new Set(prev.map((p) => p.id));
         const newItems = files.filter((f) => !existingIds.has(f.id));
@@ -306,6 +394,7 @@ export default function FilesScreen() {
         return;
       }
       setZipName(name);
+      setIsRarArchive(false);
       setZipEntries(entries);
       setInspectingZipUri(uri);
       setZipModalVisible(true);
@@ -319,42 +408,84 @@ export default function FilesScreen() {
   };
 
   /**
-   * Import selected books from an inspected ZIP container
+   * Inspect a RAR container and prompt user with its book contents
    */
-  const handleImportZipEntries = async (selected: ZipBookEntry[]) => {
+  const handleInspectRar = async (uri: string, name: string) => {
+    setIsScanning(true);
+    setScanStatus(`Inspecting ${name}...`);
+    try {
+      const entries = await RarInspectionService.inspectRar(uri);
+      if (entries.length === 0) {
+        setToastMessage(`No supported book files found inside "${name}".`);
+        return;
+      }
+      setZipName(name);
+      setIsRarArchive(true);
+      setZipEntries(entries);
+      setInspectingZipUri(uri);
+      setZipModalVisible(true);
+    } catch (err: any) {
+      logger.error(TAG, 'Failed inspecting RAR container', err);
+      setToastMessage('Could not inspect RAR archive.');
+    } finally {
+      setIsScanning(false);
+      setScanStatus('');
+    }
+  };
+
+  /**
+   * Import selected books from an inspected archive container (ZIP or RAR)
+   */
+  const handleImportArchiveEntries = async (selected: ZipBookEntry[]) => {
     if (!inspectingZipUri || selected.length === 0) return;
     setIsExtractingZip(true);
     setZipExtractProgress({ current: 0, total: selected.length, fileName: '' });
 
     try {
-      const importedBooks = await ZipInspectionService.importSelectedEntries(
-        inspectingZipUri,
-        selected,
-        (current: number, total: number, fileName: string) => {
-          setZipExtractProgress({ current, total, fileName });
-        }
-      );
+      let importedBooks: any[] = [];
+      if (isRarArchive) {
+        importedBooks = await RarInspectionService.importSelectedEntries(
+          inspectingZipUri,
+          selected as any,
+          (current: number, total: number, fileName: string) => {
+            setZipExtractProgress({ current, total, fileName });
+          }
+        );
+      } else {
+        importedBooks = await ZipInspectionService.importSelectedEntries(
+          inspectingZipUri,
+          selected,
+          (current: number, total: number, fileName: string) => {
+            setZipExtractProgress({ current, total, fileName });
+          }
+        );
+      }
 
       await loadLibrary();
       setZipModalVisible(false);
       setToastMessage(
-        `Successfully imported ${importedBooks.length} book${importedBooks.length === 1 ? '' : 's'} from ZIP.`
+        `Successfully imported ${importedBooks.length} book${importedBooks.length === 1 ? '' : 's'} from archive.`
       );
     } catch (err: any) {
-      logger.error(TAG, 'Failed extracting from ZIP', err);
-      setToastMessage('Failed to import books from ZIP archive.');
+      logger.error(TAG, 'Failed extracting from archive', err);
+      setToastMessage('Failed to import books from archive.');
     } finally {
       setIsExtractingZip(false);
       setZipExtractProgress(null);
+      setIsRarArchive(false);
     }
   };
 
   /**
-   * Action: Open a discovered file directly in Lirune's internal reader, or inspect if ZIP
+   * Action: Open a discovered file directly in Lirune's internal reader, or inspect if ZIP/RAR
    */
   const handleOpenFileOrInspect = async (item: DiscoveredFile) => {
     if (item.format === 'zip') {
       await handleInspectZip(item.uri, item.name);
+      return;
+    }
+    if (item.format === 'rar') {
+      await handleInspectRar(item.uri, item.name);
       return;
     }
 
@@ -363,8 +494,10 @@ export default function FilesScreen() {
     const existingBook = books.find(
       (b) =>
         b.format === item.format &&
-        (b.title.toLowerCase().trim() === cleanItemName ||
-          b.filePath.toLowerCase().endsWith(item.name.toLowerCase()))
+        (b.uri === item.uri ||
+          b.title.toLowerCase().trim() === cleanItemName ||
+          (b.filePath && b.filePath.toLowerCase().endsWith(item.name.toLowerCase())) ||
+          b.uri.toLowerCase().endsWith(item.name.toLowerCase()))
     );
 
     if (existingBook) {
@@ -401,7 +534,7 @@ export default function FilesScreen() {
   };
 
   /**
-   * Action 2: Pick individual or multiple files directly
+   * Action 3: Scan File (pick individual or multiple files directly)
    */
   const handlePickFiles = async () => {
     if (ImportService.isBusy()) {
@@ -410,16 +543,7 @@ export default function FilesScreen() {
 
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'application/epub+zip',
-          'application/pdf',
-          'text/plain',
-          'text/html',
-          'application/x-fictionbook+xml',
-          'application/vnd.comicbook+zip',
-          'application/zip',
-          '*/*',
-        ],
+        type: '*/*',
         multiple: true,
         copyToCacheDirectory: true,
         base64: false,
@@ -429,21 +553,43 @@ export default function FilesScreen() {
         return;
       }
 
-      // If single file and it's a ZIP, directly open ZIP inspection modal
-      if (result.assets.length === 1 && result.assets[0].name.toLowerCase().endsWith('.zip')) {
-        await handleInspectZip(result.assets[0].uri, result.assets[0].name);
-        return;
+      setHasScanned(true);
+
+      // If single file and it's an archive, directly open inspection modal
+      if (result.assets.length === 1) {
+        const single = result.assets[0];
+        if (single.name.toLowerCase().endsWith('.zip')) {
+          await handleInspectZip(single.uri, single.name);
+          return;
+        }
+        if (single.name.toLowerCase().endsWith('.rar')) {
+          await handleInspectRar(single.uri, single.name);
+          return;
+        }
       }
 
       const newDiscovered: DiscoveredFile[] = [];
       for (const asset of result.assets) {
-        if (asset.name.toLowerCase().endsWith('.zip')) {
-          // Add ZIP container to discovery list
+        const lowerName = asset.name.toLowerCase();
+        if (lowerName.endsWith('.zip')) {
           newDiscovered.push({
             id: asset.uri,
             uri: asset.uri,
             name: asset.name,
             format: 'zip',
+            size: asset.size || 0,
+            folderName: 'Picked Archives',
+            inLibrary: false,
+            selected: false,
+          });
+          continue;
+        }
+        if (lowerName.endsWith('.rar')) {
+          newDiscovered.push({
+            id: asset.uri,
+            uri: asset.uri,
+            name: asset.name,
+            format: 'rar',
             size: asset.size || 0,
             folderName: 'Picked Archives',
             inLibrary: false,
@@ -553,7 +699,13 @@ export default function FilesScreen() {
   // Filtered displayed files
   const q = searchFilter.toLowerCase().trim();
   const displayedFiles = discoveredFiles.filter((f) => {
-    if (selectedFormat !== 'all' && f.format !== selectedFormat) return false;
+    if (selectedFormat !== 'all') {
+      if (selectedFormat === 'mobi' && !['mobi', 'azw', 'azw3'].includes(f.format)) return false;
+      else if (selectedFormat === 'cbz' && !['cbz', 'cbr'].includes(f.format)) return false;
+      else if (selectedFormat === 'docx' && !['docx', 'doc', 'odt', 'rtf'].includes(f.format)) return false;
+      else if (selectedFormat === 'archives' && !['zip', 'rar'].includes(f.format)) return false;
+      else if (!['mobi', 'cbz', 'docx', 'archives'].includes(selectedFormat) && f.format !== selectedFormat) return false;
+    }
     if (
       q &&
       !f.name.toLowerCase().includes(q) &&
@@ -584,39 +736,52 @@ export default function FilesScreen() {
           </View>
         </View>
         <Text style={[styles.bookCountBadge, { color: colors.textSecondary }]}>
-          {discoveredFiles.length} found
+          {hasScanned ? `${discoveredFiles.length} found` : 'Not scanned yet'}
         </Text>
       </View>
 
-      {/* Primary Actions: Scan Storage Folder & Pick Files */}
+      {/* Primary Actions: Scan Phone, Scan Folder, Scan File */}
       <View style={styles.actionSection}>
         <TouchableOpacity
-          style={[styles.primaryActionBtn, { backgroundColor: colors.accent }]}
-          onPress={handleScanStorageFolder}
+          style={[styles.actionBtn, { backgroundColor: colors.accent }]}
+          onPress={handleScanPhone}
           disabled={isScanning || !!importProgress}
           activeOpacity={0.8}
         >
           {isScanning ? (
-            <ActivityIndicator size="small" color={colors.accentForeground} style={{ marginRight: 8 }} />
+            <ActivityIndicator size="small" color={colors.accentForeground} style={{ marginRight: 6 }} />
           ) : (
-            <Ionicons name="folder-open" size={20} color={colors.accentForeground} style={{ marginRight: 8 }} />
+            <Ionicons name="phone-portrait-outline" size={17} color={colors.accentForeground} style={{ marginRight: 6 }} />
           )}
-          <Text style={[styles.primaryActionText, { color: colors.accentForeground }]}>
-            {isScanning ? 'Scanning Storage...' : 'Scan Storage Folder'}
+          <Text style={[styles.actionBtnText, { color: colors.accentForeground }]}>
+            Scan Phone
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[
-            styles.secondaryActionBtn,
-            { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle },
+            styles.actionBtn,
+            { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle, borderWidth: 1 },
+          ]}
+          onPress={handleScanFolder}
+          disabled={isScanning || !!importProgress}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="folder-open-outline" size={17} color={colors.text} style={{ marginRight: 6 }} />
+          <Text style={[styles.actionBtnText, { color: colors.text }]}>Scan Folder</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.actionBtn,
+            { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle, borderWidth: 1 },
           ]}
           onPress={handlePickFiles}
           disabled={isScanning || !!importProgress}
           activeOpacity={0.7}
         >
-          <Ionicons name="document-attach-outline" size={19} color={colors.text} style={{ marginRight: 6 }} />
-          <Text style={[styles.secondaryActionText, { color: colors.text }]}>Pick Files</Text>
+          <Ionicons name="document-text-outline" size={17} color={colors.text} style={{ marginRight: 6 }} />
+          <Text style={[styles.actionBtnText, { color: colors.text }]}>Scan File</Text>
         </TouchableOpacity>
       </View>
 
@@ -624,7 +789,7 @@ export default function FilesScreen() {
       <View style={[styles.guidanceBox, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]}>
         <Ionicons name="shield-checkmark-outline" size={16} color={colors.accent} style={{ marginRight: 8, marginTop: 1 }} />
         <Text style={[styles.guidanceText, { color: colors.textSecondary }]}>
-          Modern Android Scoped Storage: Tap &ldquo;Scan Storage Folder&rdquo; to authorize and scan your device&rsquo;s Books, Downloads, or SD card directory recursively.
+          Modern Android Scoped Storage: Tap &ldquo;Scan Phone&rdquo; or &ldquo;Scan Folder&rdquo; to discover books in Downloads, Books, or SD card without broad storage permissions.
         </Text>
       </View>
 
@@ -780,7 +945,7 @@ export default function FilesScreen() {
               activeOpacity={0.7}
             >
               <View style={styles.fileCardLeft}>
-                {item.format === 'zip' ? (
+                {item.format === 'zip' || item.format === 'rar' ? (
                   <View style={[styles.checkIcon, { padding: 2 }]}>
                     <Ionicons name="archive-outline" size={20} color={colors.accent} />
                   </View>
@@ -824,10 +989,10 @@ export default function FilesScreen() {
               </View>
 
               <View style={styles.fileCardRight}>
-                {item.format === 'zip' ? (
+                {item.format === 'zip' || item.format === 'rar' ? (
                   <TouchableOpacity
                     style={[styles.singleImportBtn, { backgroundColor: colors.accentSoft }]}
-                    onPress={() => handleInspectZip(item.uri, item.name)}
+                    onPress={() => (item.format === 'rar' ? handleInspectRar(item.uri, item.name) : handleInspectZip(item.uri, item.name))}
                   >
                     <Ionicons name="eye-outline" size={16} color={colors.accent} />
                     <Text style={[styles.singleImportBtnText, { color: colors.accent }]}>Inspect</Text>
@@ -871,18 +1036,26 @@ export default function FilesScreen() {
           !isScanning ? (
             <View style={styles.emptyContainer}>
               <View style={[styles.emptyIconOrb, { backgroundColor: colors.surfaceElevated }]}>
-                <Ionicons name="folder-open-outline" size={36} color={colors.accent} />
+                <Ionicons
+                  name={hasScanned ? 'search-outline' : 'folder-open-outline'}
+                  size={36}
+                  color={colors.accent}
+                />
               </View>
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>No Discovered Books Yet</Text>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                {hasScanned ? 'No books found' : 'Not scanned yet'}
+              </Text>
               <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-                Tap &ldquo;Scan Storage Folder&rdquo; to select a folder on your device, or &ldquo;Pick Files&rdquo; to select individual ebooks directly.
+                {hasScanned
+                  ? 'No supported documents were found matching your current filter. Try scanning another folder or phone storage.'
+                  : 'Select Scan Phone, Scan Folder, or Scan File to discover books and documents on your device.'}
               </Text>
             </View>
           ) : null
         }
       />
 
-      {/* ZIP Container Inspection Modal */}
+      {/* ZIP/RAR Container Inspection Modal */}
       <ZipInspectionModal
         visible={zipModalVisible}
         zipName={zipName}
@@ -890,7 +1063,7 @@ export default function FilesScreen() {
         isExtracting={isExtractingZip}
         extractProgress={zipExtractProgress}
         onClose={() => setZipModalVisible(false)}
-        onImportSelected={handleImportZipEntries}
+        onImportSelected={handleImportArchiveEntries}
       />
 
       {/* Lirune Toast */}
@@ -939,7 +1112,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingTop: 12,
-    gap: 10,
+    gap: 8,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    minHeight: 48,
+    elevation: 1,
+  },
+  actionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   primaryActionBtn: {
     flex: 1.5,
@@ -949,6 +1137,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     elevation: 2,
+    minHeight: 48,
   },
   primaryActionText: {
     fontSize: 14,
@@ -962,6 +1151,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
+    minHeight: 48,
   },
   secondaryActionText: {
     fontSize: 13,

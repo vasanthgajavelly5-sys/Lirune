@@ -23,16 +23,19 @@ export interface BookRepository {
 
   // Bookmarks
   getBookmarks(bookId: string): Promise<Bookmark[]>;
+  getAllBookmarks(): Promise<Bookmark[]>;
   addBookmark(bookmark: Bookmark): Promise<void>;
   removeBookmark(id: string): Promise<void>;
 
   // Highlights
   getHighlights(bookId: string): Promise<Highlight[]>;
+  getAllHighlights(): Promise<Highlight[]>;
   addHighlight(highlight: Highlight): Promise<void>;
   removeHighlight(id: string): Promise<void>;
 
   // Notes
   getNotes(bookId: string): Promise<Note[]>;
+  getAllNotes(): Promise<Note[]>;
   addNote(note: Note): Promise<void>;
   updateNote(note: Note): Promise<void>;
   removeNote(id: string): Promise<void>;

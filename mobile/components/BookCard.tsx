@@ -164,6 +164,78 @@ export function BookCard({
     );
   }
 
+  // ================= COMPACT MODE =================
+  if (viewMode === 'compact') {
+    return (
+      <TouchableOpacity
+        style={[
+          styles.compactCard,
+          {
+            backgroundColor: isDark ? '#202026' : '#FFFFFF',
+            borderColor: colors.borderSubtle,
+          },
+        ]}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={280}
+        activeOpacity={0.82}
+      >
+        <View
+          style={[
+            styles.compactCoverMini,
+            { backgroundColor: book.coverColor || '#2C2D35' },
+          ]}
+        >
+          {coverUri && !imageError ? (
+            <Image
+              source={{ uri: coverUri }}
+              style={styles.compactCoverImage}
+              resizeMode="cover"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <Ionicons name="book" size={13} color="rgba(255,255,255,0.7)" />
+          )}
+        </View>
+
+        <View style={styles.compactInfo}>
+          <Text style={[styles.compactTitle, { color: colors.text }]} numberOfLines={1}>
+            {book.title}
+          </Text>
+          <Text style={[styles.compactAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
+            {book.author}
+          </Text>
+        </View>
+
+        <View style={styles.compactRight}>
+          <View style={[styles.compactBadge, { backgroundColor: colors.accentSoft }]}>
+            <Text style={[styles.compactBadgeText, { color: colors.accent }]}>{badgeText}</Text>
+          </View>
+          {book.progress > 0 && (
+            <Text style={[styles.compactProgress, { color: colors.accent }]}>
+              {book.progress}%
+            </Text>
+          )}
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              onToggleFavorite();
+            }}
+            style={styles.compactActionBtn}
+            accessibilityLabel={book.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name={book.isFavorite ? 'heart' : 'heart-outline'}
+              size={17}
+              color={book.isFavorite ? '#FF6584' : colors.textMuted}
+            />
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
   // ================= LIST MODE =================
   return (
     <TouchableOpacity
@@ -430,6 +502,64 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   listActionBtn: {
+    padding: 4,
+  },
+  // Compact
+  compactCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 6,
+    borderWidth: 1,
+    minHeight: 48,
+  },
+  compactCoverMini: {
+    width: 28,
+    height: 38,
+    borderRadius: 4,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  compactCoverImage: {
+    width: '100%',
+    height: '100%',
+  },
+  compactInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  compactTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  compactAuthor: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  compactRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 8,
+  },
+  compactBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  compactBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  compactProgress: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  compactActionBtn: {
     padding: 4,
   },
 });

@@ -3,11 +3,28 @@
  * Functional reference: Lirune Desktop 4.0.4
  */
 
-export type BookFormat = 'epub' | 'pdf' | 'txt' | 'html' | 'fb2' | 'cbz' | 'zip';
-export type UnsupportedBookFormat = 'mobi' | 'kf8' | 'azw3' | 'cbr';
+export type BookFormat =
+  | 'epub'
+  | 'pdf'
+  | 'txt'
+  | 'html'
+  | 'fb2'
+  | 'cbz'
+  | 'mobi'
+  | 'azw'
+  | 'azw3'
+  | 'djvu'
+  | 'doc'
+  | 'docx'
+  | 'rtf'
+  | 'odt'
+  | 'chm'
+  | 'cbr'
+  | 'zip'
+  | 'rar';
 
 export interface FormatInfo {
-  id: BookFormat | UnsupportedBookFormat | 'unknown';
+  id: BookFormat | 'unknown';
   label: string;
   extensions: string[];
   mime: string;
@@ -40,7 +57,7 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
   html: {
     id: 'html',
     label: 'HTML Document',
-    extensions: ['html', 'htm'],
+    extensions: ['html', 'htm', 'xhtml'],
     mime: 'text/html',
     supported: true,
   },
@@ -53,52 +70,94 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
   },
   cbz: {
     id: 'cbz',
-    label: 'Comic Book Archive',
+    label: 'Comic Book Archive (CBZ)',
     extensions: ['cbz'],
     mime: 'application/vnd.comicbook+zip',
     supported: true,
   },
+  cbr: {
+    id: 'cbr',
+    label: 'Comic Book Archive (CBR)',
+    extensions: ['cbr'],
+    mime: 'application/vnd.comicbook-rar',
+    supported: true,
+  },
+  mobi: {
+    id: 'mobi',
+    label: 'MOBI / PalmDOC',
+    extensions: ['mobi', 'prc'],
+    mime: 'application/x-mobipocket-ebook',
+    supported: true,
+  },
+  azw: {
+    id: 'azw',
+    label: 'Amazon Kindle (AZW)',
+    extensions: ['azw'],
+    mime: 'application/vnd.amazon.ebook',
+    supported: true,
+  },
+  azw3: {
+    id: 'azw3',
+    label: 'Kindle Format 8 (AZW3/KF8)',
+    extensions: ['azw3', 'kf8'],
+    mime: 'application/x-mobi8-ebook',
+    supported: true,
+  },
+  djvu: {
+    id: 'djvu',
+    label: 'DjVu Document',
+    extensions: ['djvu', 'djv'],
+    mime: 'image/vnd.djvu',
+    supported: true,
+  },
+  doc: {
+    id: 'doc',
+    label: 'Microsoft Word (97-2003)',
+    extensions: ['doc'],
+    mime: 'application/msword',
+    supported: true,
+  },
+  docx: {
+    id: 'docx',
+    label: 'Microsoft Word (DOCX)',
+    extensions: ['docx'],
+    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    supported: true,
+  },
+  rtf: {
+    id: 'rtf',
+    label: 'Rich Text Format (RTF)',
+    extensions: ['rtf'],
+    mime: 'application/rtf',
+    supported: true,
+  },
+  odt: {
+    id: 'odt',
+    label: 'OpenDocument Text (ODT)',
+    extensions: ['odt'],
+    mime: 'application/vnd.oasis.opendocument.text',
+    supported: true,
+  },
+  chm: {
+    id: 'chm',
+    label: 'Compiled HTML Help (CHM)',
+    extensions: ['chm'],
+    mime: 'application/vnd.ms-htmlhelp',
+    supported: true,
+  },
   zip: {
     id: 'zip',
-    label: 'ZIP Container',
+    label: 'ZIP Container Archive',
     extensions: ['zip'],
     mime: 'application/zip',
     supported: true,
   },
-};
-
-export const UNSUPPORTED_FORMATS: Record<UnsupportedBookFormat, FormatInfo> = {
-  mobi: {
-    id: 'mobi',
-    label: 'Kindle / MOBI',
-    extensions: ['mobi', 'azw'],
-    mime: 'application/x-mobipocket-ebook',
-    supported: false,
-    reason: 'MOBI and Kindle formats require native conversion that is not supported on this device. Please convert to EPUB.',
-  },
-  kf8: {
-    id: 'kf8',
-    label: 'Kindle Format 8',
-    extensions: ['kf8'],
-    mime: 'application/x-mobipocket-ebook',
-    supported: false,
-    reason: 'KF8 format requires proprietary decryption/conversion. Please convert to EPUB.',
-  },
-  azw3: {
-    id: 'azw3',
-    label: 'Kindle AZW3',
-    extensions: ['azw3', 'kfx'],
-    mime: 'application/x-mobi8-ebook',
-    supported: false,
-    reason: 'AZW3/KFX files require proprietary format conversion. Please convert to EPUB.',
-  },
-  cbr: {
-    id: 'cbr',
-    label: 'Comic Book RAR',
-    extensions: ['cbr'],
-    mime: 'application/vnd.comicbook-rar',
-    supported: false,
-    reason: 'CBR archives use the proprietary RAR format. Please convert your comic archive to standard CBZ (ZIP).',
+  rar: {
+    id: 'rar',
+    label: 'RAR Container Archive',
+    extensions: ['rar'],
+    mime: 'application/x-rar-compressed',
+    supported: true,
   },
 };
 
@@ -108,16 +167,13 @@ export function getFormatFromExtension(filenameOrExt: string): FormatInfo {
   for (const format of Object.values(SUPPORTED_FORMATS)) {
     if (format.extensions.includes(ext)) return format;
   }
-  for (const format of Object.values(UNSUPPORTED_FORMATS)) {
-    if (format.extensions.includes(ext)) return format;
-  }
   return {
     id: 'unknown',
     label: 'Unknown Format',
     extensions: [ext],
     mime: 'application/octet-stream',
     supported: false,
-    reason: `File format ".${ext}" is not recognized. Lirune Reader supports EPUB, PDF, TXT, HTML, FB2, and CBZ.`,
+    reason: `File format ".${ext}" is not recognized. Lirune Reader supports EPUB, PDF, TXT, HTML, FB2, CBZ, MOBI, AZW, AZW3, DJVU, DOC, DOCX, RTF, ODT, CHM, CBR, ZIP, and RAR.`,
   };
 }
 
@@ -127,7 +183,8 @@ export interface Book {
   author: string;
   description?: string;
   format: BookFormat;
-  filePath: string; // App-local persistent file path
+  uri: string; // SAF content:// URI or file:// — canonical source
+  filePath?: string; // App-local persistent file path (legacy/backward compat)
   fileSize: number; // Bytes
   coverUrl?: string; // App-local cover image path
   coverColor: string; // Fallback palette color
@@ -208,7 +265,7 @@ export interface SearchResult {
   pageNumber?: number;
 }
 
-export type ViewMode = 'grid' | 'list';
+export type ViewMode = 'grid' | 'list' | 'compact';
 export type SortCriterion = 'recent' | 'title' | 'author' | 'progress' | 'added';
 export type SortDirection = 'asc' | 'desc';
 export type FilterType = 'all' | 'reading' | 'favorites';
@@ -240,10 +297,11 @@ export interface ReaderSettings {
   margin: number; // 2 - 24, default 12
   flow: 'paginated' | 'scrolled';
   alignment: 'left' | 'center' | 'right' | 'justify';
+  pageGap: number; // 0 - 32, default 16 (px) - gap between pages in paginated mode
 }
 
 export const DEFAULT_READER_SETTINGS: ReaderSettings = {
-  theme: 'night',
+  theme: 'sepia',
   fontSize: 18,
   fontFamily: 'Serif',
   lineHeight: 1.6,
@@ -251,4 +309,5 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   margin: 12,
   flow: 'paginated',
   alignment: 'left',
+  pageGap: 16,
 };

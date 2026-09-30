@@ -47,9 +47,10 @@ export function Fb2ReaderView({
 
   useEffect(() => {
     let active = true;
+    const bookPath = book.filePath || book.uri || '';
     async function parseFb2() {
       try {
-        const rawXml = await fileStorage.readAsString(book.filePath);
+        const rawXml = await fileStorage.readAsString(bookPath);
 
         // 1. Extract binary images: <binary id="..." content-type="...">base64</binary>
         const imageMap: Record<string, string> = {};
@@ -134,7 +135,7 @@ export function Fb2ReaderView({
           setIsLoading(false);
         }
       } catch (err) {
-        logger.error(TAG, `Error parsing FB2: ${book.filePath}`, err);
+        logger.error(TAG, `Error parsing FB2: ${bookPath}`, err);
         if (active) {
           setRenderedHtml('<p>Unable to parse FictionBook content.</p>');
           setIsLoading(false);
@@ -146,7 +147,7 @@ export function Fb2ReaderView({
     return () => {
       active = false;
     };
-  }, [book.filePath, onTOCLoaded]);
+  }, [book.filePath, book.uri, onTOCLoaded]);
 
   const styledHtml = `
     <!DOCTYPE html>

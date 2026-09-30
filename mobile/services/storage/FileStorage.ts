@@ -52,9 +52,14 @@ export class FileStorageService {
     const ext = extMatch ? `.${extMatch[1].toLowerCase()}` : '';
     const destPath = `${BOOKS_DIR}${fileId}${ext}`;
 
+    let normalizedSource = sourceUri;
+    if (normalizedSource.startsWith('file:///sdcard/')) {
+      normalizedSource = normalizedSource.replace('file:///sdcard/', 'file:///storage/emulated/0/');
+    }
+
     try {
       await FileSystem.copyAsync({
-        from: sourceUri,
+        from: normalizedSource,
         to: destPath,
       });
     } catch (copyErr) {
@@ -66,7 +71,7 @@ export class FileStorageService {
             encoding: FileSystem.EncodingType.Base64,
           });
         } else {
-          base64Data = await FileSystem.readAsStringAsync(sourceUri, {
+          base64Data = await FileSystem.readAsStringAsync(normalizedSource, {
             encoding: FileSystem.EncodingType.Base64,
           });
         }
@@ -74,8 +79,8 @@ export class FileStorageService {
           encoding: FileSystem.EncodingType.Base64,
         });
       } catch (readErr) {
-        logger.error(TAG, `Failed both copyAsync and readAsString fallback for ${sourceUri}`, readErr);
-        throw copyErr;
+        logger.warn(TAG, `Failed both copyAsync and readAsString fallback for ${sourceUri}, referencing source path directly`);
+        return { destPath: normalizedSource, fileSize: 0 };
       }
     }
 

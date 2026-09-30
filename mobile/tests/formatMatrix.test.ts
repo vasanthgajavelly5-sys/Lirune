@@ -18,6 +18,18 @@ test('Format Matrix: Supported formats extension resolution', () => {
     { input: 'story.fb2', expected: 'fb2' },
     { input: 'comic.cbz', expected: 'cbz' },
     { input: 'archive.zip', expected: 'zip' },
+    { input: 'archive.rar', expected: 'rar' },
+    { input: 'book.mobi', expected: 'mobi' },
+    { input: 'novel.azw', expected: 'azw' },
+    { input: 'novel.azw3', expected: 'azw3' },
+    { input: 'novel.kf8', expected: 'azw3' },
+    { input: 'comic.cbr', expected: 'cbr' },
+    { input: 'paper.djvu', expected: 'djvu' },
+    { input: 'document.doc', expected: 'doc' },
+    { input: 'document.docx', expected: 'docx' },
+    { input: 'document.odt', expected: 'odt' },
+    { input: 'document.rtf', expected: 'rtf' },
+    { input: 'manual.chm', expected: 'chm' },
     { input: '/storage/emulated/0/Download/my_book.EPUB', expected: 'epub' },
     { input: 'archive.tar.PDF', expected: 'pdf' },
   ];
@@ -31,13 +43,13 @@ test('Format Matrix: Supported formats extension resolution', () => {
 
 test('Format Matrix: Unsupported formats explicit rejection', () => {
   const unsupportedCases = [
-    'book.mobi',
-    'novel.azw3',
-    'novel.kf8',
-    'comic.cbr',
     'image.png',
+    'photo.jpg',
     'audio.mp3',
     'binary.exe',
+    'sheet.xlsx',
+    'slides.pptx',
+    'video.mp4',
   ];
 
   for (const input of unsupportedCases) {
@@ -54,6 +66,7 @@ test('Backup & Restore: Serialization and Deserialization round-trip', () => {
       title: 'The Ledger of Small Hours',
       author: 'Kester Sable',
       format: 'epub',
+      uri: 'file:///data/user/0/com.lirune.reader/files/books/book-1.epub',
       filePath: 'file:///data/user/0/com.lirune.reader/files/books/book-1.epub',
       fileSize: 1114946,
       coverColor: '#2C2D35',

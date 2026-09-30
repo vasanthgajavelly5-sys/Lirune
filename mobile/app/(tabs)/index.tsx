@@ -255,7 +255,7 @@ export default function LibraryScreen() {
         </View>
       </View>
 
-      {/* Simplified Filter Chips: All, Reading, Favorites */}
+      {/* Simplified Filter Controls: All, Reading, Favorites */}
       <View style={styles.chipsContainer}>
         <View style={styles.chipsRow}>
           {filterChips.map((chip) => {
@@ -265,20 +265,40 @@ export default function LibraryScreen() {
                 key={chip.id}
                 style={[
                   styles.filterChip,
-                  {
-                    backgroundColor: isSelected ? colors.accent : colors.surfaceElevated,
-                    borderColor: isSelected ? colors.accent : colors.borderSubtle,
-                  },
+                  isSelected
+                    ? [
+                        styles.filterChipActive,
+                        {
+                          backgroundColor: colors.accent,
+                          borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.12)',
+                          shadowColor: colors.accent,
+                        },
+                      ]
+                    : [
+                        styles.filterChipInactive,
+                        {
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
+                          borderColor: colors.borderSubtle,
+                        },
+                      ],
                 ]}
                 onPress={() => setFilter(chip.id)}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
               >
                 {chip.id === 'favorites' && (
                   <Ionicons
-                    name="heart"
-                    size={13}
+                    name={isSelected ? 'heart' : 'heart-outline'}
+                    size={14}
                     color={isSelected ? colors.accentForeground : '#FF6584'}
-                    style={{ marginRight: 4 }}
+                    style={{ marginRight: 6 }}
+                  />
+                )}
+                {chip.id === 'reading' && (
+                  <Ionicons
+                    name={isSelected ? 'book' : 'book-outline'}
+                    size={13}
+                    color={isSelected ? colors.accentForeground : colors.textSecondary}
+                    style={{ marginRight: 6 }}
                   />
                 )}
                 <Text
@@ -286,7 +306,7 @@ export default function LibraryScreen() {
                     styles.filterChipText,
                     {
                       color: isSelected ? colors.accentForeground : colors.textSecondary,
-                      fontWeight: isSelected ? '700' : '500',
+                      fontWeight: isSelected ? '700' : '600',
                     },
                   ]}
                 >
@@ -604,13 +624,25 @@ const styles = StyleSheet.create({
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
     borderWidth: 1,
+    minHeight: 38,
+  },
+  filterChipActive: {
+    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 5,
+  },
+  filterChipInactive: {
+    elevation: 0,
+    shadowOpacity: 0,
   },
   filterChipText: {
     fontSize: 13,
+    letterSpacing: 0.2,
   },
   collectionsRow: {
     paddingBottom: 8,

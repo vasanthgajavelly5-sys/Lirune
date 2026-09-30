@@ -12,11 +12,12 @@ import {
   TextInput,
   FlatList,
   Modal,
-  SafeAreaView,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { SearchResult } from '@/models/Book';
+import { READER_THEMES } from '@/theme/Colors';
 import { useThemeContext } from '@/theme/ThemeContext';
 
 interface SearchSheetProps {
@@ -26,6 +27,7 @@ interface SearchSheetProps {
   isSearching: boolean;
   onSearch: (query: string) => void;
   onSelectResult: (result: SearchResult) => void;
+  themeName?: string;
 }
 
 export function SearchSheet({
@@ -35,9 +37,24 @@ export function SearchSheet({
   isSearching,
   onSearch,
   onSelectResult,
+  themeName,
 }: SearchSheetProps) {
   const { colors } = useThemeContext();
+  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
+
+  // Harmonize with reader theme if provided
+  const activeTheme = themeName ? READER_THEMES[themeName] || READER_THEMES.neutral : null;
+  const isThemeDark = themeName ? (themeName === 'night' || themeName.startsWith('contrast')) : false;
+
+  const sheetBg = activeTheme ? activeTheme.bg : colors.surface;
+  const surfaceBg = activeTheme ? activeTheme.surface : colors.surfaceElevated;
+  const textColor = activeTheme ? activeTheme.text : colors.text;
+  const mutedColor = activeTheme ? activeTheme.muted : colors.textMuted;
+  const borderColor = activeTheme
+    ? (isThemeDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.10)')
+    : colors.borderSubtle;
+  const accentColor = activeTheme ? (activeTheme.link || (isThemeDark ? '#C9B8FF' : '#4C4666')) : colors.accent;
 
   const handleSubmit = () => {
     if (query.trim()) {
@@ -50,21 +67,31 @@ export function SearchSheet({
       visible={visible}
       animationType="slide"
       transparent={true}
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <SafeAreaView style={[styles.sheetContainer, { backgroundColor: colors.surface, borderTopColor: colors.borderSubtle }]}>
+        <View
+          style={[
+            styles.sheetContainer,
+            {
+              backgroundColor: sheetBg,
+              borderTopColor: borderColor,
+              paddingBottom: Math.max(insets.bottom, 16) + 8,
+            },
+          ]}
+        >
           {/* Header */}
-          <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
+          <View style={[styles.header, { borderBottomColor: borderColor }]}>
             <View
               style={[
                 styles.inputContainer,
-                { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle },
+                { backgroundColor: surfaceBg, borderColor: borderColor },
               ]}
             >
-              <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
+              <Ionicons name="search" size={18} color={mutedColor} style={styles.searchIcon} />
               <TextInput
-                style={[styles.input, { color: colors.text }]}
+                style={[styles.input, { color: textColor }]}
                 value={query}
                 onChangeText={(text) => {
                   setQuery(text);
@@ -73,26 +100,26 @@ export function SearchSheet({
                   }
                 }}
                 placeholder="Search inside this book..."
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={mutedColor}
                 returnKeyType="search"
                 onSubmitEditing={handleSubmit}
                 autoFocus={true}
               />
               {query.length > 0 && (
                 <TouchableOpacity onPress={() => setQuery('')} style={styles.clearBtn}>
-                  <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                  <Ionicons name="close-circle" size={18} color={mutedColor} />
                 </TouchableOpacity>
               )}
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={[styles.cancelText, { color: colors.accent }]}>Cancel</Text>
+              <Text style={[styles.cancelText, { color: accentColor }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
 
           {/* Results Count Bar */}
           {query.trim().length > 0 && !isSearching && (
-            <View style={[styles.countBar, { borderBottomColor: colors.borderSubtle }]}>
-              <Text style={[styles.countText, { color: colors.textSecondary }]}>
+            <View style={[styles.countBar, { borderBottomColor: borderColor }]}>
+              <Text style={[styles.countText, { color: mutedColor }]}>
                 {results.length === 0
                   ? 'No matches found in book'
                   : `${results.length} match${results.length === 1 ? '' : 'es'} found`}
@@ -102,8 +129,8 @@ export function SearchSheet({
 
           {isSearching ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color={colors.accent} />
-              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+              <ActivityIndicator size="small" color={accentColor} />
+              <Text style={[styles.loadingText, { color: mutedColor }]}>
                 Searching document contents...
               </Text>
             </View>
@@ -114,7 +141,7 @@ export function SearchSheet({
               contentContainerStyle={styles.resultsList}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[styles.resultItem, { borderBottomColor: colors.borderSubtle }]}
+                  style={[styles.resultItem, { borderBottomColor: borderColor }]}
                   onPress={() => {
                     onSelectResult(item);
                     onClose();
@@ -122,11 +149,11 @@ export function SearchSheet({
                   activeOpacity={0.7}
                 >
                   {item.label && (
-                    <Text style={[styles.resultLabel, { color: colors.accent }]}>
+                    <Text style={[styles.resultLabel, { color: accentColor }]}>
                       {item.label}
                     </Text>
                   )}
-                  <Text style={[styles.resultExcerpt, { color: colors.text }]}>
+                  <Text style={[styles.resultExcerpt, { color: textColor }]}>
                     {item.excerpt}
                   </Text>
                 </TouchableOpacity>
@@ -134,15 +161,15 @@ export function SearchSheet({
             />
           ) : (
             <View style={styles.emptyContainer}>
-              <Ionicons name="search-outline" size={40} color={colors.textMuted} />
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+              <Ionicons name="search-outline" size={40} color={mutedColor} />
+              <Text style={[styles.emptyText, { color: mutedColor }]}>
                 {query.length > 0
                   ? `No occurrences found for "${query}".`
                   : 'Enter words or phrases to search within this publication.'}
               </Text>
             </View>
           )}
-        </SafeAreaView>
+        </View>
       </View>
     </Modal>
   );
@@ -159,6 +186,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     borderTopWidth: 1,
     height: '75%',
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',

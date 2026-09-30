@@ -10,6 +10,7 @@ import * as Linking from 'expo-linking';
 import { ThemeProvider } from '@/theme/ThemeContext';
 import { useSettingsStore } from '@/state/settingsStore';
 import { useLibraryStore } from '@/state/libraryStore';
+import { useReaderStore } from '@/state/readerStore';
 import { ImportService } from '@/services/import/ImportService';
 import { logger } from '@/utils/logger';
 
@@ -46,7 +47,8 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
           const res = await ImportService.importFile(url, fileName);
           if (res.success && res.book) {
             await loadLibrary();
-            router.replace({
+            await useReaderStore.getState().openBook(res.book);
+            router.push({
               pathname: '/reader',
               params: { bookId: res.book.id },
             });

@@ -6,6 +6,7 @@
 import JSZip from 'jszip';
 import { BookFormat } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
+import { resolveZipPath } from '@/services/epub/zipPaths';
 import { logger } from '@/utils/logger';
 
 const TAG = 'MetadataExtractor';
@@ -138,35 +139,131 @@ export class MetadataExtractor {
       const spineItems = opfXml.match(/<itemref\b[^>]*>/gi) || [];
       const chapterCount = spineItems.length;
 
+      // Parse all manifest items (agnostic to attribute order)
+      interface ManifestItem {
+        id: string;
+        href: string;
+        mediaType: string;
+        properties?: string;
+      }
+      const manifest: ManifestItem[] = [];
+      const itemTagRegex = /<item\b([^>]+)\/?>/gi;
+      let itemTagMatch;
+      while ((itemTagMatch = itemTagRegex.exec(opfXml)) !== null) {
+        const rawAttrs = itemTagMatch[1];
+        const idMatch = rawAttrs.match(/\bid=["']([^"']+)["']/i);
+        const hrefMatch = rawAttrs.match(/\bhref=["']([^"']+)["']/i);
+        const mediaTypeMatch = rawAttrs.match(/\bmedia-type=["']([^"']+)["']/i);
+        const propMatch = rawAttrs.match(/\bproperties=["']([^"']+)["']/i);
+        if (idMatch && hrefMatch) {
+          manifest.push({
+            id: idMatch[1],
+            href: hrefMatch[1],
+            mediaType: mediaTypeMatch ? mediaTypeMatch[1] : '',
+            properties: propMatch ? propMatch[1] : undefined,
+          });
+        }
+      }
+
       // 3. Find cover image
       let coverUrl: string | undefined;
       const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
-
-      // Check for <meta name="cover" content="..."/>
-      const metaCoverMatch = opfXml.match(/<meta[^>]+name=["']cover["'][^>]+content=["']([^"']+)["']/i);
-      let coverManifestId = metaCoverMatch ? metaCoverMatch[1] : null;
-
-      // Look in manifest for cover item
       let coverHref: string | null = null;
+
+      // A. Check for <meta name="cover" content="..."/> OR <meta content="..." name="cover"/>
+      const metaCoverMatch =
+        opfXml.match(/<meta\b[^>]*\bname=["']cover["'][^>]*\bcontent=["']([^"']+)["']/i) ||
+        opfXml.match(/<meta\b[^>]*\bcontent=["']([^"']+)["'][^>]*\bname=["']cover["']/i);
+      const coverManifestId = metaCoverMatch ? metaCoverMatch[1] : null;
+
       if (coverManifestId) {
-        const itemRegex = new RegExp(`<item[^>]+id=["']${coverManifestId}["'][^>]+href=["']([^"']+)["']`, 'i');
-        const itemMatch = opfXml.match(itemRegex);
-        if (itemMatch) coverHref = itemMatch[1];
+        const item = manifest.find((m) => m.id === coverManifestId);
+        if (item) coverHref = item.href;
       }
 
+      // B. EPUB 3 cover-image property
       if (!coverHref) {
-        // Fallback: look for item with properties="cover-image" or id="cover" or href containing cover
-        const coverItemMatch = opfXml.match(/<item[^>]+href=["']([^"']*(?:cover|titlepage)[^"']*\.(?:jpg|jpeg|png|webp))["']/i);
-        if (coverItemMatch) coverHref = coverItemMatch[1];
+        const item = manifest.find((m) => m.properties && m.properties.toLowerCase().includes('cover-image'));
+        if (item) coverHref = item.href;
+      }
+
+      // C. Manifest item with id "cover" or "cover-image"
+      if (!coverHref) {
+        const item = manifest.find((m) => {
+          const idLower = m.id.toLowerCase();
+          return idLower === 'cover' || idLower === 'cover-image' || idLower === 'cover_image';
+        });
+        if (item) coverHref = item.href;
+      }
+
+      // D. Check <guide><reference type="cover" href="..."/></guide>
+      if (!coverHref) {
+        const guideCoverMatch =
+          opfXml.match(/<reference\b[^>]*\btype=["']cover["'][^>]*\bhref=["']([^"']+)["']/i) ||
+          opfXml.match(/<reference\b[^>]*\bhref=["']([^"']+)["'][^>]*\btype=["']cover["']/i);
+        if (guideCoverMatch) {
+          const refHref = guideCoverMatch[1];
+          if (/\.(jpg|jpeg|png|webp|gif|svg)$/i.test(refHref)) {
+            coverHref = refHref;
+          } else {
+            // It references a cover XHTML document. Try to find the image inside it
+            const coverDocPath = resolveZipPath(opfDir, refHref);
+            const coverDocFile =
+              zip.file(coverDocPath) ||
+              Object.values(zip.files).find((f) => f.name.toLowerCase() === coverDocPath.toLowerCase());
+            if (coverDocFile) {
+              const coverDocHtml = await coverDocFile.async('text');
+              const docImgMatch = coverDocHtml.match(/<(?:img|image)\b[^>]*\b(?:src|xlink:href|href)=["']([^"']+)["']/i);
+              if (docImgMatch) {
+                const docDir = coverDocPath.includes('/') ? coverDocPath.substring(0, coverDocPath.lastIndexOf('/') + 1) : '';
+                coverHref = resolveZipPath(docDir, docImgMatch[1]);
+              }
+            }
+          }
+        }
+      }
+
+      // E. Manifest item with href containing "cover" or "titlepage" or "front"
+      if (!coverHref) {
+        const item = manifest.find((m) => {
+          const h = m.href.toLowerCase();
+          const mt = (m.mediaType || '').toLowerCase();
+          return (
+            (mt.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(h)) &&
+            (h.includes('cover') || h.includes('titlepage') || h.includes('jacket') || h.includes('front'))
+          );
+        });
+        if (item) coverHref = item.href;
+      }
+
+      // F. Fallback: first image item in the manifest
+      if (!coverHref) {
+        const firstImg = manifest.find((m) => {
+          const mt = (m.mediaType || '').toLowerCase();
+          const h = m.href.toLowerCase();
+          return mt.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(h);
+        });
+        if (firstImg) coverHref = firstImg.href;
       }
 
       if (coverHref) {
-        const fullCoverPath = (opfDir + coverHref).replace(/^\//, '');
-        // Search in zip with case-insensitivity
-        const coverEntry = zip.file(fullCoverPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === fullCoverPath.toLowerCase());
+        const resolvedPath = coverHref.startsWith('/')
+          ? coverHref.slice(1)
+          : (coverHref.includes('/') && opfDir && coverHref.startsWith(opfDir))
+            ? resolveZipPath('', coverHref)
+            : resolveZipPath(opfDir, coverHref);
+
+        const coverEntry =
+          zip.file(resolvedPath) ||
+          Object.values(zip.files).find(
+            (f) =>
+              f.name.toLowerCase() === resolvedPath.toLowerCase() ||
+              f.name.toLowerCase().endsWith(resolvedPath.toLowerCase())
+          );
+
         if (coverEntry) {
           const coverBase64 = await coverEntry.async('base64');
-          const ext = coverHref.split('.').pop() || 'jpg';
+          const ext = (resolvedPath.split('.').pop() || 'jpg').toLowerCase();
           coverUrl = await fileStorage.saveCoverImage(fileId, coverBase64, ext);
         }
       }

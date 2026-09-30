@@ -23,12 +23,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
 import { useLibraryStore } from '@/state/libraryStore';
+import { useReaderStore } from '@/state/readerStore';
 import { useSettingsStore } from '@/state/settingsStore';
 import { useThemeContext } from '@/theme/ThemeContext';
 import { ImportService } from '@/services/import/ImportService';
+import {
+  ZipInspectionService,
+  ZipBookEntry,
+} from '@/services/import/ZipInspectionService';
+import { ZipInspectionModal } from '@/components/ZipInspectionModal';
 import { getFormatFromExtension, BookFormat } from '@/models/Book';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
 import { LiruneToast } from '@/components/LiruneToast';
@@ -47,7 +54,7 @@ interface DiscoveredFile {
   selected: boolean;
 }
 
-const SUPPORTED_EXTENSIONS = ['.epub', '.pdf', '.txt', '.html', '.htm', '.fb2', '.cbz'];
+const SUPPORTED_EXTENSIONS = ['.epub', '.pdf', '.txt', '.html', '.htm', '.fb2', '.cbz', '.zip'];
 
 const FORMAT_FILTERS: { id: string; label: string }[] = [
   { id: 'all', label: 'All Formats' },
@@ -57,13 +64,16 @@ const FORMAT_FILTERS: { id: string; label: string }[] = [
   { id: 'html', label: 'HTML' },
   { id: 'fb2', label: 'FB2' },
   { id: 'cbz', label: 'CBZ' },
+  { id: 'zip', label: 'ZIP' },
 ];
 
 export default function FilesScreen() {
+  const router = useRouter();
   const { colors, scheme } = useThemeContext();
   const isDark = scheme === 'dark';
 
   const { books, loadLibrary } = useLibraryStore();
+  const { openBook } = useReaderStore();
   const { lastAuthorizedFolderUri, setLastAuthorizedFolderUri } = useSettingsStore();
 
   const [discoveredFiles, setDiscoveredFiles] = useState<DiscoveredFile[]>([]);
@@ -77,6 +87,18 @@ export default function FilesScreen() {
     currentFile: string;
   } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // ZIP Container Inspection State
+  const [zipModalVisible, setZipModalVisible] = useState(false);
+  const [zipName, setZipName] = useState('');
+  const [zipEntries, setZipEntries] = useState<ZipBookEntry[]>([]);
+  const [inspectingZipUri, setInspectingZipUri] = useState<string | null>(null);
+  const [isExtractingZip, setIsExtractingZip] = useState(false);
+  const [zipExtractProgress, setZipExtractProgress] = useState<{
+    current: number;
+    total: number;
+    fileName: string;
+  } | null>(null);
 
   // Check if a file is already in library by clean title and format
   const isFileInLibrary = useCallback(
@@ -272,9 +294,120 @@ export default function FilesScreen() {
   };
 
   /**
+   * Inspect a ZIP container and prompt user with its book contents
+   */
+  const handleInspectZip = async (uri: string, name: string) => {
+    setIsScanning(true);
+    setScanStatus(`Inspecting ${name}...`);
+    try {
+      const entries = await ZipInspectionService.inspectZip(uri);
+      if (entries.length === 0) {
+        setToastMessage(`No supported book files found inside "${name}".`);
+        return;
+      }
+      setZipName(name);
+      setZipEntries(entries);
+      setInspectingZipUri(uri);
+      setZipModalVisible(true);
+    } catch (err: any) {
+      logger.error(TAG, 'Failed inspecting ZIP container', err);
+      setToastMessage('Could not inspect ZIP archive.');
+    } finally {
+      setIsScanning(false);
+      setScanStatus('');
+    }
+  };
+
+  /**
+   * Import selected books from an inspected ZIP container
+   */
+  const handleImportZipEntries = async (selected: ZipBookEntry[]) => {
+    if (!inspectingZipUri || selected.length === 0) return;
+    setIsExtractingZip(true);
+    setZipExtractProgress({ current: 0, total: selected.length, fileName: '' });
+
+    try {
+      const importedBooks = await ZipInspectionService.importSelectedEntries(
+        inspectingZipUri,
+        selected,
+        (current: number, total: number, fileName: string) => {
+          setZipExtractProgress({ current, total, fileName });
+        }
+      );
+
+      await loadLibrary();
+      setZipModalVisible(false);
+      setToastMessage(
+        `Successfully imported ${importedBooks.length} book${importedBooks.length === 1 ? '' : 's'} from ZIP.`
+      );
+    } catch (err: any) {
+      logger.error(TAG, 'Failed extracting from ZIP', err);
+      setToastMessage('Failed to import books from ZIP archive.');
+    } finally {
+      setIsExtractingZip(false);
+      setZipExtractProgress(null);
+    }
+  };
+
+  /**
+   * Action: Open a discovered file directly in Lirune's internal reader, or inspect if ZIP
+   */
+  const handleOpenFileOrInspect = async (item: DiscoveredFile) => {
+    if (item.format === 'zip') {
+      await handleInspectZip(item.uri, item.name);
+      return;
+    }
+
+    // 1. If already in library, find book and navigate straight to internal reader
+    const cleanItemName = item.name.replace(/\.[^/.]+$/, '').toLowerCase().trim();
+    const existingBook = books.find(
+      (b) =>
+        b.format === item.format &&
+        (b.title.toLowerCase().trim() === cleanItemName ||
+          b.filePath.toLowerCase().endsWith(item.name.toLowerCase()))
+    );
+
+    if (existingBook) {
+      await openBook(existingBook);
+      router.push({ pathname: '/reader', params: { bookId: existingBook.id } });
+      return;
+    }
+
+    // 2. If not yet in library, import first then open immediately
+    setImportProgress({ total: 1, current: 1, currentFile: item.name });
+    try {
+      const res = await ImportService.importFile(item.uri, item.name, item.size);
+      if (res.success && res.book) {
+        setDiscoveredFiles((prev) =>
+          prev.map((f) => (f.id === item.id ? { ...f, inLibrary: true, selected: false } : f))
+        );
+        await loadLibrary();
+        await openBook(res.book);
+        router.push({ pathname: '/reader', params: { bookId: res.book.id } });
+      } else {
+        const errorMsg = res.error
+          ? typeof res.error === 'string'
+            ? res.error
+            : (res.error as any).message || 'Failed to import book'
+          : 'Failed to import book';
+        setToastMessage(errorMsg);
+      }
+    } catch (err: any) {
+      logger.error(TAG, 'Failed opening discovered file', err);
+      setToastMessage('Could not import and open file.');
+    } finally {
+      setImportProgress(null);
+    }
+  };
+
+  /**
    * Action 2: Pick individual or multiple files directly
    */
   const handlePickFiles = async () => {
+    if (ImportService.isBusy()) {
+      return;
+    }
+
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
@@ -284,6 +417,7 @@ export default function FilesScreen() {
           'text/html',
           'application/x-fictionbook+xml',
           'application/vnd.comicbook+zip',
+          'application/zip',
           '*/*',
         ],
         multiple: true,
@@ -295,8 +429,29 @@ export default function FilesScreen() {
         return;
       }
 
+      // If single file and it's a ZIP, directly open ZIP inspection modal
+      if (result.assets.length === 1 && result.assets[0].name.toLowerCase().endsWith('.zip')) {
+        await handleInspectZip(result.assets[0].uri, result.assets[0].name);
+        return;
+      }
+
       const newDiscovered: DiscoveredFile[] = [];
       for (const asset of result.assets) {
+        if (asset.name.toLowerCase().endsWith('.zip')) {
+          // Add ZIP container to discovery list
+          newDiscovered.push({
+            id: asset.uri,
+            uri: asset.uri,
+            name: asset.name,
+            format: 'zip',
+            size: asset.size || 0,
+            folderName: 'Picked Archives',
+            inLibrary: false,
+            selected: false,
+          });
+          continue;
+        }
+
         const formatInfo = getFormatFromExtension(asset.name);
         if (formatInfo.supported) {
           const inLib = isFileInLibrary(asset.name, formatInfo.id as BookFormat);
@@ -320,7 +475,11 @@ export default function FilesScreen() {
       });
 
       setToastMessage(`Added ${newDiscovered.length} file(s) to discovery list`);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('Different document picking in progress')) {
+        logger.warn(TAG, 'Picker call ignored due to concurrent picking');
+        return;
+      }
       logger.error(TAG, 'File picker failed', err);
       setToastMessage('Could not open file picker.');
     }
@@ -617,21 +776,32 @@ export default function FilesScreen() {
                   borderWidth: item.selected ? 1.5 : 1,
                 },
               ]}
-              onPress={() => {
-                if (!item.inLibrary) toggleSelectFile(item.id);
-              }}
-              activeOpacity={item.inLibrary ? 1 : 0.75}
+              onPress={() => handleOpenFileOrInspect(item)}
+              activeOpacity={0.7}
             >
               <View style={styles.fileCardLeft}>
-                {item.inLibrary ? (
-                  <Ionicons name="checkmark-circle" size={20} color={colors.success} style={styles.checkIcon} />
+                {item.format === 'zip' ? (
+                  <View style={[styles.checkIcon, { padding: 2 }]}>
+                    <Ionicons name="archive-outline" size={20} color={colors.accent} />
+                  </View>
                 ) : (
-                  <Ionicons
-                    name={item.selected ? 'checkbox' : 'square-outline'}
-                    size={20}
-                    color={item.selected ? colors.accent : colors.textMuted}
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (!item.inLibrary) toggleSelectFile(item.id);
+                    }}
                     style={styles.checkIcon}
-                  />
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    {item.inLibrary ? (
+                      <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                    ) : (
+                      <Ionicons
+                        name={item.selected ? 'checkbox' : 'square-outline'}
+                        size={20}
+                        color={item.selected ? colors.accent : colors.textMuted}
+                      />
+                    )}
+                  </TouchableOpacity>
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.fileName, { color: colors.text }]} numberOfLines={2}>
@@ -654,10 +824,22 @@ export default function FilesScreen() {
               </View>
 
               <View style={styles.fileCardRight}>
-                {item.inLibrary ? (
-                  <View style={[styles.inLibraryBadge, { backgroundColor: 'rgba(78, 205, 196, 0.15)' }]}>
-                    <Text style={[styles.inLibraryBadgeText, { color: colors.success }]}>In Library</Text>
-                  </View>
+                {item.format === 'zip' ? (
+                  <TouchableOpacity
+                    style={[styles.singleImportBtn, { backgroundColor: colors.accentSoft }]}
+                    onPress={() => handleInspectZip(item.uri, item.name)}
+                  >
+                    <Ionicons name="eye-outline" size={16} color={colors.accent} />
+                    <Text style={[styles.singleImportBtnText, { color: colors.accent }]}>Inspect</Text>
+                  </TouchableOpacity>
+                ) : item.inLibrary ? (
+                  <TouchableOpacity
+                    style={[styles.singleImportBtn, { backgroundColor: 'rgba(78, 205, 196, 0.15)' }]}
+                    onPress={() => handleOpenFileOrInspect(item)}
+                  >
+                    <Ionicons name="book-outline" size={15} color={colors.success} />
+                    <Text style={[styles.singleImportBtnText, { color: colors.success }]}>Open</Text>
+                  </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
                     style={[styles.singleImportBtn, { backgroundColor: colors.surfaceElevated }]}
@@ -698,6 +880,17 @@ export default function FilesScreen() {
             </View>
           ) : null
         }
+      />
+
+      {/* ZIP Container Inspection Modal */}
+      <ZipInspectionModal
+        visible={zipModalVisible}
+        zipName={zipName}
+        entries={zipEntries}
+        isExtracting={isExtractingZip}
+        extractProgress={zipExtractProgress}
+        onClose={() => setZipModalVisible(false)}
+        onImportSelected={handleImportZipEntries}
       />
 
       {/* Lirune Toast */}

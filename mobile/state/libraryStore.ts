@@ -83,8 +83,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         if (savedPrefs.viewMode) updates.viewMode = savedPrefs.viewMode;
         if (savedPrefs.sortCriterion) updates.sortCriterion = savedPrefs.sortCriterion;
         if (savedPrefs.sortDirection) updates.sortDirection = savedPrefs.sortDirection;
-        if (savedPrefs.filter) updates.filter = savedPrefs.filter;
       }
+      // Guarantee pull-to-refresh, reloads, or DB updates never reset the active filter
+      updates.filter = get().filter;
 
       set(updates);
     } catch (err) {
@@ -264,6 +265,13 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   setFilter: (filter) => {
     set({ filter });
+    const repo = getBookRepository() as any;
+    repo.setPreference?.('libraryPreferences', {
+      viewMode: get().viewMode,
+      sortCriterion: get().sortCriterion,
+      sortDirection: get().sortDirection,
+      filter,
+    });
   },
 
   setSelectedCollectionId: (selectedCollectionId) => {

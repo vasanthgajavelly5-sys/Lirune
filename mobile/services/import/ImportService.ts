@@ -38,11 +38,32 @@ export interface ImportResult {
 }
 
 export class ImportService {
+  private static isPickingActive = false;
+
+  public static isBusy(): boolean {
+    return this.isPickingActive;
+  }
+
+  public static acquireLock(): boolean {
+    if (this.isPickingActive) return false;
+    this.isPickingActive = true;
+    return true;
+  }
+
+  public static releaseLock(): void {
+    this.isPickingActive = false;
+  }
+
   /**
    * Prompts the user to pick a document, validates the format, copies it to local app storage,
    * extracts metadata & cover, and persists it to the database.
    */
   static async pickAndImportBook(): Promise<ImportResult> {
+    if (!this.acquireLock()) {
+      logger.warn(TAG, 'Document picker already active, ignoring duplicate invocation');
+      return { success: false, cancelled: true };
+    }
+
     try {
       logger.info(TAG, 'Opening document picker');
       const result = await DocumentPicker.getDocumentAsync({
@@ -70,7 +91,15 @@ export class ImportService {
 
       const asset = result.assets[0];
       return await this.importFile(asset.uri, asset.name, asset.size);
-    } catch (err) {
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      if (
+        msg.includes('Different document picking in progress') ||
+        msg.includes('Await other document picking')
+      ) {
+        logger.warn(TAG, 'Concurrent document picker request gracefully suppressed');
+        return { success: false, cancelled: true };
+      }
       logger.error(TAG, 'Failed during document picker flow', err);
       const appErr =
         err instanceof AppError
@@ -80,6 +109,8 @@ export class ImportService {
               (err as Error).message || 'Unable to import this file.'
             );
       return { success: false, error: appErr };
+    } finally {
+      this.releaseLock();
     }
   }
 

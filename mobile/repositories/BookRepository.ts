@@ -45,4 +45,8 @@ export interface BookRepository {
   exportData(): Promise<string>;
   importData(json: string): Promise<void>;
   clearAllData(): Promise<void>;
+
+  // Preferences
+  getPreference<T = any>(key: string, defaultValue: T): Promise<T>;
+  setPreference(key: string, value: any): Promise<void>;
 }

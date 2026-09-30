@@ -328,6 +328,7 @@ export default function ReaderScreen() {
         toc={toc}
         currentCfi={currentCfi}
         onSelectChapter={handleSelectChapter}
+        themeName={readerSettings.theme}
       />
 
       {/* In-Book Search Sheet */}
@@ -345,6 +346,7 @@ export default function ReaderScreen() {
           setIsSearching(q.trim().length > 0);
         }}
         onSelectResult={handleSelectSearchResult}
+        themeName={readerSettings.theme}
       />
 
       {/* Reader Display Settings Sheet */}
@@ -369,6 +371,7 @@ export default function ReaderScreen() {
         onDeleteHighlight={deleteHighlight}
         onAddNote={(text) => addNote(text, currentCfi || '', currentChapter)}
         onDeleteNote={deleteNote}
+        themeName={readerSettings.theme}
       />
     </View>
   );

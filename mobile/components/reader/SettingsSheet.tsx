@@ -21,7 +21,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { ReaderSettings, ReaderThemeName } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { READER_FONTS, getNativeFontFamily } from '@/theme/Typography';
-import { useThemeContext } from '@/theme/ThemeContext';
 
 interface SettingsSheetProps {
   visible: boolean;
@@ -38,11 +37,20 @@ export function SettingsSheet({
   onUpdateSettings,
   onResetSettings,
 }: SettingsSheetProps) {
-  const { colors, scheme } = useThemeContext();
-  const isDark = scheme === 'dark';
   const insets = useSafeAreaInsets();
   const screenWidth = Dimensions.get('window').width;
   const panelWidth = Math.min(360, Math.floor(screenWidth * 0.88));
+
+  // Dynamic theme matching reader's active theme
+  const activeTheme = READER_THEMES[settings.theme] || READER_THEMES.neutral;
+  const isThemeDark = settings.theme === 'night' || settings.theme.startsWith('contrast');
+  const panelBg = activeTheme.bg;
+  const surfaceBg = activeTheme.surface;
+  const textColor = activeTheme.text;
+  const mutedColor = activeTheme.muted;
+  const borderColor = isThemeDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
+  const activeAccent = activeTheme.link || (isThemeDark ? '#C9B8FF' : '#4C4666');
+  const activeAccentFg = isThemeDark ? '#000000' : '#FFFFFF';
 
   const [anim] = useState(() => new Animated.Value(0));
 
@@ -90,6 +98,7 @@ export function SettingsSheet({
       visible={visible}
       transparent={true}
       animationType="none"
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
@@ -104,40 +113,40 @@ export function SettingsSheet({
             styles.panel,
             {
               width: panelWidth,
-              backgroundColor: isDark ? '#1C1C20' : '#FFFFFF',
-              borderLeftColor: colors.borderSubtle,
-              paddingTop: insets.top + 8,
-              paddingBottom: insets.bottom + 12,
+              backgroundColor: panelBg,
+              borderLeftColor: borderColor,
+              paddingTop: Math.max(insets.top, 16) + 6,
+              paddingBottom: Math.max(insets.bottom, 16) + 10,
               transform: [{ translateX }],
             },
           ]}
         >
           {/* Header */}
-          <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
+          <View style={[styles.header, { borderBottomColor: borderColor }]}>
             <View style={styles.headerLeft}>
-              <View style={[styles.iconOrb, { backgroundColor: colors.accentSoft }]}>
-                <Ionicons name="color-palette-outline" size={18} color={colors.accent} />
+              <View style={[styles.iconOrb, { backgroundColor: surfaceBg }]}>
+                <Ionicons name="color-palette-outline" size={18} color={activeAccent} />
               </View>
               <View>
-                <Text style={[styles.headerTitle, { color: colors.text }]}>Appearance</Text>
-                <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+                <Text style={[styles.headerTitle, { color: textColor }]}>Appearance</Text>
+                <Text style={[styles.headerSubtitle, { color: mutedColor }]}>
                   Typography &amp; Layout
                 </Text>
               </View>
             </View>
             <TouchableOpacity
               onPress={onClose}
-              style={[styles.closeBtn, { backgroundColor: colors.surfaceElevated }]}
+              style={[styles.closeBtn, { backgroundColor: surfaceBg }]}
               accessibilityLabel="Close appearance panel"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="close" size={20} color={colors.text} />
+              <Ionicons name="close" size={20} color={textColor} />
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
             {/* 1. THEME PALETTE */}
-            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Theme Palette</Text>
+            <Text style={[styles.sectionTitle, { color: mutedColor }]}>Theme Palette</Text>
             <View style={styles.themeGrid}>
               {Object.values(READER_THEMES).map((theme) => {
                 const isSelected = settings.theme === theme.id;
@@ -148,7 +157,7 @@ export function SettingsSheet({
                       styles.themeSwatch,
                       {
                         backgroundColor: theme.bg,
-                        borderColor: isSelected ? colors.accent : colors.borderSubtle,
+                        borderColor: isSelected ? activeAccent : borderColor,
                         borderWidth: isSelected ? 2.5 : 1,
                       },
                     ]}
@@ -168,14 +177,14 @@ export function SettingsSheet({
             </View>
 
             {/* 2. READING MODE & MARGINS */}
-            <Text style={[styles.sectionTitle, { color: colors.textMuted, marginTop: 18 }]}>
+            <Text style={[styles.sectionTitle, { color: mutedColor, marginTop: 18 }]}>
               Reading Layout
             </Text>
 
             {/* Flow Mode */}
             <View style={styles.controlRow}>
-              <Text style={[styles.controlLabel, { color: colors.text }]}>Reading Flow</Text>
-              <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceElevated }]}>
+              <Text style={[styles.controlLabel, { color: textColor }]}>Reading Flow</Text>
+              <View style={[styles.segmentedControl, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
                 {(['paginated', 'scrolled'] as const).map((mode) => {
                   const isSelected = settings.flow === mode;
                   return (
@@ -183,7 +192,7 @@ export function SettingsSheet({
                       key={mode}
                       style={[
                         styles.segmentBtn,
-                        isSelected && { backgroundColor: colors.accent },
+                        isSelected && { backgroundColor: activeAccent },
                       ]}
                       onPress={() => onUpdateSettings({ flow: mode })}
                     >
@@ -191,7 +200,7 @@ export function SettingsSheet({
                         style={[
                           styles.segmentText,
                           {
-                            color: isSelected ? colors.accentForeground : colors.textSecondary,
+                            color: isSelected ? activeAccentFg : mutedColor,
                             fontWeight: isSelected ? '700' : '500',
                           },
                         ]}
@@ -206,8 +215,8 @@ export function SettingsSheet({
 
             {/* Margins */}
             <View style={[styles.controlRow, { marginTop: 12 }]}>
-              <Text style={[styles.controlLabel, { color: colors.text }]}>Page Margins</Text>
-              <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceElevated }]}>
+              <Text style={[styles.controlLabel, { color: textColor }]}>Page Margins</Text>
+              <View style={[styles.segmentedControl, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
                 {marginOptions.map((opt) => {
                   const isSelected = settings.margin === opt.value;
                   return (
@@ -215,7 +224,7 @@ export function SettingsSheet({
                       key={opt.value}
                       style={[
                         styles.segmentBtn,
-                        isSelected && { backgroundColor: colors.accent },
+                        isSelected && { backgroundColor: activeAccent },
                       ]}
                       onPress={() => onUpdateSettings({ margin: opt.value })}
                     >
@@ -223,7 +232,7 @@ export function SettingsSheet({
                         style={[
                           styles.segmentText,
                           {
-                            color: isSelected ? colors.accentForeground : colors.textSecondary,
+                            color: isSelected ? activeAccentFg : mutedColor,
                             fontWeight: isSelected ? '700' : '500',
                           },
                         ]}
@@ -237,7 +246,7 @@ export function SettingsSheet({
             </View>
 
             {/* 3. RICH TYPOGRAPHY */}
-            <Text style={[styles.sectionTitle, { color: colors.textMuted, marginTop: 18 }]}>
+            <Text style={[styles.sectionTitle, { color: mutedColor, marginTop: 18 }]}>
               Typeface
             </Text>
 
@@ -260,11 +269,11 @@ export function SettingsSheet({
                       styles.fontCard,
                       {
                         backgroundColor: isSelected
-                          ? isDark
-                            ? 'rgba(238, 236, 248, 0.12)'
-                            : 'rgba(76, 70, 102, 0.08)'
-                          : colors.surfaceElevated,
-                        borderColor: isSelected ? colors.accent : 'transparent',
+                          ? isThemeDark
+                            ? 'rgba(201, 184, 255, 0.15)'
+                            : 'rgba(76, 70, 102, 0.12)'
+                          : surfaceBg,
+                        borderColor: isSelected ? activeAccent : borderColor,
                         borderWidth: isSelected ? 1.5 : 1,
                       },
                     ]}
@@ -277,7 +286,7 @@ export function SettingsSheet({
                           style={[
                             styles.fontCardName,
                             {
-                              color: isSelected ? colors.accent : colors.text,
+                              color: isSelected ? activeAccent : textColor,
                               fontFamily: nativeFamily,
                               fontWeight: isSelected ? '700' : '500',
                             },
@@ -289,11 +298,11 @@ export function SettingsSheet({
                           style={[
                             styles.categoryBadge,
                             {
-                              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                              backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
                             },
                           ]}
                         >
-                          <Text style={[styles.categoryBadgeText, { color: colors.textMuted }]}>
+                          <Text style={[styles.categoryBadgeText, { color: mutedColor }]}>
                             {font.preview}
                           </Text>
                         </View>
@@ -302,7 +311,7 @@ export function SettingsSheet({
                         style={[
                           styles.fontPreview,
                           {
-                            color: colors.textSecondary,
+                            color: mutedColor,
                             fontFamily: nativeFamily,
                           },
                         ]}
@@ -312,7 +321,7 @@ export function SettingsSheet({
                       </Text>
                     </View>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={18} color={colors.accent} />
+                      <Ionicons name="checkmark-circle" size={18} color={activeAccent} />
                     )}
                   </TouchableOpacity>
                 );
@@ -321,36 +330,36 @@ export function SettingsSheet({
 
             {/* Font Size Stepper */}
             <View style={[styles.controlRow, { marginTop: 14 }]}>
-              <Text style={[styles.controlLabel, { color: colors.text }]}>Font Size</Text>
-              <View style={[styles.stepperRow, { backgroundColor: colors.surfaceElevated }]}>
+              <Text style={[styles.controlLabel, { color: textColor }]}>Font Size</Text>
+              <View style={[styles.stepperRow, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
                 <TouchableOpacity
-                  style={[styles.stepBtn, { backgroundColor: colors.surface }]}
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   onPress={() =>
                     onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 2) })
                   }
                 >
-                  <Ionicons name="remove" size={16} color={colors.text} />
+                  <Ionicons name="remove" size={16} color={textColor} />
                 </TouchableOpacity>
-                <Text style={[styles.stepValue, { color: colors.text }]}>{settings.fontSize} px</Text>
+                <Text style={[styles.stepValue, { color: textColor }]}>{settings.fontSize} px</Text>
                 <TouchableOpacity
-                  style={[styles.stepBtn, { backgroundColor: colors.surface }]}
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   onPress={() =>
                     onUpdateSettings({ fontSize: Math.min(36, settings.fontSize + 2) })
                   }
                 >
-                  <Ionicons name="add" size={16} color={colors.text} />
+                  <Ionicons name="add" size={16} color={textColor} />
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* Line Spacing */}
             <View style={[styles.controlRow, { marginTop: 12 }]}>
-              <Text style={[styles.controlLabel, { color: colors.text }]}>Line Spacing</Text>
-              <View style={[styles.stepperRow, { backgroundColor: colors.surfaceElevated }]}>
+              <Text style={[styles.controlLabel, { color: textColor }]}>Line Spacing</Text>
+              <View style={[styles.stepperRow, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
                 <TouchableOpacity
-                  style={[styles.stepBtn, { backgroundColor: colors.surface }]}
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   onPress={() =>
                     onUpdateSettings({
@@ -358,11 +367,11 @@ export function SettingsSheet({
                     })
                   }
                 >
-                  <Ionicons name="remove" size={16} color={colors.text} />
+                  <Ionicons name="remove" size={16} color={textColor} />
                 </TouchableOpacity>
-                <Text style={[styles.stepValue, { color: colors.text }]}>{settings.lineHeight}x</Text>
+                <Text style={[styles.stepValue, { color: textColor }]}>{settings.lineHeight}x</Text>
                 <TouchableOpacity
-                  style={[styles.stepBtn, { backgroundColor: colors.surface }]}
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   onPress={() =>
                     onUpdateSettings({
@@ -370,17 +379,17 @@ export function SettingsSheet({
                     })
                   }
                 >
-                  <Ionicons name="add" size={16} color={colors.text} />
+                  <Ionicons name="add" size={16} color={textColor} />
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* Paragraph Spacing */}
             <View style={[styles.controlRow, { marginTop: 12 }]}>
-              <Text style={[styles.controlLabel, { color: colors.text }]}>Paragraph Gap</Text>
-              <View style={[styles.stepperRow, { backgroundColor: colors.surfaceElevated }]}>
+              <Text style={[styles.controlLabel, { color: textColor }]}>Paragraph Gap</Text>
+              <View style={[styles.stepperRow, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
                 <TouchableOpacity
-                  style={[styles.stepBtn, { backgroundColor: colors.surface }]}
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   onPress={() =>
                     onUpdateSettings({
@@ -391,13 +400,13 @@ export function SettingsSheet({
                     })
                   }
                 >
-                  <Ionicons name="remove" size={16} color={colors.text} />
+                  <Ionicons name="remove" size={16} color={textColor} />
                 </TouchableOpacity>
-                <Text style={[styles.stepValue, { color: colors.text }]}>
+                <Text style={[styles.stepValue, { color: textColor }]}>
                   {settings.paragraphSpacing || 1.0} em
                 </Text>
                 <TouchableOpacity
-                  style={[styles.stepBtn, { backgroundColor: colors.surface }]}
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   onPress={() =>
                     onUpdateSettings({
@@ -408,15 +417,15 @@ export function SettingsSheet({
                     })
                   }
                 >
-                  <Ionicons name="add" size={16} color={colors.text} />
+                  <Ionicons name="add" size={16} color={textColor} />
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* Text Alignment */}
             <View style={[styles.controlRow, { marginTop: 12 }]}>
-              <Text style={[styles.controlLabel, { color: colors.text }]}>Alignment</Text>
-              <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceElevated }]}>
+              <Text style={[styles.controlLabel, { color: textColor }]}>Alignment</Text>
+              <View style={[styles.segmentedControl, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
                 {alignments.map((align) => {
                   const isSelected = settings.alignment === align;
                   let iconName: any = 'reorder-three-outline';
@@ -428,14 +437,14 @@ export function SettingsSheet({
                       key={align}
                       style={[
                         styles.segmentBtn,
-                        isSelected && { backgroundColor: colors.accent },
+                        isSelected && { backgroundColor: activeAccent },
                       ]}
                       onPress={() => onUpdateSettings({ alignment: align })}
                     >
                       <Ionicons
                         name={iconName}
                         size={17}
-                        color={isSelected ? colors.accentForeground : colors.textSecondary}
+                        color={isSelected ? activeAccentFg : mutedColor}
                       />
                     </TouchableOpacity>
                   );
@@ -445,17 +454,17 @@ export function SettingsSheet({
 
             {/* Reset Button */}
             <TouchableOpacity
-              style={[styles.resetBtn, { borderColor: colors.borderSubtle }]}
+              style={[styles.resetBtn, { borderColor: borderColor, backgroundColor: surfaceBg }]}
               onPress={onResetSettings}
               activeOpacity={0.7}
             >
               <Ionicons
                 name="refresh-outline"
                 size={16}
-                color={colors.textSecondary}
+                color={mutedColor}
                 style={{ marginRight: 6 }}
               />
-              <Text style={[styles.resetBtnText, { color: colors.textSecondary }]}>
+              <Text style={[styles.resetBtnText, { color: textColor }]}>
                 Restore Default Appearance
               </Text>
             </TouchableOpacity>

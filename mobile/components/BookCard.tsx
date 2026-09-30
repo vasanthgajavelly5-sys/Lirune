@@ -47,6 +47,13 @@ export function BookCard({
 
   const badgeText = formatLabels[book.format] || book.format.toUpperCase();
 
+  const [imageError, setImageError] = React.useState(false);
+  const coverUri = book.coverUrl
+    ? book.coverUrl.startsWith('file://') || book.coverUrl.startsWith('http') || book.coverUrl.startsWith('data:')
+      ? book.coverUrl
+      : `file://${book.coverUrl}`
+    : undefined;
+
   // ================= GRID MODE =================
   if (viewMode === 'grid') {
     return (
@@ -70,11 +77,12 @@ export function BookCard({
             { backgroundColor: book.coverColor || '#2C2D35' },
           ]}
         >
-          {book.coverUrl ? (
+          {coverUri && !imageError ? (
             <Image
-              source={{ uri: book.coverUrl }}
+              source={{ uri: coverUri }}
               style={styles.gridCoverImage}
               resizeMode="cover"
+              onError={() => setImageError(true)}
             />
           ) : (
             <View style={styles.fallbackCoverContent}>
@@ -178,11 +186,12 @@ export function BookCard({
           { backgroundColor: book.coverColor || '#2C2D35' },
         ]}
       >
-        {book.coverUrl ? (
+        {coverUri && !imageError ? (
           <Image
-            source={{ uri: book.coverUrl }}
+            source={{ uri: coverUri }}
             style={styles.listCoverImage}
             resizeMode="cover"
+            onError={() => setImageError(true)}
           />
         ) : (
           <Ionicons name="book" size={20} color="rgba(255,255,255,0.7)" />

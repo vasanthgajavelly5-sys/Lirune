@@ -36,7 +36,63 @@ interface ChapterItem {
   id: string;
   href: string;
   title: string;
-  html: string;
+  itemPath: string;
+}
+
+async function extractChapterHtml(
+  zip: JSZip,
+  itemPath: string,
+  opfDir: string
+): Promise<{ title: string; html: string }> {
+  const file =
+    zip.file(itemPath) ||
+    Object.values(zip.files).find((f) => f.name.toLowerCase() === itemPath.toLowerCase());
+  if (!file) return { title: 'Chapter', html: '<p>Content not found.</p>' };
+
+  let rawHtml = await file.async('text');
+
+  rawHtml = rawHtml
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<link\b[^>]*rel=["']stylesheet["'][^>]*\/?>/gi, '');
+
+  const titleMatch =
+    rawHtml.match(/<title[^>]*>([^<]+)<\/title>/i) ||
+    rawHtml.match(/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i);
+  const title = titleMatch ? titleMatch[1].trim() : '';
+
+  // Image resolution relative to the CHAPTER directory
+  const chapterDir = itemPath.includes('/') ? itemPath.substring(0, itemPath.lastIndexOf('/') + 1) : '';
+
+  const imgRegex = /<(?:img|image)\b[^>]*\b(?:src|xlink:href|href)=["']([^"']+)["'][^>]*\/?>/gi;
+  let imgMatch;
+  const foundImages: string[] = [];
+  while ((imgMatch = imgRegex.exec(rawHtml)) !== null) {
+    foundImages.push(imgMatch[1]);
+  }
+
+  for (const imgSrc of foundImages) {
+    if (imgSrc.startsWith('data:') || imgSrc.startsWith('http')) continue;
+    const fullImgPath = resolveZipPath(chapterDir, imgSrc);
+    const imgEntry =
+      zip.file(fullImgPath) ||
+      Object.values(zip.files).find((f) => f.name.toLowerCase() === fullImgPath.toLowerCase());
+    if (imgEntry) {
+      const b64 = await imgEntry.async('base64');
+      const ext = imgSrc.split('.').pop()?.toLowerCase() || 'jpeg';
+      let mime = 'image/jpeg';
+      if (ext === 'png') mime = 'image/png';
+      else if (ext === 'svg') mime = 'image/svg+xml';
+      else if (ext === 'webp') mime = 'image/webp';
+      else if (ext === 'gif') mime = 'image/gif';
+      const dataUri = `data:${mime};base64,${b64}`;
+      rawHtml = rawHtml.split(imgSrc).join(dataUri);
+    }
+  }
+
+  const bodyMatch = rawHtml.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  const chapterHtmlContent = bodyMatch ? bodyMatch[1] : rawHtml;
+
+  return { title, html: chapterHtmlContent };
 }
 
 export function EpubReaderView({
@@ -51,6 +107,7 @@ export function EpubReaderView({
   onSelectionChange,
 }: EpubReaderViewProps) {
   const [chapters, setChapters] = useState<ChapterItem[]>([]);
+  const [activeChapterHtml, setActiveChapterHtml] = useState<string>('');
   const [currentChapterIndex, setCurrentChapterIndex] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(0);
   const [totalPages, setTotalPages] = useState<number>(1);
@@ -58,6 +115,9 @@ export function EpubReaderView({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
+  const zipRef = useRef<JSZip | null>(null);
+  const chapterCacheRef = useRef<Map<number, string>>(new Map());
+  const opfDirRef = useRef<string>('');
 
   const isPaginated = settings.flow !== 'scrolled';
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
@@ -220,7 +280,12 @@ export function EpubReaderView({
           }
         }
 
-        // E. Load readable chapters from spine items
+        // Store zip and opfDir for on-demand chapter loading
+        zipRef.current = zip;
+        opfDirRef.current = opfDir;
+        chapterCacheRef.current.clear();
+
+        // E. Build lightweight chapter metadata list from spine items
         const loadedChapters: ChapterItem[] = [];
         for (let i = 0; i < spineIdrefs.length; i++) {
           const idref = spineIdrefs[i];
@@ -228,55 +293,14 @@ export function EpubReaderView({
           if (!manItem) continue;
 
           const itemPath = resolveZipPath(opfDir, manItem.href);
-          const file = zip.file(itemPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === itemPath.toLowerCase());
-          if (!file) continue;
-
-          let rawHtml = await file.async('text');
-
-          rawHtml = rawHtml
-            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-            .replace(/<link\b[^>]*rel=["']stylesheet["'][^>]*\/?>/gi, '');
-
-          const titleMatch = rawHtml.match(/<title[^>]*>([^<]+)<\/title>/i) ||
-            rawHtml.match(/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i);
-          const title = titleMatch ? titleMatch[1].trim() : `Chapter ${loadedChapters.length + 1}`;
-
-          // Image resolution relative to the CHAPTER directory
-          const chapterDir = itemPath.includes('/') ? itemPath.substring(0, itemPath.lastIndexOf('/') + 1) : '';
-
-          const imgRegex = /<(?:img|image)\b[^>]*\b(?:src|xlink:href|href)=["']([^"']+)["'][^>]*\/?>/gi;
-          let imgMatch;
-          const foundImages: string[] = [];
-          while ((imgMatch = imgRegex.exec(rawHtml)) !== null) {
-            foundImages.push(imgMatch[1]);
-          }
-
-          for (const imgSrc of foundImages) {
-            if (imgSrc.startsWith('data:') || imgSrc.startsWith('http')) continue;
-            const fullImgPath = resolveZipPath(chapterDir, imgSrc);
-            const imgEntry = zip.file(fullImgPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === fullImgPath.toLowerCase());
-            if (imgEntry) {
-              const b64 = await imgEntry.async('base64');
-              const ext = imgSrc.split('.').pop()?.toLowerCase() || 'jpeg';
-              let mime = 'image/jpeg';
-              if (ext === 'png') mime = 'image/png';
-              else if (ext === 'svg') mime = 'image/svg+xml';
-              else if (ext === 'webp') mime = 'image/webp';
-              else if (ext === 'gif') mime = 'image/gif';
-              const dataUri = `data:${mime};base64,${b64}`;
-              rawHtml = rawHtml.split(imgSrc).join(dataUri);
-            }
-          }
-
-          // Extract inner body content if present to avoid invalid nested <html> inside <div>
-          const bodyMatch = rawHtml.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
-          const chapterHtmlContent = bodyMatch ? bodyMatch[1] : rawHtml;
+          const matchingToc = tocItems.find((t) => t.href === `spine:${loadedChapters.length}`);
+          const title = matchingToc?.label || `Chapter ${loadedChapters.length + 1}`;
 
           loadedChapters.push({
             id: idref,
             href: manItem.href,
             title,
-            html: chapterHtmlContent,
+            itemPath,
           });
 
           if (tocItems.length === 0) {
@@ -292,22 +316,47 @@ export function EpubReaderView({
           throw new Error('This EPUB publication contains no readable chapter items.');
         }
 
+        // Determine starting chapter index
+        let initialIdx = 0;
+        if (targetCfi && targetCfi.startsWith('spine:')) {
+          const idx = parseInt(targetCfi.replace('spine:', ''), 10);
+          if (!isNaN(idx) && idx >= 0 && idx < loadedChapters.length) {
+            initialIdx = idx;
+          }
+        } else if (book.progress && book.progress > 0 && loadedChapters.length > 0) {
+          initialIdx = Math.min(
+            loadedChapters.length - 1,
+            Math.floor((book.progress / 100) * loadedChapters.length)
+          );
+        }
+
+        // Load ONLY the initial chapter for immediate startup
+        const initialChapterData = await extractChapterHtml(
+          zip,
+          loadedChapters[initialIdx].itemPath,
+          opfDir
+        );
+        chapterCacheRef.current.set(initialIdx, initialChapterData.html);
+
         if (isMounted) {
           setChapters(loadedChapters);
+          setActiveChapterHtml(initialChapterData.html);
+          setCurrentChapterIndex(initialIdx);
           if (onTOCLoaded) onTOCLoaded(tocItems);
           setIsLoading(false);
 
-          if (targetCfi && targetCfi.startsWith('spine:')) {
-            const idx = parseInt(targetCfi.replace('spine:', ''), 10);
-            if (!isNaN(idx) && idx >= 0 && idx < loadedChapters.length) {
-              setCurrentChapterIndex(idx);
-            }
-          } else if (book.progress && book.progress > 0 && loadedChapters.length > 0) {
-            const idx = Math.min(
-              loadedChapters.length - 1,
-              Math.floor((book.progress / 100) * loadedChapters.length)
-            );
-            setCurrentChapterIndex(idx);
+          // Background prefetch next chapter
+          if (initialIdx + 1 < loadedChapters.length) {
+            setTimeout(async () => {
+              if (!chapterCacheRef.current.has(initialIdx + 1) && zipRef.current) {
+                const nextData = await extractChapterHtml(
+                  zipRef.current,
+                  loadedChapters[initialIdx + 1].itemPath,
+                  opfDir
+                );
+                chapterCacheRef.current.set(initialIdx + 1, nextData.html);
+              }
+            }, 300);
           }
         }
       } catch (err: any) {
@@ -336,6 +385,39 @@ export function EpubReaderView({
       }
     }
   }, [targetCfi, chapters.length]);
+
+  // Asynchronously load chapter content when currentChapterIndex changes
+  useEffect(() => {
+    if (chapters.length === 0 || !zipRef.current) return;
+    const currentItem = chapters[currentChapterIndex];
+    if (!currentItem) return;
+
+    if (chapterCacheRef.current.has(currentChapterIndex)) {
+      setActiveChapterHtml(chapterCacheRef.current.get(currentChapterIndex)!);
+    } else {
+      let isCurrent = true;
+      extractChapterHtml(zipRef.current, currentItem.itemPath, opfDirRef.current).then((res) => {
+        chapterCacheRef.current.set(currentChapterIndex, res.html);
+        if (isCurrent) {
+          setActiveChapterHtml(res.html);
+        }
+      });
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    // Prefetch next and previous chapter in background
+    const prefetchTargets = [currentChapterIndex + 1, currentChapterIndex - 1];
+    for (const pIdx of prefetchTargets) {
+      if (pIdx >= 0 && pIdx < chapters.length && !chapterCacheRef.current.has(pIdx) && zipRef.current) {
+        const item = chapters[pIdx];
+        extractChapterHtml(zipRef.current, item.itemPath, opfDirRef.current).then((res) => {
+          chapterCacheRef.current.set(pIdx, res.html);
+        });
+      }
+    }
+  }, [currentChapterIndex, chapters]);
 
   // Update progress whenever chapter or page changes
   useEffect(() => {
@@ -371,35 +453,53 @@ export function EpubReaderView({
 
   // Search
   useEffect(() => {
-    if (!searchQuery || chapters.length === 0 || !onSearchResults) return;
+    if (!searchQuery || chapters.length === 0 || !onSearchResults || !zipRef.current) return;
     const q = searchQuery.toLowerCase();
     const results: SearchResult[] = [];
+    const zip = zipRef.current;
+    const opfDir = opfDirRef.current;
 
-    for (let cIdx = 0; cIdx < chapters.length && results.length < 50; cIdx++) {
-      const plainText = chapters[cIdx].html.replace(/<[^>]+>/g, ' ');
-      let pos = 0;
-      while (pos < plainText.length && results.length < 50) {
-        const index = plainText.toLowerCase().indexOf(q, pos);
-        if (index === -1) break;
+    let cancelled = false;
+    async function runSearch() {
+      for (let cIdx = 0; cIdx < chapters.length && results.length < 50; cIdx++) {
+        if (cancelled) return;
+        let html = chapterCacheRef.current.get(cIdx);
+        if (!html && zip) {
+          const res = await extractChapterHtml(zip, chapters[cIdx].itemPath, opfDir);
+          html = res.html;
+          chapterCacheRef.current.set(cIdx, html);
+        }
+        if (!html) continue;
 
-        const startExcerpt = Math.max(0, index - 30);
-        const endExcerpt = Math.min(plainText.length, index + q.length + 50);
-        const excerpt =
-          (startExcerpt > 0 ? '...' : '') +
-          plainText.substring(startExcerpt, endExcerpt).replace(/\s+/g, ' ') +
-          (endExcerpt < plainText.length ? '...' : '');
+        const plainText = html.replace(/<[^>]+>/g, ' ');
+        let pos = 0;
+        while (pos < plainText.length && results.length < 50) {
+          const index = plainText.toLowerCase().indexOf(q, pos);
+          if (index === -1) break;
 
-        results.push({
-          cfi: `spine:${cIdx}`,
-          excerpt,
-          label: chapters[cIdx].title || `Chapter ${cIdx + 1}`,
-        });
+          const startExcerpt = Math.max(0, index - 30);
+          const endExcerpt = Math.min(plainText.length, index + q.length + 50);
+          const excerpt =
+            (startExcerpt > 0 ? '...' : '') +
+            plainText.substring(startExcerpt, endExcerpt).replace(/\s+/g, ' ') +
+            (endExcerpt < plainText.length ? '...' : '');
 
-        pos = index + Math.max(1, q.length);
+          results.push({
+            cfi: `spine:${cIdx}`,
+            excerpt,
+            label: chapters[cIdx].title || `Chapter ${cIdx + 1}`,
+          });
+
+          pos = index + Math.max(1, q.length);
+        }
       }
+      if (!cancelled && onSearchResults) onSearchResults(results);
     }
 
-    onSearchResults(results);
+    runSearch();
+    return () => {
+      cancelled = true;
+    };
   }, [searchQuery, chapters, onSearchResults]);
 
   if (isLoading) {
@@ -407,7 +507,7 @@ export function EpubReaderView({
       <View style={[styles.centered, { backgroundColor: palette.bg }]}>
         <ActivityIndicator size="large" color={palette.link} />
         <Text style={[styles.loadingText, { color: palette.muted }]}>
-          Opening EPUB publication...
+          Opening book…
         </Text>
       </View>
     );
@@ -431,8 +531,7 @@ export function EpubReaderView({
     );
   }
 
-  const activeChapter = chapters[currentChapterIndex];
-  const chapterHtml = activeChapter?.html || '<p>No content in this chapter.</p>';
+  const chapterHtml = activeChapterHtml || '<p>Loading chapter…</p>';
 
   const renderedHtml = isPaginated
     ? `

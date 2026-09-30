@@ -17,6 +17,7 @@ test('Format Matrix: Supported formats extension resolution', () => {
     { input: 'page.htm', expected: 'html' },
     { input: 'story.fb2', expected: 'fb2' },
     { input: 'comic.cbz', expected: 'cbz' },
+    { input: 'archive.zip', expected: 'zip' },
     { input: '/storage/emulated/0/Download/my_book.EPUB', expected: 'epub' },
     { input: 'archive.tar.PDF', expected: 'pdf' },
   ];
@@ -36,7 +37,6 @@ test('Format Matrix: Unsupported formats explicit rejection', () => {
     'comic.cbr',
     'image.png',
     'audio.mp3',
-    'archive.zip',
     'binary.exe',
   ];
 

@@ -129,7 +129,14 @@ export function BookContextSheet({
             >
               {book.coverUrl ? (
                 <Image
-                  source={{ uri: book.coverUrl }}
+                  source={{
+                    uri:
+                      book.coverUrl.startsWith('file://') ||
+                      book.coverUrl.startsWith('http') ||
+                      book.coverUrl.startsWith('data:')
+                        ? book.coverUrl
+                        : `file://${book.coverUrl}`,
+                  }}
                   style={styles.thumbImage}
                   resizeMode="cover"
                 />

@@ -3,7 +3,7 @@
  * Functional reference: Lirune Desktop 4.0.4
  */
 
-export type BookFormat = 'epub' | 'pdf' | 'txt' | 'html' | 'fb2' | 'cbz';
+export type BookFormat = 'epub' | 'pdf' | 'txt' | 'html' | 'fb2' | 'cbz' | 'zip';
 export type UnsupportedBookFormat = 'mobi' | 'kf8' | 'azw3' | 'cbr';
 
 export interface FormatInfo {
@@ -56,6 +56,13 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
     label: 'Comic Book Archive',
     extensions: ['cbz'],
     mime: 'application/vnd.comicbook+zip',
+    supported: true,
+  },
+  zip: {
+    id: 'zip',
+    label: 'ZIP Container',
+    extensions: ['zip'],
+    mime: 'application/zip',
     supported: true,
   },
 };

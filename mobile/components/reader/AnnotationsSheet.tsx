@@ -1,5 +1,6 @@
 /**
  * Lirune Reader Mobile — Bookmarks, Highlights & Notes Sheet
+ * Coherent with Lirune Reader design system and active reader theme.
  */
 
 import React, { useState } from 'react';
@@ -10,11 +11,12 @@ import {
   TouchableOpacity,
   FlatList,
   Modal,
-  SafeAreaView,
   TextInput,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Bookmark, Highlight, Note } from '@/models/Book';
+import { READER_THEMES } from '@/theme/Colors';
 
 interface AnnotationsSheetProps {
   visible: boolean;
@@ -28,6 +30,7 @@ interface AnnotationsSheetProps {
   onDeleteHighlight: (id: string) => void;
   onAddNote: (text: string) => void;
   onDeleteNote: (id: string) => void;
+  themeName?: string;
 }
 
 export function AnnotationsSheet({
@@ -42,10 +45,23 @@ export function AnnotationsSheet({
   onDeleteHighlight,
   onAddNote,
   onDeleteNote,
+  themeName = 'neutral',
 }: AnnotationsSheetProps) {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'bookmarks' | 'notes' | 'highlights'>('bookmarks');
   const [noteInput, setNoteInput] = useState('');
   const [isAddingNote, setIsAddingNote] = useState(false);
+
+  const activeTheme = READER_THEMES[themeName] || READER_THEMES.neutral;
+  const isThemeDark = themeName === 'night' || themeName.startsWith('contrast');
+
+  const sheetBg = activeTheme.bg;
+  const surfaceBg = activeTheme.surface;
+  const textColor = activeTheme.text;
+  const mutedColor = activeTheme.muted;
+  const borderColor = isThemeDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.10)';
+  const activeAccent = activeTheme.link || (isThemeDark ? '#C9B8FF' : '#4C4666');
+  const activeAccentFg = isThemeDark ? '#000000' : '#FFFFFF';
 
   const handleSaveNote = () => {
     if (noteInput.trim()) {
@@ -60,54 +76,66 @@ export function AnnotationsSheet({
       visible={visible}
       animationType="slide"
       transparent={true}
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <SafeAreaView style={styles.sheetContainer}>
-          <View style={styles.header}>
+        <View
+          style={[
+            styles.sheetContainer,
+            {
+              backgroundColor: sheetBg,
+              borderColor: borderColor,
+              paddingBottom: Math.max(insets.bottom, 16) + 8,
+            },
+          ]}
+        >
+          {/* Header & Tabs */}
+          <View style={[styles.header, { borderBottomColor: borderColor, backgroundColor: surfaceBg }]}>
             <View style={styles.tabsRow}>
-              <TouchableOpacity
-                style={[styles.tab, activeTab === 'bookmarks' && styles.tabActive]}
-                onPress={() => setActiveTab('bookmarks')}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    activeTab === 'bookmarks' && styles.tabTextActive,
-                  ]}
-                >
-                  Bookmarks ({bookmarks.length})
-                </Text>
-              </TouchableOpacity>
+              {(['bookmarks', 'notes', 'highlights'] as const).map((tab) => {
+                const isSelected = activeTab === tab;
+                const count =
+                  tab === 'bookmarks'
+                    ? bookmarks.length
+                    : tab === 'notes'
+                    ? notes.length
+                    : highlights.length;
+                const label =
+                  tab === 'bookmarks' ? 'Bookmarks' : tab === 'notes' ? 'Notes' : 'Highlights';
 
-              <TouchableOpacity
-                style={[styles.tab, activeTab === 'notes' && styles.tabActive]}
-                onPress={() => setActiveTab('notes')}
-              >
-                <Text
-                  style={[styles.tabText, activeTab === 'notes' && styles.tabTextActive]}
-                >
-                  Notes ({notes.length})
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.tab, activeTab === 'highlights' && styles.tabActive]}
-                onPress={() => setActiveTab('highlights')}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    activeTab === 'highlights' && styles.tabTextActive,
-                  ]}
-                >
-                  Highlights ({highlights.length})
-                </Text>
-              </TouchableOpacity>
+                return (
+                  <TouchableOpacity
+                    key={tab}
+                    style={[
+                      styles.tab,
+                      isSelected && { borderBottomColor: activeAccent, borderBottomWidth: 2 },
+                    ]}
+                    onPress={() => setActiveTab(tab)}
+                  >
+                    <Text
+                      style={[
+                        styles.tabText,
+                        {
+                          color: isSelected ? activeAccent : mutedColor,
+                          fontWeight: isSelected ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {label} ({count})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={24} color="#F0F0EB" />
+            <TouchableOpacity
+              onPress={onClose}
+              style={[styles.closeBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
+              accessibilityLabel="Close annotations"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close" size={20} color={textColor} />
             </TouchableOpacity>
           </View>
 
@@ -119,11 +147,12 @@ export function AnnotationsSheet({
               contentContainerStyle={styles.listContent}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No bookmarks added yet.</Text>
+                  <Ionicons name="bookmark-outline" size={36} color={mutedColor} style={{ marginBottom: 8 }} />
+                  <Text style={[styles.emptyText, { color: mutedColor }]}>No bookmarks added yet.</Text>
                 </View>
               }
               renderItem={({ item }) => (
-                <View style={styles.cardItem}>
+                <View style={[styles.cardItem, { backgroundColor: surfaceBg, borderColor: borderColor }]}>
                   <TouchableOpacity
                     style={{ flex: 1 }}
                     onPress={() => {
@@ -131,14 +160,15 @@ export function AnnotationsSheet({
                       onClose();
                     }}
                   >
-                    <Text style={styles.cardTitle}>{item.chapter}</Text>
-                    <Text style={styles.cardDate}>
+                    <Text style={[styles.cardTitle, { color: textColor }]}>{item.chapter}</Text>
+                    <Text style={[styles.cardDate, { color: mutedColor }]}>
                       {new Date(item.dateCreated).toLocaleDateString()}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => onDeleteBookmark(item.id)}
                     style={styles.deleteBtn}
+                    accessibilityLabel="Delete bookmark"
                   >
                     <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
                   </TouchableOpacity>
@@ -150,12 +180,22 @@ export function AnnotationsSheet({
           {/* Notes Tab */}
           {activeTab === 'notes' && (
             <View style={{ flex: 1 }}>
-              {isAddingNote ? (
-                <View style={styles.addNoteBox}>
+              {!isAddingNote && (
+                <TouchableOpacity
+                  style={[styles.addNoteHeaderBtn, { borderColor: borderColor, backgroundColor: surfaceBg }]}
+                  onPress={() => setIsAddingNote(true)}
+                >
+                  <Ionicons name="add" size={18} color={activeAccent} style={{ marginRight: 6 }} />
+                  <Text style={[styles.addNoteHeaderText, { color: activeAccent }]}>Add Note to Current Chapter</Text>
+                </TouchableOpacity>
+              )}
+
+              {isAddingNote && (
+                <View style={[styles.addNoteContainer, { backgroundColor: surfaceBg, borderColor: borderColor }]}>
                   <TextInput
-                    style={styles.noteInput}
-                    placeholder="Write a note about this section..."
-                    placeholderTextColor="#888880"
+                    style={[styles.noteInput, { color: textColor }]}
+                    placeholder="Type your note here..."
+                    placeholderTextColor={mutedColor}
                     multiline
                     value={noteInput}
                     onChangeText={setNoteInput}
@@ -163,27 +203,22 @@ export function AnnotationsSheet({
                   />
                   <View style={styles.noteActionsRow}>
                     <TouchableOpacity
-                      onPress={() => setIsAddingNote(false)}
+                      onPress={() => {
+                        setIsAddingNote(false);
+                        setNoteInput('');
+                      }}
                       style={styles.cancelNoteBtn}
                     >
-                      <Text style={styles.cancelNoteText}>Cancel</Text>
+                      <Text style={[styles.cancelNoteText, { color: mutedColor }]}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={handleSaveNote}
-                      style={styles.saveNoteBtn}
+                      style={[styles.saveNoteBtn, { backgroundColor: activeAccent }]}
                     >
-                      <Text style={styles.saveNoteText}>Save Note</Text>
+                      <Text style={[styles.saveNoteText, { color: activeAccentFg }]}>Save</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.newNoteBtn}
-                  onPress={() => setIsAddingNote(true)}
-                >
-                  <Ionicons name="add" size={18} color="#1A1A1D" />
-                  <Text style={styles.newNoteText}>Add Note for Current Page</Text>
-                </TouchableOpacity>
               )}
 
               <FlatList
@@ -191,23 +226,28 @@ export function AnnotationsSheet({
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
-                  !isAddingNote ? (
-                    <View style={styles.emptyContainer}>
-                      <Text style={styles.emptyText}>No notes written yet.</Text>
-                    </View>
-                  ) : null
+                  <View style={styles.emptyContainer}>
+                    <Ionicons name="create-outline" size={36} color={mutedColor} style={{ marginBottom: 8 }} />
+                    <Text style={[styles.emptyText, { color: mutedColor }]}>No notes created yet.</Text>
+                  </View>
                 }
                 renderItem={({ item }) => (
-                  <View style={styles.cardItem}>
+                  <View style={[styles.cardItem, { backgroundColor: surfaceBg, borderColor: borderColor }]}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.noteBodyText}>{item.text}</Text>
+                      <Text style={[styles.noteBodyText, { color: textColor }]}>{item.text}</Text>
                       {item.chapter && (
-                        <Text style={styles.cardDate}>{item.chapter}</Text>
+                        <Text style={[styles.cardDate, { color: mutedColor, marginTop: 4 }]}>
+                          In: {item.chapter}
+                        </Text>
                       )}
+                      <Text style={[styles.cardDate, { color: mutedColor, marginTop: 2 }]}>
+                        {new Date(item.dateCreated).toLocaleDateString()}
+                      </Text>
                     </View>
                     <TouchableOpacity
                       onPress={() => onDeleteNote(item.id)}
                       style={styles.deleteBtn}
+                      accessibilityLabel="Delete note"
                     >
                       <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
                     </TouchableOpacity>
@@ -225,29 +265,33 @@ export function AnnotationsSheet({
               contentContainerStyle={styles.listContent}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>
-                    {!format || format === 'epub' || format === 'html' || format === 'fb2'
-                      ? 'No highlights recorded yet. Select text in the reader to create a highlight.'
-                      : `Highlighting via text selection is available for EPUB, HTML, and FB2. In ${format.toUpperCase()} documents, native text selection is an Android platform limitation.`}
-                  </Text>
+                  <Ionicons name="color-wand-outline" size={36} color={mutedColor} style={{ marginBottom: 8 }} />
+                  <Text style={[styles.emptyText, { color: mutedColor }]}>No highlights added yet.</Text>
                 </View>
               }
               renderItem={({ item }) => (
-                <View style={styles.cardItem}>
+                <View style={[styles.cardItem, { backgroundColor: surfaceBg, borderColor: borderColor }]}>
                   <View style={{ flex: 1 }}>
                     <Text
                       style={[
                         styles.highlightText,
-                        { borderLeftColor: item.color || '#C9B8FF' },
+                        { color: textColor, borderLeftColor: item.color || activeAccent },
                       ]}
+                      numberOfLines={4}
                     >
                       &ldquo;{item.text}&rdquo;
                     </Text>
-                    {item.note && <Text style={styles.highlightNote}>{item.note}</Text>}
+                    {item.note && (
+                      <Text style={[styles.highlightNote, { color: mutedColor }]}>{item.note}</Text>
+                    )}
+                    <Text style={[styles.cardDate, { color: mutedColor, marginTop: 4, paddingLeft: 8 }]}>
+                      {new Date(item.dateCreated).toLocaleDateString()}
+                    </Text>
                   </View>
                   <TouchableOpacity
                     onPress={() => onDeleteHighlight(item.id)}
                     style={styles.deleteBtn}
+                    accessibilityLabel="Delete highlight"
                   >
                     <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
                   </TouchableOpacity>
@@ -255,7 +299,7 @@ export function AnnotationsSheet({
               )}
             />
           )}
-        </SafeAreaView>
+        </View>
       </View>
     </Modal>
   );
@@ -264,69 +308,61 @@ export function AnnotationsSheet({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     justifyContent: 'flex-end',
   },
   sheetContainer: {
-    backgroundColor: '#202024',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 1,
     height: '75%',
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#3A3A3E',
   },
   tabsRow: {
     flexDirection: 'row',
-    gap: 8,
+    flex: 1,
   },
   tab: {
-    paddingVertical: 6,
+    paddingVertical: 14,
     paddingHorizontal: 10,
-    borderRadius: 6,
-  },
-  tabActive: {
-    backgroundColor: '#2E2B38',
+    marginRight: 8,
   },
   tabText: {
-    color: '#888880',
     fontSize: 13,
-    fontWeight: '500',
-  },
-  tabTextActive: {
-    color: '#EEECF8',
-    fontWeight: '600',
   },
   closeBtn: {
-    padding: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   listContent: {
     padding: 16,
+    gap: 10,
   },
   cardItem: {
-    backgroundColor: '#2A2A2F',
-    borderRadius: 8,
-    padding: 14,
-    marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
   },
   cardTitle: {
-    color: '#F0F0EB',
-    fontSize: 15,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   cardDate: {
-    color: '#888880',
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 11,
   },
   deleteBtn: {
     padding: 8,
@@ -335,36 +371,36 @@ const styles = StyleSheet.create({
   emptyContainer: {
     padding: 40,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyText: {
-    color: '#888880',
-    fontSize: 14,
+    fontSize: 13,
+    textAlign: 'center',
   },
-  newNoteBtn: {
-    backgroundColor: '#C9B8FF',
+  addNoteHeaderBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     margin: 16,
+    marginBottom: 0,
     paddingVertical: 10,
-    borderRadius: 8,
-    gap: 6,
+    borderRadius: 10,
+    borderWidth: 1,
   },
-  newNoteText: {
-    color: '#1A1A1D',
-    fontSize: 14,
+  addNoteHeaderText: {
+    fontSize: 13,
     fontWeight: '600',
   },
-  addNoteBox: {
-    backgroundColor: '#2A2A2F',
+  addNoteContainer: {
     margin: 16,
-    borderRadius: 8,
+    marginBottom: 0,
+    borderRadius: 12,
+    borderWidth: 1,
     padding: 12,
   },
   noteInput: {
-    color: '#F0F0EB',
     fontSize: 14,
-    minHeight: 80,
+    minHeight: 70,
     textAlignVertical: 'top',
   },
   noteActionsRow: {
@@ -378,34 +414,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   cancelNoteText: {
-    color: '#888880',
     fontSize: 13,
   },
   saveNoteBtn: {
-    backgroundColor: '#C9B8FF',
     paddingVertical: 6,
     paddingHorizontal: 14,
-    borderRadius: 6,
+    borderRadius: 8,
   },
   saveNoteText: {
-    color: '#1A1A1D',
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   noteBodyText: {
-    color: '#F0F0EB',
     fontSize: 14,
     lineHeight: 20,
   },
   highlightText: {
-    color: '#F0F0EB',
     fontSize: 14,
     fontStyle: 'italic',
     borderLeftWidth: 3,
     paddingLeft: 8,
+    lineHeight: 20,
   },
   highlightNote: {
-    color: '#B8B8B0',
     fontSize: 12,
     marginTop: 6,
     paddingLeft: 8,

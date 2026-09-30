@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Book } from '@/models/Book';
+import { READER_THEMES } from '@/theme/Colors';
 
 interface ReaderControlsProps {
   book: Book;
@@ -41,13 +42,15 @@ export function ReaderControls({
   onOpenSettings,
   onOpenAnnotations,
 }: ReaderControlsProps) {
+  const activeTheme = READER_THEMES[themeName] || READER_THEMES.neutral;
   const isDark = themeName === 'night' || themeName.startsWith('contrast');
 
   const insets = useSafeAreaInsets();
-  const barBg = isDark ? 'rgba(26, 27, 33, 0.95)' : 'rgba(253, 252, 248, 0.95)';
-  const textColor = isDark ? '#F0F0EB' : '#1A1410';
-  const mutedColor = isDark ? '#A7A49B' : '#6B6055';
-  const iconColor = isDark ? '#EEEEEE' : '#333333';
+  const barBg = activeTheme.surface;
+  const textColor = activeTheme.text;
+  const mutedColor = activeTheme.muted;
+  const iconColor = activeTheme.text;
+  const accentColor = activeTheme.link || (isDark ? '#C9B8FF' : '#4C4666');
 
   return (
     <>
@@ -80,7 +83,7 @@ export function ReaderControls({
               <Ionicons
                 name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
                 size={22}
-                color={isBookmarked ? '#C9B8FF' : iconColor}
+                color={isBookmarked ? accentColor : iconColor}
               />
             </TouchableOpacity>
 
@@ -122,7 +125,7 @@ export function ReaderControls({
                   styles.progressBarFill,
                   {
                     width: `${progressPercent}%`,
-                    backgroundColor: '#C9B8FF',
+                    backgroundColor: accentColor,
                   },
                 ]}
               />

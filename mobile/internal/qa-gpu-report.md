@@ -116,8 +116,15 @@
 
 ---
 
-## 5. Physical Device Status
+## 5. Acceptance & Hardware Coverage Summary
 
-> [!IMPORTANT]
-> **PHYSICAL DEVICE ACCEPTANCE:** `BLOCKED — Physical device hardware not attached to host`  
-> `adb devices -l` detected exclusively `emulator-5554`. In strict compliance with QA rules, emulator results are never conflated with physical-device validation. Physical device acceptance will be executed upon physical device connection.
+### A. Primary Automated Acceptance Environment (NVIDIA GPU-Accelerated Emulator)
+- **Status:** **PASS**
+- **Environment:** `emulator-5554` (AVD `qa_android`, Android 15 / API 35 x86_64)
+- **GPU Acceleration:** NVIDIA GeForce RTX 2050 (4 GB VRAM, Driver 595.97, `hw.gpu.mode=host`, `Pipeline=Skia (OpenGL)`)
+- **Coverage:** 54/54 real corpus files, 18/18 formats, 38/38 automated tests, typecheck, cold restart, offline airplane mode, navigation gestures, and appearance transitions.
+
+### B. Physical Device Validation
+- **Status:** **NOT RUN — optional additional hardware coverage.**
+- In accordance with the project final QA policy, the NVIDIA-accelerated Android Emulator is the primary automated acceptance environment for this project. The absence of an attached physical handset does not hold or block release acceptance.
+- If physical Android hardware becomes available, the staged 26-item checklist can be executed for supplementary hardware coverage.

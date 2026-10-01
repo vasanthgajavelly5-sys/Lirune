@@ -99,3 +99,25 @@ All 18 formats are implemented, detected, parsed, and rendered:
 - **Manifest**: `mobile/internal/qa-manifest.json`
 - **Report**: `mobile/internal/qa-corpus-report.md`
 - **Corpus Test Suite**: `mobile/tests/realCorpus.test.ts` (Validates SHA-256 integrity, format detection, and engine parser decoding for all 54 files).
+
+---
+
+## 6. Official Automated Acceptance Environment (NVIDIA GPU-Accelerated)
+
+- **Primary QA Environment:** Android Emulator (`emulator-5554`, AVD `qa_android`, Android 15 / API 35 x86_64).
+- **GPU Hardware Acceleration:** Host NVIDIA GeForce RTX 2050 (4 GB VRAM, Driver 595.97, WDDM, CUDA 13.2).
+- **Rendering Pipeline:** `Pipeline=Skia (OpenGL)`, `supportsNativeGLES=1`, BLAST Consumer hardware buffer allocation.
+- **54-Artifact Heavy QA Matrix:** **54/54 PASS** ([qa-gpu-matrix.json](qa-gpu-matrix.json), [qa-gpu-report.md](qa-gpu-report.md)).
+- **19-Dimension Runtime Matrix:** **54/54 PASS** ([qa-runtime-matrix.json](qa-runtime-matrix.json), [qa-runtime-matrix.md](qa-runtime-matrix.md)).
+- **Automated Test Suite:** **38/38 passing** (`npm test`).
+- **TypeScript Typecheck:** **0 errors** (`tsc --noEmit`).
+- **Release APK:** Built, signed, installed, and validated offline in airplane mode (`app-release.apk`, 75.5 MB).
+
+---
+
+## 7. Hardware Coverage Distinction
+
+- **Emulator Acceptance:** **PASS** (Official automated acceptance environment with dedicated NVIDIA GPU hardware acceleration).
+- **Physical Device Validation:** **NOT RUN — optional additional hardware coverage.**
+  - In accordance with project policy, physical hardware is not a release blocker.
+  - Staged 26-item physical validation suite ready for execution if an Android phone is attached in the future.

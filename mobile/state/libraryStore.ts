@@ -34,7 +34,7 @@ interface LibraryState {
   searchQuery: string;
 
   // Actions
-  loadLibrary: () => Promise<void>;
+  loadLibrary: (options?: { silent?: boolean }) => Promise<void>;
   importBook: () => Promise<Book | null>;
   deleteBook: (bookId: string) => Promise<void>;
   toggleFavorite: (bookId: string) => Promise<void>;
@@ -65,8 +65,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   selectedCollectionId: 'all',
   searchQuery: '',
 
-  loadLibrary: async () => {
-    set({ isLoading: true, error: null });
+  loadLibrary: async (options?: { silent?: boolean }) => {
+    const isFirstLoad = !get().hasLoaded;
+    if (isFirstLoad && !options?.silent) {
+      set({ isLoading: true, error: null });
+    }
     const repo = getBookRepository();
     try {
       const [books, collections, savedPrefs] = await Promise.all([

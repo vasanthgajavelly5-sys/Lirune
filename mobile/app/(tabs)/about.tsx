@@ -24,10 +24,21 @@ export default function AboutScreen() {
   const formats = [
     { name: 'EPUB', desc: 'Reflowable & Fixed' },
     { name: 'PDF', desc: 'Offline Vector' },
-    { name: 'TXT', desc: 'Chunked Streaming' },
-    { name: 'HTML', desc: 'Web Documents' },
+    { name: 'MOBI', desc: 'Kindle Format' },
+    { name: 'AZW / AZW3', desc: 'Amazon KF8' },
     { name: 'FB2', desc: 'FictionBook XML' },
-    { name: 'CBZ', desc: 'Comic Archives' },
+    { name: 'CBZ', desc: 'Comic Zip' },
+    { name: 'CBR', desc: 'Comic RAR' },
+    { name: 'DOCX', desc: 'Word OpenXML' },
+    { name: 'DOC', desc: 'Word Binary' },
+    { name: 'ODT', desc: 'OpenDocument' },
+    { name: 'RTF', desc: 'Rich Text' },
+    { name: 'TXT', desc: 'Plain Streaming' },
+    { name: 'HTML', desc: 'Web Documents' },
+    { name: 'CHM', desc: 'Compiled HTML' },
+    { name: 'DJVU', desc: 'High-Res DjVu' },
+    { name: 'ZIP', desc: 'Book Containers' },
+    { name: 'RAR', desc: 'Archive Containers' },
   ];
 
   return (
@@ -139,14 +150,18 @@ export default function AboutScreen() {
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Core Capabilities</Text>
           <View style={styles.featureList}>
             {[
-              'Discrete Page Mode & Continuous Scroll Mode',
-              '8 handcrafted reading color palettes',
-              'Adjustable font size, typeface, line & paragraph spacing',
-              'In-book full-text search with live hit counters',
-              'Offline-first library organization with custom collections',
-              'Full JSON library backup and restore',
-              'Long-press context actions on any book',
-              'Local TalkBack and screen-reader accessibility',
+              'Universal 18-format document parser with 100% offline engines',
+              'Discrete Page Mode & Continuous Multi-Chapter Scroll',
+              'Native Offline Text-to-Speech (TTS) with multi-voice selection',
+              'Built-in Offline English Dictionary with instant definition lookup',
+              'Pinch-to-zoom and content scaling with safe-area protection',
+              'Global Annotation Center: Highlights, Notes, and Bookmarks',
+              '8 handcrafted reading palettes (Light, Sepia, Night, High-Contrast)',
+              'Adjustable typography: font size, typeface, line & paragraph spacing',
+              'In-book full-text search with live hit counters and excerpt navigation',
+              'Offline-first library organization with custom collections and filters',
+              'Scoped Storage SAF and automatic device storage book discovery',
+              'Complete privacy: Zero telemetry, zero analytics, zero advertisements',
             ].map((feature, i) => (
               <View key={i} style={styles.featureItem}>
                 <Ionicons name="checkmark-circle-outline" size={16} color={colors.accent} style={styles.featureCheck} />

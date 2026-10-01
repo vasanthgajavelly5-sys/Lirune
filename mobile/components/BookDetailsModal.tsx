@@ -165,24 +165,35 @@ export function BookDetailsModal({
             </View>
 
             {/* Metadata Stats */}
-            <View style={[styles.metaGrid, { backgroundColor: colors.surfaceElevated }]}>
-              <View style={styles.metaItem}>
-                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Progress</Text>
-                <Text style={[styles.metaValue, { color: colors.text }]}>{book.progress}%</Text>
-              </View>
-              <View style={styles.metaItem}>
-                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>File Size</Text>
-                <Text style={[styles.metaValue, { color: colors.text }]}>
-                  {formatFileSize(book.fileSize)}
-                </Text>
-              </View>
-              <View style={styles.metaItem}>
-                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Added</Text>
-                <Text style={[styles.metaValue, { color: colors.text }]}>
-                  {formatDate(book.dateAdded)}
-                </Text>
-              </View>
-            </View>
+            {(() => {
+              const isPageBased = ['pdf', 'djvu', 'cbz', 'cbr'].includes(book.format);
+              const countLabel = isPageBased ? 'Pages' : 'Chapters';
+              const countValue = book.chapterCount && book.chapterCount > 0 ? String(book.chapterCount) : '—';
+              return (
+                <View style={[styles.metaGrid, { backgroundColor: colors.surfaceElevated }]}>
+                  <View style={styles.metaItem}>
+                    <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Progress</Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>{book.progress}%</Text>
+                  </View>
+                  <View style={styles.metaItem}>
+                    <Text style={[styles.metaLabel, { color: colors.textMuted }]}>{countLabel}</Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>{countValue}</Text>
+                  </View>
+                  <View style={styles.metaItem}>
+                    <Text style={[styles.metaLabel, { color: colors.textMuted }]}>File Size</Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>
+                      {formatFileSize(book.fileSize)}
+                    </Text>
+                  </View>
+                  <View style={styles.metaItem}>
+                    <Text style={[styles.metaLabel, { color: colors.textMuted }]}>Added</Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>
+                      {formatDate(book.dateAdded)}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })()}
           </ScrollView>
 
           {/* Footer Actions */}

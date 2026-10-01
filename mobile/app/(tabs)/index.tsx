@@ -85,8 +85,10 @@ export default function LibraryScreen() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    loadLibrary();
-  }, [loadLibrary]);
+    if (!isLibraryLoaded) {
+      loadLibrary();
+    }
+  }, [isLibraryLoaded, loadLibrary]);
 
   // Show first-launch welcome guide ONLY if stores have finished loading from SQLite,
   // user has never completed it, and there are no books yet.

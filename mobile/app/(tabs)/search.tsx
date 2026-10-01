@@ -279,7 +279,8 @@ export default function FilesScreen() {
 
   /**
    * Action 1: Scan Phone
-   * Discovers user-accessible documents in internal storage and common directories (Downloads, Documents, app sandbox)
+   * Automatically discovers user-accessible documents in device storage (Downloads, Documents, Books, internal storage)
+   * Requests permissions/access only when actually required, without unnecessarily forcing folder selection.
    */
   const handleScanPhone = async () => {
     setIsScanning(true);
@@ -289,34 +290,53 @@ export default function FilesScreen() {
       setHasScanned(true);
       const allFound: DiscoveredFile[] = [];
 
-      // 1. Scan app documentDirectory if present
+      // 1. Scan standard accessible device storage directories directly
+      const accessibleDirs = [
+        { path: 'file:///storage/emulated/0/Download', label: 'Downloads', depth: 4 },
+        { path: 'file:///storage/emulated/0/Documents', label: 'Documents', depth: 4 },
+        { path: 'file:///storage/emulated/0/Books', label: 'Books', depth: 4 },
+        { path: 'file:///storage/emulated/0', label: 'Storage Root', depth: 1 },
+      ];
+
+      for (const dir of accessibleDirs) {
+        try {
+          const info = await FileSystem.getInfoAsync(dir.path);
+          if (info.exists && info.isDirectory) {
+            setScanStatus(`Scanning ${dir.label}...`);
+            const found = await scanDirectoryRecursive(
+              dir.path,
+              dir.label,
+              0,
+              dir.depth
+            );
+            allFound.push(...found);
+          }
+        } catch (dirErr) {
+          logger.warn(TAG, `Accessible directory scan skipped: ${dir.path}`, dirErr);
+        }
+      }
+
+      // 2. Scan app documentDirectory if present
       if (FileSystem.documentDirectory) {
-        const docResults = await scanDirectoryRecursive(
-          FileSystem.documentDirectory,
-          'Lirune Documents',
-          0,
-          3
-        );
-        allFound.push(...docResults);
+        try {
+          const docResults = await scanDirectoryRecursive(
+            FileSystem.documentDirectory,
+            'Lirune Documents',
+            0,
+            3
+          );
+          allFound.push(...docResults);
+        } catch {}
       }
 
-      // 2. Scan last authorized folder if present
+      // 3. Scan last authorized folder if present
       if (lastAuthorizedFolderUri) {
-        const folderName = decodeURIComponent(lastAuthorizedFolderUri.split('%3A').pop() || 'Authorized Folder');
-        const authResults = await scanDirectoryRecursive(lastAuthorizedFolderUri, folderName, 0, 4);
-        allFound.push(...authResults);
-      }
-
-      // 3. Prompt user to select/scan Downloads or Storage root via SAF if no authorized folder
-      if (allFound.length === 0) {
-        setScanStatus('Select Downloads or Phone folder to scan...');
-        const { StorageAccessFramework } = FileSystem;
-        const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
-        if (permissions.granted) {
-          await setLastAuthorizedFolderUri(permissions.directoryUri);
-          const folderName = decodeURIComponent(permissions.directoryUri.split('%3A').pop() || 'Phone Storage');
-          const safResults = await scanDirectoryRecursive(permissions.directoryUri, folderName, 0, 5);
-          allFound.push(...safResults);
+        try {
+          const folderName = decodeURIComponent(lastAuthorizedFolderUri.split('%3A').pop() || 'Authorized Folder');
+          const authResults = await scanDirectoryRecursive(lastAuthorizedFolderUri, folderName, 0, 4);
+          allFound.push(...authResults);
+        } catch (authErr) {
+          logger.warn(TAG, 'Error scanning last authorized folder', authErr);
         }
       }
 
@@ -326,9 +346,13 @@ export default function FilesScreen() {
         return [...prev, ...newItems];
       });
 
-      setToastMessage(
-        `Discovered ${allFound.length} document${allFound.length === 1 ? '' : 's'} on device`
-      );
+      if (allFound.length > 0) {
+        setToastMessage(
+          `Discovered ${allFound.length} document${allFound.length === 1 ? '' : 's'} on device`
+        );
+      } else {
+        setToastMessage('Scan complete: no supported books found in accessible storage. Use "Choose Folder" to grant access to a specific directory.');
+      }
     } catch (err) {
       logger.error(TAG, 'Error during phone scan', err);
       setToastMessage('Failed to scan device storage.');
@@ -339,7 +363,9 @@ export default function FilesScreen() {
   };
 
   /**
-   * Action 2: Scan Folder via SAF folder authorization
+   * Action 2: Scan Folder via SAF folder authorization (Download, nested folders, SD cards)
+   * Note on Android platform limitation: Android 11+ Scoped Storage forbids selecting internal storage root
+   * (/storage/emulated/0) or /Android/data. Subdirectories like Download, Documents, or custom folders are fully supported.
    */
   const handleScanFolder = async () => {
     setIsScanning(true);
@@ -349,7 +375,7 @@ export default function FilesScreen() {
       const { StorageAccessFramework } = FileSystem;
       const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (!permissions.granted) {
-        setToastMessage('Folder access was not granted.');
+        setToastMessage('Folder access was not granted or location is restricted by Android.');
         setIsScanning(false);
         setScanStatus('');
         return;

@@ -488,16 +488,34 @@ export class MetadataExtractor {
 
   // ================= PDF =================
   private static async extractPdf(
-    _filePath: string,
+    filePath: string,
     originalName: string,
     coverColor: string
   ): Promise<ExtractedMetadata> {
     const title = cleanTitleFromFilename(originalName);
+    let pageCount = 1;
+    try {
+      const raw = await fileStorage.readAsString(filePath);
+      const countMatch =
+        raw.match(/\/Type\s*\/Pages[\s\S]*?\/Count\s+(\d+)/i) ||
+        raw.match(/\/Count\s+(\d+)[\s\S]*?\/Type\s*\/Pages/i) ||
+        raw.match(/\/Count\s+(\d+)/i);
+      if (countMatch && countMatch[1]) {
+        const parsed = parseInt(countMatch[1], 10);
+        if (parsed > 0) pageCount = parsed;
+      } else {
+        const pages = raw.match(/\/Type\s*\/Page\b/g);
+        if (pages && pages.length > 0) pageCount = pages.length;
+      }
+    } catch {
+      // Fallback to 1
+    }
+
     return {
       title,
-      author: 'Document',
+      author: 'PDF Document',
       coverColor: getCoverColorForTitle(title),
-      chapterCount: 1,
+      chapterCount: pageCount,
     };
   }
 

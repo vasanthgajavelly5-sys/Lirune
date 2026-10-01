@@ -111,7 +111,7 @@ export function PdfReaderView({
     <!DOCTYPE html>
     <html>
     <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, user-scalable=yes">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.75, maximum-scale=4.0, user-scalable=yes">
       <script>
         window.onerror = function(msg, url, line, col, err) {
           try {
@@ -125,30 +125,33 @@ export function PdfReaderView({
       <script>${PDFJS_INLINE}</script>
       <script>${PDFJS_WORKER_INLINE}</script>
       <style>
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body {
           margin: 0;
           padding: 0;
           background-color: ${palette.bg};
+          min-height: 100vh;
+          overflow-x: hidden;
+          overflow-y: auto;
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: center;
-          min-height: 100vh;
-          overflow-x: hidden;
         }
         #canvas-container {
           display: flex;
           justify-content: center;
           align-items: center;
           width: 100%;
-          padding: 10px 0;
+          min-height: 100vh;
+          padding: 12px 0 40px 0;
         }
         canvas {
+          display: block;
           max-width: 98%;
           height: auto;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-          border-radius: 4px;
+          box-shadow: 0 6px 24px rgba(0,0,0,0.3);
+          border-radius: 3px;
+          background-color: #FFFFFF;
         }
       </style>
     </head>
@@ -211,15 +214,19 @@ export function PdfReaderView({
           pdfDoc.getPage(pageNum).then(function(page) {
             var screenW = window.innerWidth || 360;
             var unscaledViewport = page.getViewport({ scale: 1.0 });
-            var targetScale = (screenW * 0.96) / unscaledViewport.width;
-            var viewport = page.getViewport({ scale: Math.max(1.0, targetScale) });
+            var targetScale = (screenW * 0.98) / unscaledViewport.width;
+            var dpr = Math.max(window.devicePixelRatio || 1, 2.5);
+            var displayViewport = page.getViewport({ scale: targetScale });
+            var renderViewport = page.getViewport({ scale: targetScale * dpr });
 
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
+            canvas.width = Math.floor(renderViewport.width);
+            canvas.height = Math.floor(renderViewport.height);
+            canvas.style.width = Math.floor(displayViewport.width) + 'px';
+            canvas.style.height = Math.floor(displayViewport.height) + 'px';
 
             var renderContext = {
               canvasContext: ctx,
-              viewport: viewport
+              viewport: renderViewport
             };
             renderTask = page.render(renderContext);
             renderTask.promise.then(function() {

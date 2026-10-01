@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useThemeContext } from '@/theme/ThemeContext';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useReaderStore } from '@/state/readerStore';
@@ -52,7 +52,7 @@ export default function GlobalAnnotationsScreen() {
   const { colors, scheme } = useThemeContext();
   const isDark = scheme === 'dark';
 
-  const { books, loadLibrary } = useLibraryStore();
+  const { books } = useLibraryStore();
   const { openBook } = useReaderStore();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -67,12 +67,14 @@ export default function GlobalAnnotationsScreen() {
   const loadAllAnnotations = useCallback(async () => {
     setIsLoading(true);
     try {
-      if (books.length === 0) {
-        await loadLibrary();
+      const store = useLibraryStore.getState();
+      if (!store.hasLoaded) {
+        await store.loadLibrary({ silent: true });
       }
 
+      const currentBooks = useLibraryStore.getState().books;
       const bookMap = new Map<string, Book>();
-      for (const b of books) {
+      for (const b of currentBooks) {
         bookMap.set(b.id, b);
       }
 
@@ -140,11 +142,13 @@ export default function GlobalAnnotationsScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [books, loadLibrary, repo]);
+  }, [repo]);
 
-  useEffect(() => {
-    loadAllAnnotations();
-  }, [loadAllAnnotations]);
+  useFocusEffect(
+    useCallback(() => {
+      loadAllAnnotations();
+    }, [loadAllAnnotations])
+  );
 
   const handleDeleteAnnotation = async (item: UnifiedAnnotation) => {
     try {

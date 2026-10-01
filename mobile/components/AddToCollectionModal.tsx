@@ -56,8 +56,9 @@ export function AddToCollectionModal({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
           style={[
             styles.container,
             {
@@ -65,7 +66,6 @@ export function AddToCollectionModal({
               borderColor: colors.borderSubtle,
             },
           ]}
-          onPress={(e) => e.stopPropagation()}
         >
           <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
             <View>
@@ -175,8 +175,8 @@ export function AddToCollectionModal({
               </Text>
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

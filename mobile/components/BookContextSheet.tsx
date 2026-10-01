@@ -107,8 +107,9 @@ export function BookContextSheet({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
           style={[
             styles.sheetContainer,
             {
@@ -117,7 +118,6 @@ export function BookContextSheet({
               paddingBottom: Math.max(36, insets.bottom + 20),
             },
           ]}
-          onPress={(e) => e.stopPropagation()}
         >
           {/* Header Preview */}
           <View style={[styles.headerRow, { borderBottomColor: colors.borderSubtle }]}>
@@ -208,8 +208,8 @@ export function BookContextSheet({
               </TouchableOpacity>
             ))}
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

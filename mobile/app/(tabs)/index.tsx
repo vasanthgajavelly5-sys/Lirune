@@ -65,10 +65,15 @@ export default function LibraryScreen() {
     removeBookFromCollection,
     createCollection,
     clearError,
+    hasLoaded: isLibraryLoaded,
   } = useLibraryStore();
 
   const { openBook } = useReaderStore();
-  const { hasCompletedWelcome, setHasCompletedWelcome } = useSettingsStore();
+  const {
+    hasCompletedWelcome,
+    setHasCompletedWelcome,
+    isLoaded: isSettingsLoaded,
+  } = useSettingsStore();
 
   const [isImporting, setIsImporting] = useState(false);
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
@@ -83,12 +88,18 @@ export default function LibraryScreen() {
     loadLibrary();
   }, [loadLibrary]);
 
-  // Show first-launch welcome guide if never seen
+  // Show first-launch welcome guide ONLY if stores have finished loading from SQLite,
+  // user has never completed it, and there are no books yet.
   useEffect(() => {
-    if (!hasCompletedWelcome && books.length === 0 && !isLoading) {
+    if (
+      isSettingsLoaded &&
+      isLibraryLoaded &&
+      !hasCompletedWelcome &&
+      books.length === 0
+    ) {
       setIsWelcomeGuideVisible(true);
     }
-  }, [hasCompletedWelcome, books.length, isLoading]);
+  }, [isSettingsLoaded, isLibraryLoaded, hasCompletedWelcome, books.length]);
 
   // Filter & Sort books (Simplified to All, Reading, Favorites)
   const filteredBooks = useMemo(() => {

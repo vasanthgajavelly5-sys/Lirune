@@ -63,8 +63,9 @@ export function BookDetailsModal({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
           style={[
             styles.container,
             {
@@ -72,7 +73,6 @@ export function BookDetailsModal({
               borderColor: colors.borderSubtle,
             },
           ]}
-          onPress={(e) => e.stopPropagation()}
         >
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
@@ -211,8 +211,8 @@ export function BookDetailsModal({
               </Text>
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

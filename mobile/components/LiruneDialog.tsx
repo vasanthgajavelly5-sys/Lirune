@@ -80,8 +80,9 @@ export function LiruneDialog({
       animationType="fade"
       onRequestClose={onCancel}
     >
-      <Pressable style={styles.backdrop} onPress={onCancel}>
-        <Pressable
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
+        <View
           style={[
             styles.dialogContainer,
             {
@@ -89,7 +90,6 @@ export function LiruneDialog({
               borderColor: colors.borderSubtle,
             },
           ]}
-          onPress={(e) => e.stopPropagation()}
         >
           {/* Header Icon */}
           {icon && (
@@ -180,8 +180,8 @@ export function LiruneDialog({
               );
             })}
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

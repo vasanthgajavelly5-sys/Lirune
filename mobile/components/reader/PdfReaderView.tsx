@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Text,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Book, ReaderSettings, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
@@ -43,6 +44,7 @@ export function PdfReaderView({
   onProgressChange,
   targetCfi,
 }: PdfReaderViewProps) {
+  const insets = useSafeAreaInsets();
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
@@ -330,7 +332,7 @@ export function PdfReaderView({
       />
 
       {/* Floating page indicator */}
-      <View style={styles.floatingPagePill}>
+      <View style={[styles.floatingPagePill, { bottom: Math.max(insets.bottom, 16) + 12 }]}>
         <Text style={styles.floatingPageText}>
           {currentPage} / {totalPages}
         </Text>

@@ -14,6 +14,7 @@ import {
   Dimensions,
   Text,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Book, ReaderSettings } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
@@ -39,6 +40,7 @@ export function CbrReaderView({
   onProgressChange,
   targetCfi,
 }: CbrReaderViewProps) {
+  const insets = useSafeAreaInsets();
   const [pageUris, setPageUris] = useState<string[]>([]);
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -187,7 +189,7 @@ export function CbrReaderView({
         style={styles.image}
         resizeMode="contain"
       />
-      <View style={styles.pageIndicator}>
+      <View style={[styles.pageIndicator, { bottom: Math.max(insets.bottom, 16) + 12 }]}>
         <Text style={styles.pageIndicatorText}>
           {currentPageIndex + 1} / {pageUris.length}
         </Text>

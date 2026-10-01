@@ -22,6 +22,7 @@ interface LibraryState {
   books: Book[];
   collections: Collection[];
   isLoading: boolean;
+  hasLoaded: boolean;
   error: string | null;
 
   // UI preferences
@@ -54,6 +55,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   books: [],
   collections: [],
   isLoading: false,
+  hasLoaded: false,
   error: null,
 
   viewMode: 'grid',
@@ -77,6 +79,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         books,
         collections,
         isLoading: false,
+        hasLoaded: true,
       };
 
       if (savedPrefs) {

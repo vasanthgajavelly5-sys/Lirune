@@ -36,7 +36,7 @@ export function WelcomeGuideModal({
   const steps = [
     {
       icon: 'book' as const,
-      iconColor: '#EEECF8',
+      iconColor: isDark ? '#EEECF8' : colors.accent,
       title: 'A Calm, Private Home',
       tagline: 'Your books, completely offline and private.',
       description:
@@ -44,15 +44,15 @@ export function WelcomeGuideModal({
     },
     {
       icon: 'library' as const,
-      iconColor: '#C9B8FF',
+      iconColor: isDark ? '#C9B8FF' : '#6D28D9',
       title: 'All Your Formats',
-      tagline: 'EPUB, PDF, TXT, HTML, FB2, and CBZ.',
+      tagline: '18 formats: EPUB, PDF, MOBI, AZW, AZW3, FB2, CBZ, CBR, DJVU, DOCX, ODT, RTF, TXT, HTML, DOC, CHM, ZIP, RAR.',
       description:
         'Import single books or whole libraries from your device. Lirune extracts metadata, parses chapters, and presents your collection with custom covers and progress tracking.',
     },
     {
       icon: 'swap-horizontal' as const,
-      iconColor: '#7DD3FC',
+      iconColor: isDark ? '#7DD3FC' : '#0284C7',
       title: 'Page Mode & Scroll Mode',
       tagline: 'Read the way that feels natural to you.',
       description:
@@ -60,7 +60,7 @@ export function WelcomeGuideModal({
     },
     {
       icon: 'heart' as const,
-      iconColor: '#FF6584',
+      iconColor: isDark ? '#FF6584' : '#E11D48',
       title: 'Collections & Annotations',
       tagline: 'Organize your library effortlessly.',
       description:
@@ -92,8 +92,9 @@ export function WelcomeGuideModal({
       animationType="fade"
       onRequestClose={handleDismiss}
     >
-      <Pressable style={styles.backdrop} onPress={handleDismiss}>
-        <Pressable
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleDismiss} />
+        <View
           style={[
             styles.card,
             {
@@ -101,7 +102,6 @@ export function WelcomeGuideModal({
               borderColor: colors.borderSubtle,
             },
           ]}
-          onPress={(e) => e.stopPropagation()}
         >
           {/* Header Branding */}
           <View style={styles.brandRow}>
@@ -194,8 +194,8 @@ export function WelcomeGuideModal({
               )}
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

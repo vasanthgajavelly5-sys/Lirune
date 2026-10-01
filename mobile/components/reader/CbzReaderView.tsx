@@ -19,6 +19,7 @@ import {
   Text,
   GestureResponderEvent,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import JSZip from 'jszip';
 import * as FileSystem from 'expo-file-system/legacy';
 import { File as FsFile } from 'expo-file-system';
@@ -60,6 +61,7 @@ export function CbzReaderView({
   onProgressChange,
   targetCfi,
 }: CbzReaderViewProps) {
+  const insets = useSafeAreaInsets();
   const [pageNames, setPageNames] = useState<string[]>([]);
   const [pageUris, setPageUris] = useState<string[]>([]);
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
@@ -306,7 +308,7 @@ export function CbzReaderView({
           </View>
         )}
 
-        <View style={styles.floatingPagePill}>
+        <View style={[styles.floatingPagePill, { bottom: Math.max(insets.bottom, 16) + 12 }]}>
           <Text style={styles.floatingPageText}>
             {currentPageIndex + 1} / {pageNames.length}
           </Text>

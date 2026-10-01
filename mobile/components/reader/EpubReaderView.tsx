@@ -6,6 +6,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
@@ -106,6 +107,7 @@ export function EpubReaderView({
   onSearchResults,
   onSelectionChange,
 }: EpubReaderViewProps) {
+  const insets = useSafeAreaInsets();
   const [chapters, setChapters] = useState<ChapterItem[]>([]);
   const [activeChapterHtml, setActiveChapterHtml] = useState<string>('');
   const [currentChapterIndex, setCurrentChapterIndex] = useState<number>(0);
@@ -816,7 +818,7 @@ export function EpubReaderView({
 
       {/* Discrete Paginated Mode Page Indicator */}
       {isPaginated && totalPages > 0 && (
-        <View style={styles.pageFooter} pointerEvents="none">
+        <View style={[styles.pageFooter, { bottom: Math.max(insets.bottom, 12) + 6 }]} pointerEvents="none">
           <Text style={[styles.pageFooterText, { color: palette.muted }]}>
             {currentPage + 1} / {totalPages} • Chapter {currentChapterIndex + 1} of {chapters.length}
           </Text>

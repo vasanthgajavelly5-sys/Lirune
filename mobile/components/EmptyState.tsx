@@ -108,7 +108,7 @@ export function EmptyLibraryState({
   return (
     <EmptyState
       title="Your Library is Empty"
-      message="A calm, private home for your books. Import your EPUB, PDF, TXT, HTML, FB2, or CBZ books to begin reading."
+      message="A calm, private home for your books. Import any of our 18 supported formats including EPUB, PDF, MOBI, FB2, and CBZ to begin reading."
       icon="bookmark"
       action={{ label: 'Import Book', onPress: onImport }}
       secondaryAction={

@@ -210,27 +210,40 @@ def main():
                 f.write(make_rar4_store(comic_pages[ep]))
         record_artifact(cbr_fn, "CBR", f"https://www.peppercarrot.com/en/webcomic/{ep}.html", "peppercarrot.com", f"Pepper & Carrot: {title} (CBR)", "David Revoy", "CC-BY-4.0", "converted", "Python RAR4 Store Packer")
 
-    # 7. MOBI (Already present)
-    record_artifact("mobi_alice_in_wonderland.mobi", "MOBI", "https://www.gutenberg.org/ebooks/11.kf8.images", "Project Gutenberg", "Alice in Wonderland", "Lewis Carroll", "Public Domain", "native")
-    record_artifact("mobi_pride_and_prejudice.mobi", "MOBI", "https://www.gutenberg.org/ebooks/1342.kf8.images", "Project Gutenberg", "Pride and Prejudice", "Jane Austen", "Public Domain", "native")
-    record_artifact("mobi_frankenstein.mobi", "MOBI", "https://www.gutenberg.org/ebooks/84.kf8.images", "Project Gutenberg", "Frankenstein", "Mary Shelley", "Public Domain", "native")
-
-    # 8. AZW (Already present)
-    record_artifact("azw_alice_in_wonderland.azw", "AZW", "https://www.gutenberg.org/ebooks/11.kindle.noimages", "Project Gutenberg", "Alice in Wonderland (AZW)", "Lewis Carroll", "Public Domain", "native")
-    record_artifact("azw_pride_and_prejudice.azw", "AZW", "https://www.gutenberg.org/ebooks/1342.kindle.noimages", "Project Gutenberg", "Pride and Prejudice (AZW)", "Jane Austen", "Public Domain", "native")
-    record_artifact("azw_frankenstein.azw", "AZW", "https://www.gutenberg.org/ebooks/84.kindle.noimages", "Project Gutenberg", "Frankenstein (AZW)", "Mary Shelley", "Public Domain", "native")
-
-    # 9. AZW3 (Amazon KF8 format)
+    # 7. MOBI (Classic Mobipocket with images from .kindle.images)
     for fn, bid, tit, aut in [
-        ("azw3_pride_and_prejudice.azw3", 1342, "Pride and Prejudice (AZW3/KF8)", "Jane Austen"),
+        ("mobi_alice_in_wonderland.mobi", 11, "Alice's Adventures in Wonderland", "Lewis Carroll"),
+        ("mobi_frankenstein.mobi", 84, "Frankenstein", "Mary Shelley"),
+        ("mobi_dracula.mobi", 345, "Dracula", "Bram Stoker")
+    ]:
+        p = os.path.join(CORPUS_DIR, fn)
+        print(f"Downloading {fn} from Project Gutenberg (.kindle.images)...")
+        with open(p, "wb") as f:
+            f.write(download_bytes(f"https://www.gutenberg.org/ebooks/{bid}.kindle.images"))
+        record_artifact(fn, "MOBI", f"https://www.gutenberg.org/ebooks/{bid}.kindle.images", "Project Gutenberg", tit, aut, "Public Domain", "native")
+
+    # 8. AZW (Amazon Kindle 1/2 legacy format without images from .kindle.noimages)
+    for fn, bid, tit, aut in [
+        ("azw_alice_in_wonderland.azw", 11, "Alice's Adventures in Wonderland (AZW)", "Lewis Carroll"),
+        ("azw_frankenstein.azw", 84, "Frankenstein (AZW)", "Mary Shelley"),
+        ("azw_pride_and_prejudice.azw", 1342, "Pride and Prejudice (AZW)", "Jane Austen")
+    ]:
+        p = os.path.join(CORPUS_DIR, fn)
+        print(f"Downloading {fn} from Project Gutenberg (.kindle.noimages)...")
+        with open(p, "wb") as f:
+            f.write(download_bytes(f"https://www.gutenberg.org/ebooks/{bid}.kindle.noimages"))
+        record_artifact(fn, "AZW", f"https://www.gutenberg.org/ebooks/{bid}.kindle.noimages", "Project Gutenberg", tit, aut, "Public Domain", "native")
+
+    # 9. AZW3 (Amazon Kindle Format 8 modern format with HTML5/CSS3 from .kf8.images)
+    for fn, bid, tit, aut in [
+        ("azw3_alice_in_wonderland.azw3", 11, "Alice's Adventures in Wonderland (AZW3/KF8)", "Lewis Carroll"),
         ("azw3_frankenstein.azw3", 84, "Frankenstein (AZW3/KF8)", "Mary Shelley"),
         ("azw3_dracula.azw3", 345, "Dracula (AZW3/KF8)", "Bram Stoker")
     ]:
         p = os.path.join(CORPUS_DIR, fn)
-        if not os.path.exists(p) or os.path.getsize(p) < 20000:
-            print(f"Downloading {fn} from Project Gutenberg...")
-            with open(p, "wb") as f:
-                f.write(download_bytes(f"https://www.gutenberg.org/ebooks/{bid}.kf8.images"))
+        print(f"Downloading {fn} from Project Gutenberg (.kf8.images)...")
+        with open(p, "wb") as f:
+            f.write(download_bytes(f"https://www.gutenberg.org/ebooks/{bid}.kf8.images"))
         record_artifact(fn, "AZW3", f"https://www.gutenberg.org/ebooks/{bid}.kf8.images", "Project Gutenberg", tit, aut, "Public Domain", "native")
 
     # 10. DJVU (Download from Wikimedia Commons)

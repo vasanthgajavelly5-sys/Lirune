@@ -4,8 +4,8 @@
  * 100% offline, zero internet or API dependency.
  */
 
-import { getDatabase } from '@/services/database/Database';
-import { logger } from '@/utils/logger';
+import { logger } from '../../utils/logger.ts';
+import rawDictionary from '../../assets/dictionary.json' with { type: 'json' };
 
 const TAG = 'DictionaryService';
 
@@ -27,79 +27,8 @@ export interface SavedWord {
   dateCreated: number;
 }
 
-// Built-in foundational offline lexicon for instant offline definition
-const BUILTIN_DICTIONARY: Record<string, WordDefinition> = {
-  ephemeral: {
-    word: 'ephemeral',
-    partOfSpeech: 'adjective',
-    definition: 'Lasting for a very short time; transitory; fleeting.',
-    example: 'The ephemeral bloom of the cherry blossoms reminded them of youth.',
-    synonyms: ['fleeting', 'transient', 'short-lived', 'momentary'],
-  },
-  serendipity: {
-    word: 'serendipity',
-    partOfSpeech: 'noun',
-    definition: 'The occurrence and development of events by chance in a happy or beneficial way.',
-    example: 'A fortunate stroke of serendipity brought the two researchers together.',
-    synonyms: ['chance', 'happy accident', 'fluke', 'fortune'],
-  },
-  solitude: {
-    word: 'solitude',
-    partOfSpeech: 'noun',
-    definition: 'The state or situation of being alone, especially a pleasant and tranquil one.',
-    example: 'She savored her afternoon solitude with an open book.',
-    synonyms: ['loneliness', 'seclusion', 'isolation', 'peace'],
-  },
-  sonder: {
-    word: 'sonder',
-    partOfSpeech: 'noun',
-    definition: 'The profound realization that each random passerby is living a life as vivid and complex as your own.',
-    example: 'Standing on the subway platform, he felt an overwhelming wave of sonder.',
-    synonyms: ['realization', 'empathy', 'awareness'],
-  },
-  petrichor: {
-    word: 'petrichor',
-    partOfSpeech: 'noun',
-    definition: 'A pleasant, distinctive smell that frequently accompanies the first rain after a long period of warm, dry weather.',
-    example: 'The summer breeze carried the rich petrichor of sudden rain.',
-    synonyms: ['earthy scent', 'rain fragrance'],
-  },
-  labyrinth: {
-    word: 'labyrinth',
-    partOfSpeech: 'noun',
-    definition: 'A complicated irregular network of passages or paths in which it is difficult to find one\'s way; a maze.',
-    example: 'The library was a labyrinth of ancient oak bookshelves.',
-    synonyms: ['maze', 'warren', 'network', 'puzzle'],
-  },
-  melancholy: {
-    word: 'melancholy',
-    partOfSpeech: 'noun / adjective',
-    definition: 'A feeling of pensive sadness, typically with no obvious cause; thoughtful sadness.',
-    example: 'An air of melancholy hung gently over the empty study.',
-    synonyms: ['sadness', 'sorrow', 'pensiveness', 'wistfulness'],
-  },
-  nostalgia: {
-    word: 'nostalgia',
-    partOfSpeech: 'noun',
-    definition: 'A sentimental longing or wistful affection for the past, typically for a period or place with happy personal associations.',
-    example: 'The scent of old paper filled him with nostalgia.',
-    synonyms: ['reminiscence', 'wistfulness', 'longing'],
-  },
-  lucid: {
-    word: 'lucid',
-    partOfSpeech: 'adjective',
-    definition: 'Expressed clearly; easy to understand; bright or luminous.',
-    example: 'Her prose was remarkably lucid and evocative.',
-    synonyms: ['clear', 'coherent', 'transparent', 'bright'],
-  },
-  ubiquitous: {
-    word: 'ubiquitous',
-    partOfSpeech: 'adjective',
-    definition: 'Present, appearing, or found everywhere.',
-    example: 'Paper books remain ubiquitous despite digital reading devices.',
-    synonyms: ['omnipresent', 'everywhere', 'pervasive'],
-  },
-};
+// 20,000-word comprehensive offline lexicon
+const BUILTIN_DICTIONARY: Record<string, WordDefinition> = rawDictionary as unknown as Record<string, WordDefinition>;
 
 export class DictionaryService {
   /**
@@ -156,6 +85,7 @@ export class DictionaryService {
       dateCreated: Date.now(),
     };
 
+    const { getDatabase } = await import('../database/Database.ts');
     const db = await getDatabase();
     if (db) {
       try {
@@ -184,6 +114,7 @@ export class DictionaryService {
    * Get all saved vocabulary words.
    */
   static async getSavedWords(): Promise<SavedWord[]> {
+    const { getDatabase } = await import('../database/Database.ts');
     const db = await getDatabase();
     if (!db) return [];
     try {
@@ -216,6 +147,7 @@ export class DictionaryService {
    * Delete a saved word from the local database.
    */
   static async deleteSavedWord(id: string): Promise<void> {
+    const { getDatabase } = await import('../database/Database.ts');
     const db = await getDatabase();
     if (!db) return;
     try {

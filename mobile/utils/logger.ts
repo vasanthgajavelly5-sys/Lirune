@@ -13,7 +13,8 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 };
 
 // Default to info in production, debug in development
-const CURRENT_LOG_LEVEL: LogLevel = __DEV__ ? 'debug' : 'info';
+const isDev = typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production');
+const CURRENT_LOG_LEVEL: LogLevel = isDev ? 'debug' : 'info';
 
 function formatMessage(level: LogLevel, tag: string, message: string): string {
   const timestamp = new Date().toISOString();

@@ -53,13 +53,13 @@
 | CBR | `cbr_peppercarrot_ep01.cbr` | Pepper & Carrot: The Potion of Flight (CBR) | David Revoy | 1238616 | CC-BY-4.0 | `0a7204ce2b8d...` |
 | CBR | `cbr_peppercarrot_ep02.cbr` | Pepper & Carrot: Rainbow Potions (CBR) | David Revoy | 1763278 | CC-BY-4.0 | `5cd32efcf8b2...` |
 | CBR | `cbr_peppercarrot_ep03.cbr` | Pepper & Carrot: The Secret Ingredients (CBR) | David Revoy | 2600618 | CC-BY-4.0 | `9c32e49c5075...` |
-| MOBI | `mobi_alice_in_wonderland.mobi` | Alice in Wonderland | Lewis Carroll | 255486 | Public Domain | `b3c9067848d2...` |
-| MOBI | `mobi_pride_and_prejudice.mobi` | Pride and Prejudice | Jane Austen | 25334180 | Public Domain | `96db0240fab8...` |
-| MOBI | `mobi_frankenstein.mobi` | Frankenstein | Mary Shelley | 682002 | Public Domain | `e8373a3828f7...` |
-| AZW | `azw_alice_in_wonderland.azw` | Alice in Wonderland (AZW) | Lewis Carroll | 190274 | Public Domain | `c6de8f834599...` |
-| AZW | `azw_pride_and_prejudice.azw` | Pride and Prejudice (AZW) | Jane Austen | 540013 | Public Domain | `abcf4c5bf198...` |
+| MOBI | `mobi_alice_in_wonderland.mobi` | Alice's Adventures in Wonderland | Lewis Carroll | 241000 | Public Domain | `29448cd44f3e...` |
+| MOBI | `mobi_frankenstein.mobi` | Frankenstein | Mary Shelley | 653928 | Public Domain | `7d77dba10068...` |
+| MOBI | `mobi_dracula.mobi` | Dracula | Bram Stoker | 774463 | Public Domain | `177c0e7bcacf...` |
+| AZW | `azw_alice_in_wonderland.azw` | Alice's Adventures in Wonderland (AZW) | Lewis Carroll | 190274 | Public Domain | `c6de8f834599...` |
 | AZW | `azw_frankenstein.azw` | Frankenstein (AZW) | Mary Shelley | 448898 | Public Domain | `c465ebc37cdb...` |
-| AZW3 | `azw3_pride_and_prejudice.azw3` | Pride and Prejudice (AZW3/KF8) | Jane Austen | 25334180 | Public Domain | `96db0240fab8...` |
+| AZW | `azw_pride_and_prejudice.azw` | Pride and Prejudice (AZW) | Jane Austen | 540013 | Public Domain | `abcf4c5bf198...` |
+| AZW3 | `azw3_alice_in_wonderland.azw3` | Alice's Adventures in Wonderland (AZW3/KF8) | Lewis Carroll | 255486 | Public Domain | `b3c9067848d2...` |
 | AZW3 | `azw3_frankenstein.azw3` | Frankenstein (AZW3/KF8) | Mary Shelley | 682002 | Public Domain | `e8373a3828f7...` |
 | AZW3 | `azw3_dracula.azw3` | Dracula (AZW3/KF8) | Bram Stoker | 816780 | Public Domain | `870820ff69b6...` |
 | DJVU | `djvu_lamartine_tome5.djvu` | Oeuvres completes de Lamartine, Tome 5 | Alphonse de Lamartine | 4298316 | Public Domain | `665ef443f093...` |

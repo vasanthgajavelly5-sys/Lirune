@@ -46,3 +46,6 @@ yarn-error.*
 
 # test fixtures
 test-fixtures/
+
+# QA test screenshots
+/internal/gpu_qa_screenshots/

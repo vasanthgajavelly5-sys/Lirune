@@ -22,6 +22,7 @@ interface Props {
 interface State {
   hasError: boolean;
   errorMessage: string;
+  retryCount: number;
 }
 
 export class ReaderErrorBoundary extends Component<Props, State> {
@@ -30,10 +31,11 @@ export class ReaderErrorBoundary extends Component<Props, State> {
     this.state = {
       hasError: false,
       errorMessage: '',
+      retryCount: 0,
     };
   }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return {
       hasError: true,
       errorMessage: error.message || 'An unexpected rendering error occurred.',
@@ -49,7 +51,12 @@ export class ReaderErrorBoundary extends Component<Props, State> {
   }
 
   handleReset = () => {
-    this.setState({ hasError: false, errorMessage: '' });
+    if (this.state.retryCount >= 3) return;
+    this.setState((prev) => ({
+      hasError: false,
+      errorMessage: '',
+      retryCount: prev.retryCount + 1,
+    }));
     this.props.onRetry();
   };
 
@@ -58,6 +65,7 @@ export class ReaderErrorBoundary extends Component<Props, State> {
       const bg = this.props.themeBg || '#1A1A1D';
       const textColor = this.props.textColor || '#FFFFFF';
       const accent = this.props.accentColor || '#EEECF8';
+      const canRetry = this.state.retryCount < 3;
 
       return (
         <View style={[styles.container, { backgroundColor: bg }]}>
@@ -67,7 +75,9 @@ export class ReaderErrorBoundary extends Component<Props, State> {
             </View>
             <Text style={[styles.title, { color: textColor }]}>Display Error</Text>
             <Text style={styles.subtitle}>
-              Lirune encountered an issue while rendering this document.
+              {canRetry
+                ? 'Lirune encountered an issue while rendering this document.'
+                : 'Maximum retry attempts reached for this publication.'}
             </Text>
             {this.state.errorMessage ? (
               <View style={styles.errorBox}>
@@ -78,14 +88,18 @@ export class ReaderErrorBoundary extends Component<Props, State> {
             ) : null}
 
             <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={[styles.primaryButton, { backgroundColor: accent }]}
-                onPress={this.handleReset}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="refresh" size={18} color="#1A1A1D" style={{ marginRight: 6 }} />
-                <Text style={styles.primaryButtonText}>Retry</Text>
-              </TouchableOpacity>
+              {canRetry && (
+                <TouchableOpacity
+                  style={[styles.primaryButton, { backgroundColor: accent }]}
+                  onPress={this.handleReset}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="refresh" size={18} color="#1A1A1D" style={{ marginRight: 6 }} />
+                  <Text style={styles.primaryButtonText}>
+                    Retry ({3 - this.state.retryCount} left)
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
                 style={styles.secondaryButton}

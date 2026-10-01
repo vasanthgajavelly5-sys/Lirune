@@ -12,8 +12,9 @@ import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { MobiParser } from '@/services/mobi/MobiParser';
 import { SELECTION_WATCHER_JS, SelectionPayload } from '@/services/reader/selectionBridge';
-import { allowReaderNavigation } from '@/services/security/webviewPolicy';
+import { READER_WEBVIEW_PROPS, allowReaderNavigation } from '@/services/security/webviewPolicy';
 import { logger } from '@/utils/logger';
+import { sanitizeHtml } from '@/services/security/sanitizeHtml';
 
 const TAG = 'MobiReaderView';
 
@@ -175,7 +176,7 @@ export function MobiReaderView({
       </style>
     </head>
     <body>
-      ${htmlContent}
+      ${sanitizeHtml(htmlContent)}
       <script>
         document.body.addEventListener('click', function(e) {
           if (e.target.tagName !== 'A') {
@@ -203,7 +204,7 @@ export function MobiReaderView({
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
       <WebView
         ref={webViewRef}
-        originWhitelist={['*']}
+        {...READER_WEBVIEW_PROPS}
         source={{ html: injectedHtml }}
         style={{ backgroundColor: palette.bg }}
         onMessage={handleMessage}

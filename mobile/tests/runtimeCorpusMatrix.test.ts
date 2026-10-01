@@ -128,9 +128,10 @@ test('54-Artifact 19-Dimension Runtime QA Matrix', async (t) => {
     assert.ok(extractedTitle.length > 0, `Title must be extracted for ${filename}`);
     fileRow.dimensions['METADATA'] = 'PASS';
 
-    // 3. OPEN & 4. REOPEN
-    fileRow.dimensions['OPEN'] = 'PASS';
-    fileRow.dimensions['REOPEN'] = 'PASS';
+    // 3. OPEN & 4. REOPEN require an installed Android app and are not
+    // executable in this parser-only Node matrix.
+    fileRow.dimensions['OPEN'] = 'NOT_RUN (Parser Matrix)';
+    fileRow.dimensions['REOPEN'] = 'NOT_RUN (Parser Matrix)';
 
     // 6. COVER
     fileRow.dimensions['COVER'] = hasRealCover ? 'PASS (Real Cover)' : 'PASS (Fallback Color Palette)';
@@ -143,11 +144,11 @@ test('54-Artifact 19-Dimension Runtime QA Matrix', async (t) => {
     }
 
     // 8. NAVIGATION
-    fileRow.dimensions['NAVIGATION'] = 'PASS';
+    fileRow.dimensions['NAVIGATION'] = 'NOT_RUN (Parser Matrix)';
 
     // 9. PROGRESS & 10. POSITION RESTORE
-    fileRow.dimensions['PROGRESS'] = 'PASS';
-    fileRow.dimensions['POSITION_RESTORE'] = 'PASS';
+    fileRow.dimensions['PROGRESS'] = 'NOT_RUN (Parser Matrix)';
+    fileRow.dimensions['POSITION_RESTORE'] = 'NOT_RUN (Parser Matrix)';
 
     // 11. SEARCH
     if (['ZIP', 'RAR', 'CBR', 'CBZ'].includes(fmt)) {
@@ -161,36 +162,36 @@ test('54-Artifact 19-Dimension Runtime QA Matrix', async (t) => {
       fileRow.dimensions['THEME'] = 'N/A';
       fileRow.dimensions['TYPOGRAPHY'] = 'N/A';
     } else {
-      fileRow.dimensions['THEME'] = 'PASS';
-      fileRow.dimensions['TYPOGRAPHY'] = 'PASS';
+      fileRow.dimensions['THEME'] = 'NOT_RUN (Parser Matrix)';
+      fileRow.dimensions['TYPOGRAPHY'] = 'NOT_RUN (Parser Matrix)';
     }
 
     // 14. ANNOTATIONS
     if (['ZIP', 'RAR'].includes(fmt)) {
       fileRow.dimensions['ANNOTATIONS'] = 'N/A';
     } else {
-      fileRow.dimensions['ANNOTATIONS'] = 'PASS';
+      fileRow.dimensions['ANNOTATIONS'] = 'NOT_RUN (Parser Matrix)';
     }
 
     // 15. TTS
     if (['ZIP', 'RAR', 'CBZ', 'CBR', 'DJVU'].includes(fmt)) {
       fileRow.dimensions['TTS'] = 'N/A';
     } else {
-      fileRow.dimensions['TTS'] = extractedText.length > 20 ? 'PASS' : 'PASS (Text Chunked)';
+      fileRow.dimensions['TTS'] = 'NOT_RUN (Parser Matrix)';
     }
 
     // 16. THUMBNAILS
     if (['PDF', 'DJVU', 'CBZ', 'CBR'].includes(fmt)) {
-      fileRow.dimensions['THUMBNAILS'] = 'PASS';
+      fileRow.dimensions['THUMBNAILS'] = 'NOT_RUN (Parser Matrix)';
     } else {
       fileRow.dimensions['THUMBNAILS'] = 'N/A';
     }
 
     // 17. LIBRARY OPERATIONS
-    fileRow.dimensions['LIBRARY_OPS'] = 'PASS';
+    fileRow.dimensions['LIBRARY_OPS'] = 'NOT_RUN (Parser Matrix)';
 
     // 18. SOURCE URI / CACHE
-    fileRow.dimensions['SOURCE_URI_CACHE'] = 'PASS';
+    fileRow.dimensions['SOURCE_URI_CACHE'] = 'NOT_RUN (Parser Matrix)';
 
     // 19. ERROR HANDLING
     const corruptedSlice = uint8.slice(0, Math.min(32, uint8.length));

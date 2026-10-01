@@ -14,6 +14,7 @@ import {
 import { getBookRepository } from '@/repositories';
 import { ImportService } from '@/services/import/ImportService';
 import { fileStorage } from '@/services/storage/FileStorage';
+import { shouldSkipLibraryLoad } from '@/state/hydrationGuard';
 import { logger } from '@/utils/logger';
 
 const TAG = 'LibraryStore';
@@ -34,7 +35,7 @@ interface LibraryState {
   searchQuery: string;
 
   // Actions
-  loadLibrary: (options?: { silent?: boolean }) => Promise<void>;
+  loadLibrary: (options?: { silent?: boolean; force?: boolean }) => Promise<void>;
   importBook: () => Promise<Book | null>;
   deleteBook: (bookId: string) => Promise<void>;
   toggleFavorite: (bookId: string) => Promise<void>;
@@ -48,8 +49,12 @@ interface LibraryState {
   setFilter: (filter: FilterType) => void;
   setSelectedCollectionId: (collectionId: string | 'all') => void;
   setSearchQuery: (query: string) => void;
+  updateBook: (book: Book) => void;
   clearError: () => void;
 }
+
+let inFlightLibraryPromise: Promise<void> | null = null;
+let libraryLoadSeq = 0;
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   books: [],
@@ -65,39 +70,65 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   selectedCollectionId: 'all',
   searchQuery: '',
 
-  loadLibrary: async (options?: { silent?: boolean }) => {
-    const isFirstLoad = !get().hasLoaded;
-    if (isFirstLoad && !options?.silent) {
+  loadLibrary: async (options?: { silent?: boolean; force?: boolean }) => {
+    const state = get();
+    if (inFlightLibraryPromise) {
+      return inFlightLibraryPromise;
+    }
+
+    if (shouldSkipLibraryLoad({ isLoading: state.isLoading, hasLoaded: state.hasLoaded, force: !!options?.force })) {
+      return;
+    }
+
+    // Only set full isLoading true when not yet loaded or explicitly non-silent
+    if (!state.hasLoaded && !options?.silent) {
       set({ isLoading: true, error: null });
     }
-    const repo = getBookRepository();
-    try {
-      const [books, collections, savedPrefs] = await Promise.all([
-        repo.getBooks(),
-        repo.getCollections(),
-        (repo as any).getPreference?.('libraryPreferences', null),
-      ]);
 
-      const updates: Partial<LibraryState> = {
-        books,
-        collections,
-        isLoading: false,
-        hasLoaded: true,
-      };
+    const currentReq = ++libraryLoadSeq;
 
-      if (savedPrefs) {
-        if (savedPrefs.viewMode) updates.viewMode = savedPrefs.viewMode;
-        if (savedPrefs.sortCriterion) updates.sortCriterion = savedPrefs.sortCriterion;
-        if (savedPrefs.sortDirection) updates.sortDirection = savedPrefs.sortDirection;
+    inFlightLibraryPromise = (async () => {
+      const repo = getBookRepository();
+      try {
+        const [books, collections, savedPrefs] = await Promise.all([
+          repo.getBooks(),
+          repo.getCollections(),
+          (repo as any).getPreference?.('libraryPreferences', null),
+        ]);
+
+        if (currentReq !== libraryLoadSeq) {
+          logger.info(TAG, 'Discarding stale library load result');
+          return;
+        }
+
+        const updates: Partial<LibraryState> = {
+          books,
+          collections,
+          isLoading: false,
+          hasLoaded: true,
+          error: null,
+        };
+
+        if (savedPrefs) {
+          if (savedPrefs.viewMode) updates.viewMode = savedPrefs.viewMode;
+          if (savedPrefs.sortCriterion) updates.sortCriterion = savedPrefs.sortCriterion;
+          if (savedPrefs.sortDirection) updates.sortDirection = savedPrefs.sortDirection;
+        }
+        // Guarantee pull-to-refresh, reloads, or DB updates never reset the active filter
+        updates.filter = get().filter;
+
+        set(updates);
+      } catch (err) {
+        if (currentReq === libraryLoadSeq) {
+          logger.error(TAG, 'Failed to load library', err);
+          set({ isLoading: false, error: 'Could not load library books.' });
+        }
+      } finally {
+        inFlightLibraryPromise = null;
       }
-      // Guarantee pull-to-refresh, reloads, or DB updates never reset the active filter
-      updates.filter = get().filter;
+    })();
 
-      set(updates);
-    } catch (err) {
-      logger.error(TAG, 'Failed to load library', err);
-      set({ isLoading: false, error: 'Could not load library books.' });
-    }
+    return inFlightLibraryPromise;
   },
 
   importBook: async () => {
@@ -290,6 +321,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   setSearchQuery: (searchQuery) => {
     set({ searchQuery });
+  },
+
+  updateBook: (updated) => {
+    set((state) => ({
+      books: state.books.map((b) => (b.id === updated.id ? updated : b)),
+    }));
   },
 
   clearError: () => set({ error: null }),

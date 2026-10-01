@@ -129,11 +129,27 @@ export class DocxParser {
 
     const fullHtml = htmlParts.join('\n') || '<p>Empty DOCX document.</p>';
 
+    // Find first image for cover preview
+    let coverImage: string | undefined;
+    for (const target of Object.values(relsMap)) {
+      if (target.match(/\.(png|jpe?g|webp|gif)$/i)) {
+        const imgPath = target.startsWith('media/') ? `word/${target}` : `word/${target.replace(/^(\.\.\/)+/, '')}`;
+        const imgFile = zip.file(imgPath);
+        if (imgFile) {
+          const b64 = await imgFile.async('base64');
+          const ext = imgPath.split('.').pop() || 'png';
+          coverImage = `data:image/${ext};base64,${b64}`;
+          break;
+        }
+      }
+    }
+
     return {
       metadata: {
         title,
         author,
         description,
+        coverImage,
       },
       html: fullHtml,
     };

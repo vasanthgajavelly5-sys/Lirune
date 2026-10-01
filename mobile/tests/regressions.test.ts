@@ -23,6 +23,48 @@ import {
   escapeForInlineScript,
 } from '../services/pdf/escapeForTemplateLiteral.ts';
 import { allowReaderNavigation } from '../services/security/webviewPolicy.ts';
+import { validateArchiveBudget } from '../services/security/archiveBudget.ts';
+import { sanitizeHtml } from '../services/security/sanitizeHtml.ts';
+
+// ---------------------------------------------------------------------------
+// Document sanitization
+// ---------------------------------------------------------------------------
+
+test('sanitizeHtml: removes active elements and event handlers structurally', () => {
+  const result = sanitizeHtml(
+    '<p onclick="alert(1)">Keep</p><script><p>drop</p></script>' +
+      '<style>body{background:url(https://evil.example/x)}</style>' +
+      '<form><input value="drop"></form><iframe src="https://evil.example"></iframe>' +
+      '<object data="x"></object><embed src="x"><meta content="x"><base href="https://evil.example">'
+  );
+
+  assert.equal(result, '<p>Keep</p>');
+});
+
+test('sanitizeHtml: removes unsafe resources and SVG active content', () => {
+  const result = sanitizeHtml(
+    '<a href="javascript:alert(1)">bad</a><a href="java&#x73;cript:alert(1)">bad</a>' +
+      '<a href="https://evil.example">bad</a>' +
+      '<img src="https://evil.example/a.png"><img src="data:image/png;base64,abc">' +
+      '<svg><a href="javascript:alert(1)"><script>alert(1)</script></a></svg>'
+  );
+
+  assert.equal(result, '<a>bad</a><a>bad</a><a>bad</a><img><img src="data:image/png;base64,abc">');
+});
+
+test('sanitizeHtml: preserves normal EPUB markup and relative links', () => {
+  const result = sanitizeHtml(
+    '<article class="chapter"><h1 id="start">Title</h1>' +
+      '<p>Readable <em>text</em>.</p><a href="#start">Back</a>' +
+      '<img src="images/cover.jpg" alt="Cover"></article>'
+  );
+
+  assert.equal(
+    result,
+    '<article class="chapter"><h1 id="start">Title</h1><p>Readable <em>text</em>.</p>' +
+      '<a href="#start">Back</a><img src="images/cover.jpg" alt="Cover"></article>'
+  );
+});
 
 // ---------------------------------------------------------------------------
 // EPUB path resolution
@@ -258,6 +300,15 @@ test('allowReaderNavigation: blocks file and intent schemes', () => {
   assert.equal(allowReaderNavigation(nav('intent://evil#Intent;end')), false);
   assert.equal(allowReaderNavigation(nav('javascript:alert(1)')), false);
   assert.equal(allowReaderNavigation(nav('ftp://example.com/x')), false);
+});
+
+test('validateArchiveBudget: rejects oversized and highly compressed entries', () => {
+  assert.throws(() => validateArchiveBudget([
+    { name: 'huge.xhtml', compressedSize: 1, uncompressedSize: 101 * 1024 * 1024 },
+  ]));
+  assert.throws(() => validateArchiveBudget([
+    { name: 'bomb.bin', compressedSize: 1, uncompressedSize: 101 },
+  ]));
 });
 
 // ---------------------------------------------------------------------------

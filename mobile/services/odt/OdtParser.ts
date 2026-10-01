@@ -9,6 +9,7 @@ export interface OdtMetadata {
   title: string;
   author: string;
   description?: string;
+  coverImage?: string;
 }
 
 export interface ParsedOdt {
@@ -50,6 +51,7 @@ export class OdtParser {
     const htmlParts: string[] = [];
     const blockRegex = /<text:(h|p)\b([^>]*)>([\s\S]*?)<\/text:(h|p)>/gi;
     let match;
+    let coverImage: string | undefined;
 
     while ((match = blockRegex.exec(contentXml)) !== null) {
       const type = match[1]; // 'h' or 'p'
@@ -63,18 +65,41 @@ export class OdtParser {
         tag = `h${Math.min(4, Math.max(1, parseInt(level, 10)))}`;
       }
 
-      // Strip inner tags except text and frames
+      // Check for draw:image inside paragraph
+      let imagesHtml = '';
+      const imgRegex = /<draw:image\b[^>]*\bhref=["']([^"']+)["']/gi;
+      let imgMatch;
+      while ((imgMatch = imgRegex.exec(inner)) !== null) {
+        let href = imgMatch[1].replace(/^(\.\/)+/, '');
+        const imgFile = zip.file(href) || zip.file(`Pictures/${href.split('/').pop()}`);
+        if (imgFile) {
+          const b64 = await imgFile.async('base64');
+          const ext = href.split('.').pop() || 'png';
+          const dataUrl = `data:image/${ext};base64,${b64}`;
+          if (!coverImage) {
+            coverImage = dataUrl;
+          }
+          imagesHtml += `<img src="${dataUrl}" style="max-width:100%;height:auto;display:block;margin:12px auto;border-radius:6px;" alt="document image"/>`;
+        }
+      }
+
+      // Strip inner tags except text
       const cleanText = inner
         .replace(/<text:s\b[^>]*\/>/gi, ' ')
         .replace(/<[^>]+>/g, '')
         .trim();
 
+      let paragraphHtml = '';
       if (cleanText) {
         const escaped = cleanText
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;');
-        htmlParts.push(`<${tag}>${escaped}</${tag}>`);
+        paragraphHtml = escaped;
+      }
+
+      if (paragraphHtml || imagesHtml) {
+        htmlParts.push(`<${tag}>${imagesHtml}${paragraphHtml}</${tag}>`);
       }
     }
 
@@ -85,6 +110,7 @@ export class OdtParser {
         title,
         author,
         description,
+        coverImage,
       },
       html: fullHtml,
     };

@@ -280,7 +280,7 @@ export default function FilesScreen() {
   /**
    * Action 1: Scan Phone
    * Automatically discovers user-accessible documents in device storage (Downloads, Documents, Books, internal storage)
-   * Requests permissions/access only when actually required, without unnecessarily forcing folder selection.
+   * Scans legitimately accessible storage and previously authorized SAF folders without forcing an unexpected folder picker popup.
    */
   const handleScanPhone = async () => {
     setIsScanning(true);
@@ -290,12 +290,11 @@ export default function FilesScreen() {
       setHasScanned(true);
       const allFound: DiscoveredFile[] = [];
 
-      // 1. Scan standard accessible device storage directories directly
+      // 1. Scan standard accessible device storage directories directly if accessible
       const accessibleDirs = [
-        { path: 'file:///storage/emulated/0/Download', label: 'Downloads', depth: 4 },
-        { path: 'file:///storage/emulated/0/Documents', label: 'Documents', depth: 4 },
-        { path: 'file:///storage/emulated/0/Books', label: 'Books', depth: 4 },
-        { path: 'file:///storage/emulated/0', label: 'Storage Root', depth: 1 },
+        { path: 'file:///storage/emulated/0/Download', label: 'Downloads', depth: 3 },
+        { path: 'file:///storage/emulated/0/Documents', label: 'Documents', depth: 3 },
+        { path: 'file:///storage/emulated/0/Books', label: 'Books', depth: 3 },
       ];
 
       for (const dir of accessibleDirs) {
@@ -329,10 +328,11 @@ export default function FilesScreen() {
         } catch {}
       }
 
-      // 3. Scan last authorized folder if present
+      // 3. Scan user-approved / authorized folder URIs that the application can legitimately access via SAF
       if (lastAuthorizedFolderUri) {
         try {
           const folderName = decodeURIComponent(lastAuthorizedFolderUri.split('%3A').pop() || 'Authorized Folder');
+          setScanStatus(`Scanning ${folderName}...`);
           const authResults = await scanDirectoryRecursive(lastAuthorizedFolderUri, folderName, 0, 4);
           allFound.push(...authResults);
         } catch (authErr) {
@@ -348,10 +348,10 @@ export default function FilesScreen() {
 
       if (allFound.length > 0) {
         setToastMessage(
-          `Discovered ${allFound.length} document${allFound.length === 1 ? '' : 's'} on device`
+          `Discovered ${allFound.length} document${allFound.length === 1 ? '' : 's'}`
         );
       } else {
-        setToastMessage('Scan complete: no supported books found in accessible storage. Use "Choose Folder" to grant access to a specific directory.');
+        setToastMessage('Scan complete: no supported books found in accessible storage. Use "Scan Folder" to grant access to a specific folder.');
       }
     } catch (err) {
       logger.error(TAG, 'Error during phone scan', err);
@@ -365,7 +365,7 @@ export default function FilesScreen() {
   /**
    * Action 2: Scan Folder via SAF folder authorization (Download, nested folders, SD cards)
    * Note on Android platform limitation: Android 11+ Scoped Storage forbids selecting internal storage root
-   * (/storage/emulated/0) or /Android/data. Subdirectories like Download, Documents, or custom folders are fully supported.
+   * (/storage/emulated/0) or /Android/data. Subdirectories like Download/Books, Documents, or custom folders are fully supported.
    */
   const handleScanFolder = async () => {
     setIsScanning(true);
@@ -373,11 +373,14 @@ export default function FilesScreen() {
 
     try {
       const { StorageAccessFramework } = FileSystem;
+      if (!StorageAccessFramework?.requestDirectoryPermissionsAsync) {
+        setToastMessage('Storage Access Framework is not available on this device.');
+        return;
+      }
+
       const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (!permissions.granted) {
-        setToastMessage('Folder access was not granted or location is restricted by Android.');
-        setIsScanning(false);
-        setScanStatus('');
+        setToastMessage('Android restricts selecting root or Download root. Please choose a subfolder (e.g. Download/Books, Documents) or use "Scan File".');
         return;
       }
 
@@ -385,9 +388,9 @@ export default function FilesScreen() {
       const targetUri = permissions.directoryUri;
       await setLastAuthorizedFolderUri(targetUri);
 
-      setScanStatus('Scanning folder and subfolders recursively...');
       const folderName = decodeURIComponent(targetUri.split('%3A').pop() || 'Storage Folder');
-      const files = await scanDirectoryRecursive(targetUri, folderName);
+      setScanStatus(`Scanning ${folderName}...`);
+      const files = await scanDirectoryRecursive(targetUri, folderName, 0, 5);
 
       setDiscoveredFiles((prev) => {
         const existingIds = new Set(prev.map((p) => p.id));
@@ -400,7 +403,7 @@ export default function FilesScreen() {
       );
     } catch (err) {
       logger.error(TAG, 'Error during folder scan', err);
-      setToastMessage('Failed to scan selected folder.');
+      setToastMessage('Unable to access selected folder. Note: Android blocks selecting storage root or entire Download.');
     } finally {
       setIsScanning(false);
       setScanStatus('');
@@ -811,11 +814,11 @@ export default function FilesScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Scoped Storage Guidance Note */}
+      {/* Storage Guidance Note */}
       <View style={[styles.guidanceBox, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]}>
         <Ionicons name="shield-checkmark-outline" size={16} color={colors.accent} style={{ marginRight: 8, marginTop: 1 }} />
         <Text style={[styles.guidanceText, { color: colors.textSecondary }]}>
-          Modern Android Scoped Storage: Tap &ldquo;Scan Phone&rdquo; or &ldquo;Scan Folder&rdquo; to discover books in Downloads, Books, or SD card without broad storage permissions.
+          Android Storage: &ldquo;Scan Phone&rdquo; automatically checks accessible storage and saved folders. Use &ldquo;Scan Folder&rdquo; to choose a specific directory (note: Android blocks selecting storage root or entire Download folder), or &ldquo;Scan File&rdquo; to pick any file directly.
         </Text>
       </View>
 

@@ -116,9 +116,9 @@ export class MetadataExtractor {
         case 'azw3':
           return await this.extractMobi(filePath, originalName, fileId, coverColor);
         case 'docx':
-          return await this.extractDocx(filePath, originalName, coverColor);
+          return await this.extractDocx(filePath, originalName, fileId, coverColor);
         case 'odt':
-          return await this.extractOdt(filePath, originalName, coverColor);
+          return await this.extractOdt(filePath, originalName, fileId, coverColor);
         case 'rtf':
           return await this.extractRtf(filePath, originalName, coverColor);
         case 'doc':
@@ -495,15 +495,26 @@ export class MetadataExtractor {
     const title = cleanTitleFromFilename(originalName);
     let pageCount = 1;
     try {
+      // Read binary sample from file to search for /Count and /Type /Pages
       const raw = await fileStorage.readAsString(filePath);
-      const countMatch =
-        raw.match(/\/Type\s*\/Pages[\s\S]*?\/Count\s+(\d+)/i) ||
-        raw.match(/\/Count\s+(\d+)[\s\S]*?\/Type\s*\/Pages/i) ||
-        raw.match(/\/Count\s+(\d+)/i);
-      if (countMatch && countMatch[1]) {
-        const parsed = parseInt(countMatch[1], 10);
-        if (parsed > 0) pageCount = parsed;
+      // Search from both directions: trailer/catalog often contains the main /Pages /Count N
+      const countMatches = Array.from(raw.matchAll(/\/Type\s*\/Pages[\s\S]{0,100}?\/Count\s+(\d+)/gi));
+      if (countMatches.length > 0) {
+        // The root Pages node typically has the largest count
+        for (const m of countMatches) {
+          const val = parseInt(m[1], 10);
+          if (val > pageCount) pageCount = val;
+        }
       } else {
+        const altMatches = Array.from(raw.matchAll(/\/Count\s+(\d+)[\s\S]{0,100}?\/Type\s*\/Pages/gi));
+        for (const m of altMatches) {
+          const val = parseInt(m[1], 10);
+          if (val > pageCount) pageCount = val;
+        }
+      }
+
+      if (pageCount === 1) {
+        // Fallback: match standalone /Type /Page
         const pages = raw.match(/\/Type\s*\/Page\b/g);
         if (pages && pages.length > 0) pageCount = pages.length;
       }
@@ -562,6 +573,7 @@ export class MetadataExtractor {
   private static async extractDocx(
     filePath: string,
     originalName: string,
+    fileId: string,
     coverColor: string
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
@@ -572,10 +584,16 @@ export class MetadataExtractor {
         ? parsed.metadata.title
         : fallbackTitle;
 
+      let coverUrl: string | undefined;
+      if (parsed.metadata.coverImage) {
+        coverUrl = await fileStorage.saveCoverImage(fileId, parsed.metadata.coverImage, 'png');
+      }
+
       return {
         title,
         author: parsed.metadata.author || 'Word Document',
         description: parsed.metadata.description,
+        coverUrl,
         coverColor: getCoverColorForTitle(title),
         chapterCount: 1,
       };
@@ -589,6 +607,7 @@ export class MetadataExtractor {
   private static async extractOdt(
     filePath: string,
     originalName: string,
+    fileId: string,
     coverColor: string
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
@@ -599,10 +618,16 @@ export class MetadataExtractor {
         ? parsed.metadata.title
         : fallbackTitle;
 
+      let coverUrl: string | undefined;
+      if (parsed.metadata.coverImage) {
+        coverUrl = await fileStorage.saveCoverImage(fileId, parsed.metadata.coverImage, 'png');
+      }
+
       return {
         title,
         author: parsed.metadata.author || 'OpenDocument Text',
         description: parsed.metadata.description,
+        coverUrl,
         coverColor: getCoverColorForTitle(title),
         chapterCount: 1,
       };

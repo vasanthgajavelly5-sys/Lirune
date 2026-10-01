@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
+import { sanitizeHtml } from '@/services/security/sanitizeHtml';
 import { SELECTION_WATCHER_JS, parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
 import { resolveZipPath } from '@/services/epub/zipPaths';
 import JSZip from 'jszip';
@@ -18,6 +19,7 @@ import { fileStorage } from '@/services/storage/FileStorage';
 import { READER_THEMES } from '@/theme/Colors';
 import { getCssFontFamily } from '@/theme/Typography';
 import { logger } from '@/utils/logger';
+import { validateArchiveBudget, type ArchiveEntryBudget } from '@/services/security/archiveBudget';
 
 const TAG = 'EpubReaderView';
 
@@ -26,11 +28,13 @@ interface EpubReaderViewProps {
   settings: ReaderSettings;
   onToggleControls: () => void;
   onProgressChange: (percent: number, cfi?: string, chapter?: string) => void;
+  onChapterCountLoaded?: (count: number) => void;
   onTOCLoaded?: (toc: TOCItem[]) => void;
   targetCfi?: string | null;
   searchQuery?: string;
   onSearchResults?: (results: SearchResult[]) => void;
   onSelectionChange?: (selection: SelectionPayload) => void;
+  onContentTextChange?: (html: string) => void;
 }
 
 interface ChapterItem {
@@ -51,10 +55,6 @@ async function extractChapterHtml(
   if (!file) return { title: 'Chapter', html: '<p>Content not found.</p>' };
 
   let rawHtml = await file.async('text');
-
-  rawHtml = rawHtml
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<link\b[^>]*rel=["']stylesheet["'][^>]*\/?>/gi, '');
 
   const titleMatch =
     rawHtml.match(/<title[^>]*>([^<]+)<\/title>/i) ||
@@ -93,7 +93,20 @@ async function extractChapterHtml(
   const bodyMatch = rawHtml.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   const chapterHtmlContent = bodyMatch ? bodyMatch[1] : rawHtml;
 
-  return { title, html: chapterHtmlContent };
+  return { title, html: sanitizeHtml(chapterHtmlContent) };
+}
+
+function escapeHtmlText(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      "'": '&#39;',
+      '"': '&quot;',
+    };
+    return entities[character];
+  });
 }
 
 export function EpubReaderView({
@@ -101,11 +114,13 @@ export function EpubReaderView({
   settings,
   onToggleControls,
   onProgressChange,
+  onChapterCountLoaded,
   onTOCLoaded,
   targetCfi,
   searchQuery,
   onSearchResults,
   onSelectionChange,
+  onContentTextChange,
 }: EpubReaderViewProps) {
   const insets = useSafeAreaInsets();
   const [chapters, setChapters] = useState<ChapterItem[]>([]);
@@ -114,17 +129,25 @@ export function EpubReaderView({
   const [currentPage, setCurrentPage] = useState<number>(0);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [startAtEnd, setStartAtEnd] = useState<boolean>(false);
+  const [initialScrollY, setInitialScrollY] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const webViewRef = useRef<WebView>(null);
   const zipRef = useRef<JSZip | null>(null);
   const chapterCacheRef = useRef<Map<number, string>>(new Map());
   const opfDirRef = useRef<string>('');
+  const restorePendingRef = useRef(true);
+  const continuousDocumentRef = useRef(false);
 
   const isPaginated = settings.flow !== 'scrolled';
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
   const paragraphSpacing = settings.paragraphSpacing || 1.0;
   const pageGap = settings.pageGap ?? 16;
+
+  useEffect(() => {
+    onContentTextChange?.(activeChapterHtml);
+  }, [activeChapterHtml, onContentTextChange]);
 
   // 1. Load and parse EPUB package
   useEffect(() => {
@@ -133,12 +156,25 @@ export function EpubReaderView({
     async function loadEpub() {
       setIsLoading(true);
       setLoadError(null);
+      restorePendingRef.current = true;
+      zipRef.current = null;
+      chapterCacheRef.current.clear();
       try {
         const base64 = await fileStorage.readAsBase64(bookPath);
         if (!base64) {
           throw new Error('EPUB file is empty or missing from storage.');
         }
         const zip = await JSZip.loadAsync(base64, { base64: true });
+        validateArchiveBudget(
+          Object.values(zip.files).map((entry) => {
+            const data = (entry as unknown as { _data?: { compressedSize?: number; uncompressedSize?: number } })._data;
+            return {
+              name: entry.name,
+              compressedSize: data?.compressedSize,
+              uncompressedSize: data?.uncompressedSize,
+            } satisfies ArchiveEntryBudget;
+          })
+        );
 
         // A. Find OPF path via META-INF/container.xml
         const containerFile = zip.file('META-INF/container.xml');
@@ -323,10 +359,13 @@ export function EpubReaderView({
         // Determine starting chapter index
         let initialIdx = 0;
         if (targetCfi && targetCfi.startsWith('spine:')) {
-          const idx = parseInt(targetCfi.replace('spine:', ''), 10);
+          const targetParts = targetCfi.replace('spine:', '').split(':scroll:');
+          const idx = parseInt(targetParts[0], 10);
           if (!isNaN(idx) && idx >= 0 && idx < loadedChapters.length) {
             initialIdx = idx;
           }
+          const savedScrollY = targetParts[1] ? parseInt(targetParts[1], 10) : 0;
+          if (!isNaN(savedScrollY) && savedScrollY >= 0) setInitialScrollY(savedScrollY);
         } else if (book.progress && book.progress > 0 && loadedChapters.length > 0) {
           initialIdx = Math.min(
             loadedChapters.length - 1,
@@ -342,15 +381,72 @@ export function EpubReaderView({
         );
         chapterCacheRef.current.set(initialIdx, initialChapterData.html);
 
+        let initialDocument = initialChapterData.html;
+        continuousDocumentRef.current = settings.flow === 'scrolled';
+        if (continuousDocumentRef.current) {
+          const chapterSections: string[] = [];
+          for (let chapterIndex = 0; chapterIndex < loadedChapters.length; chapterIndex++) {
+            const isInitial = chapterIndex === initialIdx;
+            const content = isInitial ? initialChapterData.html : '';
+            chapterSections.push(
+              `<section id="chapter-${chapterIndex}" data-chapter-index="${chapterIndex}" class="chapter-section" data-loaded="${isInitial ? 'true' : 'false'}">` +
+                `<div class="chapter-header"><h2 class="chapter-marker">${escapeHtmlText(loadedChapters[chapterIndex].title)}</h2></div>` +
+                `<div class="chapter-body" id="chapter-body-${chapterIndex}">${content || '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>'}</div>` +
+              `</section>`
+            );
+          }
+          initialDocument = `<div id="continuous-container">${chapterSections.join('<hr class="chapter-divider" />')}</div>`;
+        }
+
         if (isMounted) {
           setChapters(loadedChapters);
-          setActiveChapterHtml(initialChapterData.html);
+          setActiveChapterHtml(initialDocument);
           setCurrentChapterIndex(initialIdx);
           if (onTOCLoaded) onTOCLoaded(tocItems);
+          if (onChapterCountLoaded && loadedChapters.length > 0) {
+            onChapterCountLoaded(loadedChapters.length);
+          }
           setIsLoading(false);
 
-          // Background prefetch next chapter
-          if (initialIdx + 1 < loadedChapters.length) {
+          if (continuousDocumentRef.current && loadedChapters.length > 1) {
+            // Asynchronously load and inject remaining chapters in spine order
+            setTimeout(async () => {
+              const zip = zipRef.current;
+              if (!zip) return;
+              // Prioritize adjacent chapters first, then outward
+              const order: number[] = [];
+              if (initialIdx + 1 < loadedChapters.length) order.push(initialIdx + 1);
+              if (initialIdx - 1 >= 0) order.push(initialIdx - 1);
+              for (let i = 0; i < loadedChapters.length; i++) {
+                if (i !== initialIdx && !order.includes(i)) order.push(i);
+              }
+
+              for (const idx of order) {
+                if (!isMounted) break;
+                if (!chapterCacheRef.current.has(idx)) {
+                  try {
+                    const chData = await extractChapterHtml(zip, loadedChapters[idx].itemPath, opfDir);
+                    chapterCacheRef.current.set(idx, chData.html);
+                    const safeJson = JSON.stringify(chData.html);
+                    webViewRef.current?.injectJavaScript(`
+                      (function() {
+                        var bodyEl = document.getElementById('chapter-body-${idx}');
+                        var secEl = document.getElementById('chapter-${idx}');
+                        if (bodyEl && secEl && secEl.getAttribute('data-loaded') !== 'true') {
+                          bodyEl.innerHTML = ${safeJson};
+                          secEl.setAttribute('data-loaded', 'true');
+                        }
+                      })();
+                      true;
+                    `);
+                  } catch (err) {
+                    logger.warn(TAG, `Failed prefetching chapter ${idx}`, err);
+                  }
+                }
+              }
+            }, 100);
+          } else if (initialIdx + 1 < loadedChapters.length) {
+            // Paginated prefetch next chapter
             setTimeout(async () => {
               if (!chapterCacheRef.current.has(initialIdx + 1) && zipRef.current) {
                 const nextData = await extractChapterHtml(
@@ -376,23 +472,58 @@ export function EpubReaderView({
     return () => {
       isMounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally runs only when filePath changes to open publication
-  }, [book.filePath, onTOCLoaded]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Reader reload is controlled by loadAttempt and flow setting.
+  }, [book.filePath, loadAttempt, onTOCLoaded, settings.flow]);
 
   // Jump to target chapter if targetCfi changes
   useEffect(() => {
     if (targetCfi && targetCfi.startsWith('spine:') && chapters.length > 0) {
-      const idx = parseInt(targetCfi.replace('spine:', ''), 10);
+      const targetParts = targetCfi.replace('spine:', '').split(':scroll:');
+      const idx = parseInt(targetParts[0], 10);
+      if (continuousDocumentRef.current && !isNaN(idx)) {
+        // If chapter isn't in cache yet, extract it on-demand immediately
+        if (zipRef.current && !chapterCacheRef.current.has(idx) && idx < chapters.length) {
+          extractChapterHtml(zipRef.current, chapters[idx].itemPath, opfDirRef.current).then((res) => {
+            chapterCacheRef.current.set(idx, res.html);
+            const safeHtml = JSON.stringify(res.html);
+            webViewRef.current?.injectJavaScript(`
+              (function() {
+                var body = document.getElementById('chapter-body-${idx}');
+                var sec = document.getElementById('chapter-${idx}');
+                if (body && sec) {
+                  body.innerHTML = ${safeHtml};
+                  sec.setAttribute('data-loaded', 'true');
+                }
+              })();
+              true;
+            `);
+          });
+        }
+        const offset = targetParts[1] ? parseInt(targetParts[1], 10) : undefined;
+        webViewRef.current?.injectJavaScript(`
+          (function() {
+            var target = document.getElementById('chapter-${idx}');
+            if (target) {
+              ${offset !== undefined ? `window.scrollTo(0, target.offsetTop + ${offset});` : `target.scrollIntoView({ behavior: 'smooth' });`}
+            }
+          })();
+          true;
+        `);
+        return;
+      }
       if (!isNaN(idx) && idx >= 0 && idx < chapters.length) {
         setCurrentChapterIndex(idx);
         setCurrentPage(0);
       }
+      const savedScrollY = targetParts[1] ? parseInt(targetParts[1], 10) : 0;
+      setInitialScrollY(Number.isFinite(savedScrollY) && savedScrollY >= 0 ? savedScrollY : 0);
     }
-  }, [targetCfi, chapters.length]);
+  }, [targetCfi, chapters]);
 
   // Asynchronously load chapter content when currentChapterIndex changes
   useEffect(() => {
     if (chapters.length === 0 || !zipRef.current) return;
+    if (continuousDocumentRef.current) return;
     const currentItem = chapters[currentChapterIndex];
     if (!currentItem) return;
 
@@ -426,6 +557,7 @@ export function EpubReaderView({
   // Update progress whenever chapter or page changes
   useEffect(() => {
     if (chapters.length === 0) return;
+    if (restorePendingRef.current) return;
     const currentChapter = chapters[currentChapterIndex];
     let percent = Math.round(((currentChapterIndex + 1) / chapters.length) * 100);
 
@@ -518,6 +650,7 @@ export function EpubReaderView({
   }
 
   if (loadError || chapters.length === 0) {
+    const canRetry = loadAttempt < 3;
     return (
       <View style={[styles.centered, { backgroundColor: palette.bg, padding: 32 }]}>
         <Ionicons name="alert-circle-outline" size={48} color={palette.link} />
@@ -525,15 +658,25 @@ export function EpubReaderView({
         <Text style={[styles.errorMessage, { color: palette.muted }]}>
           {loadError || 'No readable chapters or content found in this EPUB file.'}
         </Text>
-        <TouchableOpacity
-          style={[styles.errorBtn, { backgroundColor: palette.link }]}
-          onPress={onToggleControls}
-        >
-          <Text style={styles.errorBtnText}>Show Reader Controls</Text>
-        </TouchableOpacity>
+        {canRetry ? (
+          <TouchableOpacity
+            style={[styles.errorBtn, { backgroundColor: palette.link }]}
+            onPress={() => setLoadAttempt((attempt) => attempt + 1)}
+          >
+            <Text style={styles.errorBtnText}>Retry ({3 - loadAttempt} left)</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={[styles.errorMessage, { color: palette.muted, marginTop: 12 }]}>
+            Maximum retry attempts reached. Please return to Library.
+          </Text>
+        )}
       </View>
     );
   }
+
+  const topPadding = Math.max(28, insets.top + 16);
+  const bottomPaddingPaginated = Math.max(48, settings.margin + 24) + insets.bottom + 28;
+  const bottomPaddingContinuous = Math.max(54, settings.margin + 28) + insets.bottom + 48;
 
   const chapterHtml = activeChapterHtml || '<p>Loading chapter…</p>';
 
@@ -542,7 +685,7 @@ export function EpubReaderView({
     <!DOCTYPE html>
     <html>
     <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes, viewport-fit=cover">
       <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body {
@@ -561,19 +704,19 @@ export function EpubReaderView({
         }
         #viewport {
           width: 100vw;
-          height: 100vh;
+          height: 100%;
           overflow: hidden;
           position: relative;
         }
         #book-content {
           width: 100vw;
-          height: 100vh;
+          height: 100%;
           margin: 0;
           box-sizing: border-box;
           column-width: calc(100vw - ${settings.margin * 2}px);
-          column-gap: ${settings.margin * 2}px;
+          column-gap: ${pageGap}px;
           column-fill: auto;
-          padding: ${Math.max(16, settings.margin)}px ${settings.margin}px ${Math.max(20, settings.margin)}px ${settings.margin}px;
+          padding: ${topPadding}px ${settings.margin}px ${bottomPaddingPaginated}px ${settings.margin}px;
           overflow: visible;
           transition: transform 0.22s cubic-bezier(0.25, 1, 0.5, 1);
           word-wrap: break-word;
@@ -613,6 +756,12 @@ export function EpubReaderView({
         var currentPage = 0;
         var totalPages = 1;
         var startAtEnd = ${startAtEnd ? 'true' : 'false'};
+        var initialScrollY = ${initialScrollY};
+        var currentZoom = 1.0;
+        var baseFontSize = ${settings.fontSize};
+        var initialPinchDist = 0;
+        var initialZoom = 1.0;
+        var lastTapTime = 0;
 
         function measurePages() {
           var content = document.getElementById('book-content');
@@ -635,6 +784,15 @@ export function EpubReaderView({
           }));
         }
 
+        function applyZoom() {
+          var content = document.getElementById('book-content');
+          if (content) {
+            content.style.fontSize = Math.round(baseFontSize * currentZoom) + 'px';
+            measurePages();
+            updateTransform();
+          }
+        }
+
         function goToPage(p) {
           measurePages();
           if (p < 0) {
@@ -651,6 +809,9 @@ export function EpubReaderView({
 
         window.addEventListener('load', function() {
           setTimeout(function() {
+            if (!${isPaginated ? 'false' : 'true'} && initialScrollY > 0) {
+              window.scrollTo(0, initialScrollY);
+            }
             measurePages();
             if (startAtEnd) {
               currentPage = Math.max(0, totalPages - 1);
@@ -666,10 +827,31 @@ export function EpubReaderView({
         var touchStartTime = 0;
 
         document.addEventListener('touchstart', function(e) {
-          if (e.touches.length === 1) {
+          if (e.touches.length === 2) {
+            initialPinchDist = Math.hypot(
+              e.touches[0].clientX - e.touches[1].clientX,
+              e.touches[0].clientY - e.touches[1].clientY
+            );
+            initialZoom = currentZoom;
+          } else if (e.touches.length === 1) {
             touchStartX = e.touches[0].clientX;
             touchStartY = e.touches[0].clientY;
             touchStartTime = Date.now();
+          }
+        }, { passive: true });
+
+        document.addEventListener('touchmove', function(e) {
+          if (e.touches.length === 2 && initialPinchDist > 10) {
+            var currentDist = Math.hypot(
+              e.touches[0].clientX - e.touches[1].clientX,
+              e.touches[0].clientY - e.touches[1].clientY
+            );
+            var scale = currentDist / initialPinchDist;
+            var newZoom = Math.max(0.8, Math.min(2.5, initialZoom * scale));
+            if (Math.abs(newZoom - currentZoom) > 0.04) {
+              currentZoom = newZoom;
+              applyZoom();
+            }
           }
         }, { passive: true });
 
@@ -689,8 +871,20 @@ export function EpubReaderView({
               return;
             }
 
-            // Discreet Tap Turn
+            // Discreet Tap Turn & Double Tap Zoom Reset
             if (Math.abs(deltaX) < 15 && Math.abs(deltaY) < 15 && elapsed < 400) {
+              var now = Date.now();
+              if (now - lastTapTime < 320) {
+                // Double tap: reset zoom
+                if (currentZoom !== 1.0) {
+                  currentZoom = 1.0;
+                  applyZoom();
+                  lastTapTime = 0;
+                  return;
+                }
+              }
+              lastTapTime = now;
+
               var x = e.changedTouches[0].clientX;
               var w = window.innerWidth;
               var ratio = x / w;
@@ -723,10 +917,39 @@ export function EpubReaderView({
           font-family: ${getCssFontFamily(settings.fontFamily)};
           font-size: ${settings.fontSize}px;
           line-height: ${settings.lineHeight};
-          padding: 24px ${settings.margin + 4}px 60px ${settings.margin + 4}px;
+          padding: ${topPadding}px ${settings.margin + 4}px ${bottomPaddingContinuous}px ${settings.margin + 4}px;
           margin: 0;
           text-align: ${settings.alignment};
           word-wrap: break-word;
+        }
+        #continuous-container {
+          width: 100%;
+        }
+        .chapter-section {
+          margin-bottom: 32px;
+        }
+        .chapter-header {
+          margin-top: 1.8em;
+          margin-bottom: 0.8em;
+          border-bottom: 1px solid ${palette.border || 'rgba(128,128,128,0.2)'};
+          padding-bottom: 6px;
+        }
+        .chapter-marker {
+          color: ${palette.text};
+          font-size: 1.35em;
+          margin: 0;
+        }
+        .chapter-placeholder {
+          padding: 32px 0;
+          text-align: center;
+          color: ${palette.muted};
+          font-style: italic;
+        }
+        .chapter-divider {
+          border: none;
+          height: 1px;
+          background-color: ${palette.border || 'rgba(128,128,128,0.2)'};
+          margin: 40px 0 20px 0;
         }
         img {
           max-width: 100%;
@@ -756,7 +979,54 @@ export function EpubReaderView({
     <body>
       ${chapterHtml}
       <script>
+        var currentZoom = 1.0;
+        var baseFontSize = ${settings.fontSize};
+        var initialPinchDist = 0;
+        var initialZoom = 1.0;
+        var lastTapTime = 0;
+
+        function applyContinuousZoom() {
+          var container = document.getElementById('continuous-container') || document.body;
+          container.style.fontSize = Math.round(baseFontSize * currentZoom) + 'px';
+        }
+
+        document.addEventListener('touchstart', function(e) {
+          if (e.touches.length === 2) {
+            initialPinchDist = Math.hypot(
+              e.touches[0].clientX - e.touches[1].clientX,
+              e.touches[0].clientY - e.touches[1].clientY
+            );
+            initialZoom = currentZoom;
+          }
+        }, { passive: true });
+
+        document.addEventListener('touchmove', function(e) {
+          if (e.touches.length === 2 && initialPinchDist > 10) {
+            var currentDist = Math.hypot(
+              e.touches[0].clientX - e.touches[1].clientX,
+              e.touches[0].clientY - e.touches[1].clientY
+            );
+            var scale = currentDist / initialPinchDist;
+            var newZoom = Math.max(0.8, Math.min(2.5, initialZoom * scale));
+            if (Math.abs(newZoom - currentZoom) > 0.04) {
+              currentZoom = newZoom;
+              applyContinuousZoom();
+            }
+          }
+        }, { passive: true });
+
         document.body.addEventListener('click', function(e) {
+          var now = Date.now();
+          if (now - lastTapTime < 320) {
+            if (currentZoom !== 1.0) {
+              currentZoom = 1.0;
+              applyContinuousZoom();
+              lastTapTime = 0;
+              return;
+            }
+          }
+          lastTapTime = now;
+
           var x = e.clientX;
           var width = window.innerWidth;
           var ratio = x / width;
@@ -768,6 +1038,24 @@ export function EpubReaderView({
             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'toggleControls' }));
           }
         });
+
+        window.addEventListener('scroll', function() {
+          var total = document.documentElement.scrollHeight - window.innerHeight;
+          var percent = total > 0 ? Math.min(100, Math.round((window.scrollY / total) * 100)) : 0;
+          var markers = Array.prototype.slice.call(document.querySelectorAll('[data-chapter-index]'));
+          var chapterIndex = 0;
+          markers.forEach(function(marker) {
+            if (marker.getBoundingClientRect().top <= window.innerHeight * 0.4) {
+              chapterIndex = Number(marker.getAttribute('data-chapter-index')) || 0;
+            }
+          });
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'scrollProgress',
+            percent: percent,
+            scrollY: window.scrollY,
+            chapterIndex: chapterIndex
+          }));
+        }, { passive: true });
 
         ${SELECTION_WATCHER_JS}
       </script>
@@ -786,6 +1074,25 @@ export function EpubReaderView({
       if (data.type === 'pageTurn') {
         setCurrentPage(data.currentPage);
         setTotalPages(data.totalPages);
+        restorePendingRef.current = false;
+      } else if (data.type === 'scrollProgress') {
+        restorePendingRef.current = false;
+        const chapterIndex = Math.min(
+          Math.max(0, Number.isFinite(data.chapterIndex) ? data.chapterIndex : currentChapterIndex),
+          Math.max(0, chapters.length - 1)
+        );
+        if (continuousDocumentRef.current && chapterIndex !== currentChapterIndex) {
+          setCurrentChapterIndex(chapterIndex);
+        }
+        const overallPercent = Math.min(
+          100,
+          Math.round(((chapterIndex + data.percent / 100) / Math.max(1, chapters.length)) * 100)
+        );
+        onProgressChange(
+          overallPercent,
+          `spine:${chapterIndex}:scroll:${Math.max(0, Math.round(data.scrollY || 0))}`,
+          chapters[chapterIndex]?.title || `Chapter ${chapterIndex + 1}`
+        );
       } else if (data.type === 'pageBoundary') {
         if (data.boundary === 'prev') {
           prevChapter(true);
@@ -808,6 +1115,7 @@ export function EpubReaderView({
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
       <WebView
         ref={webViewRef}
+        key={isPaginated ? `paginated-${currentChapterIndex}-${loadAttempt}` : `continuous-${loadAttempt}`}
         {...READER_WEBVIEW_PROPS}
         source={{ html: renderedHtml }}
         style={{ backgroundColor: palette.bg }}

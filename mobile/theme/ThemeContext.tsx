@@ -3,7 +3,7 @@ import { useColorScheme } from 'react-native';
 import { Colors, type ColorScheme, READER_THEMES, type ReaderThemePalette } from './Colors';
 import { useSettingsStore, type AppThemeOption } from '@/state/settingsStore';
 
-type ThemeColors = (typeof Colors)[ColorScheme];
+type ThemeColors = { [K in keyof typeof Colors.dark]: string };
 
 interface ThemeContextValue {
   scheme: ColorScheme;
@@ -22,6 +22,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // choice was silently lost on every app restart.
   const appTheme = useSettingsStore((state) => state.appTheme);
   const setAppTheme = useSettingsStore((state) => state.setAppTheme);
+  const accessibility = useSettingsStore((state) => state.accessibility);
 
   const scheme: ColorScheme =
     appTheme === 'system'
@@ -50,16 +51,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const value: ThemeContextValue = useMemo(
-    () => ({
+  const value: ThemeContextValue = useMemo(() => {
+    const baseColors = Colors[scheme] as ThemeColors;
+    const computedColors = accessibility.highContrast
+      ? {
+          ...baseColors,
+          border: scheme === 'dark' ? '#888892' : '#6A6A64',
+          borderSubtle: scheme === 'dark' ? '#62626C' : '#8A8A84',
+          textSecondary: scheme === 'dark' ? '#E6E6E0' : '#262624',
+          textMuted: scheme === 'dark' ? '#B8B8B0' : '#52524E',
+        }
+      : baseColors;
+
+    return {
       scheme,
-      colors: Colors[scheme] as ThemeColors,
+      colors: computedColors,
       setScheme,
       toggleScheme,
       getReaderPalette,
-    }),
-    [scheme, setScheme, toggleScheme, getReaderPalette]
-  );
+    };
+  }, [scheme, accessibility.highContrast, setScheme, toggleScheme, getReaderPalette]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

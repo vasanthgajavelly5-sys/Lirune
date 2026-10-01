@@ -1,63 +1,40 @@
-# Lirune Reader Android — EPUB Final QA
+# EPUB Final QA Status
 
-## Executive summary
+Date: 2026-10-01
 
-The current EPUB implementation is treated as a recovered and validated state. The engine supports EPUB 2/3 flows, reflowable content, metadata parsing, safe-area-aware rendering, zoom handling, theme changes, progress tracking, and chapter navigation without the earlier structural issues.
+## Evidence boundary
 
-## Coverage checklist
+Static and parser checks are current. The official Android GPU emulator was not available, so visual, gesture, timing, memory, and full-book persistence claims remain BLOCKED.
 
-- EPUB 2: PASS
-- EPUB 3: PASS
-- Parsing: PASS
-- Container handling: PASS
-- OPF: PASS
-- Manifest resolution: PASS
-- Spine ordering: PASS
-- TOC/navigation: PASS
-- Chapter navigation: PASS
-- XHTML rendering: PASS
-- CSS handling: PASS
-- Fonts: PASS
-- Embedded fonts: PASS
-- Images: PASS
-- SVG resources: PASS
-- Page mode: PASS
-- Continuous scroll: PASS
-- Zoom: PASS
-- Themes: PASS
-- Typography: PASS
-- Search: PASS
-- Annotations: PASS
-- Bookmarks: PASS
-- Notes: PASS
-- TTS: PASS
-- Progress tracking: PASS
-- Top safe area: PASS
-- Bottom safe area: PASS
-- Position restoration: PASS
-- Malformed EPUB handling: PASS (bounded and fail-safe)
-- Incomplete EPUB handling: PASS (fail-safe)
-- Retry behavior: PASS (bounded)
-- Opening performance: PASS
-- Memory stability: PASS
-- Large EPUB behavior: PASS
+| Area | Current state | Verification | Status |
+|---|---|---|---|
+| EPUB2 container/OPF/spine/NCX | Implemented with path normalization and fallbacks | Corpus/regression tests | PARTIAL |
+| EPUB3 navigation | Implemented | Source review/parser corpus | PARTIAL |
+| XHTML/CSS/resources | Chapter extraction, image inlining, sanitizer | Sanitizer tests/typecheck | PARTIAL |
+| Images/SVG/fonts | Images supported; SVG is intentionally removed by sanitizer; font behavior untested live | Source only | PARTIAL |
+| Opening speed | Lazy initial chapter and adjacent prefetch; whole EPUB still base64-loaded | No device timing | PARTIAL |
+| Page mode | Column pagination and page turns present; zoom/safe-area fixed in source | No gesture/screenshot test | PARTIAL |
+| Continuous mode | Scroll progress now reported; chapters remain separate WebViews | No full-book scroll test | PARTIAL |
+| Zoom | Paginated viewport allows scaling; continuous viewport allows scaling | No pinch test | PARTIAL |
+| Typography/themes | Settings-driven HTML styles | No screenshot matrix | PARTIAL |
+| Search | Chapter search and results exist | Parser/source only | PARTIAL |
+| Annotations/bookmarks | Shared store integration exists | No live location test | PARTIAL |
+| TTS | Active chapter content is supplied for EPUB/DOCX; voice persistence added | No device voice test | PARTIAL |
+| Progress/persistence | Startup restore gate and scroll/page reporting improved; writes queued | Unit/typecheck only | PARTIAL |
+| Top safe area | Paginated content includes top inset padding | No cutout screenshot | PARTIAL |
+| Bottom safe area | Footer uses bottom inset; content padding added in page mode | No screenshot | PARTIAL |
+| Malformed files | Error state/retry and path tests exist | No torture run on device | PARTIAL |
+| Large books/memory | Import cap and EPUB archive budgets added; complete base64 model remains | No profiler/emulator | BLOCKED |
 
-## Notable engineering points
+## Current fixes
 
-1. The EPUB path uses a single preparation flow, which prevents alternating "Opening book" and "Preparing document" states.
-2. Reader viewport logic keeps content clear of overlays and system insets.
-3. Content zoom is scoped to reader content rather than expanding the app chrome.
-4. Continuous scroll preserves chapter metadata while allowing natural chapter-to-chapter flow.
-5. The state layer keeps hydration stable and does not allow the annotation and library screens to flutter between empty and loading states.
+- Sanitized chapter markup and unsafe resource attributes.
+- Added retry/remount path for EPUB load errors.
+- Prevented initial progress from overwriting restored state before viewport feedback.
+- Added scroll progress messages.
+- Enabled paginated zoom and safe-area-aware content padding.
+- Added import-size rejection and progress write coalescing.
 
-## Final defect review
+## Remaining engineering work
 
-- Earlier defects in hydration, safe-area layout, and overlay collisions have been addressed in the recovered implementation.
-- The app should remain on the current Android branch as the stable baseline.
-- Future work should avoid duplicate preparation or repeated loading triggers by keeping the library and annotation stores single-source and state-aware.
-
-## Final evidence
-
-- `npm test` passed with 38/38 passing assertions.
-- `npm run typecheck` completed successfully with no TypeScript errors.
-- QA runtime matrix files in `mobile/internal/` describe the pass state for the real corpus checks.
+A genuine continuous-scroll EPUB model should render multiple sanitized chapters in one scroll document with explicit chapter markers and location mapping. PDF.js should move to a patched advisory-free release after a controlled asset migration. Both require emulator regression before release claims.

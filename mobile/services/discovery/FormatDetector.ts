@@ -79,11 +79,27 @@ export class FormatDetector {
 
     // 8. ZIP-based containers: PK\x03\x04 (0x50, 0x4B, 0x03, 0x04)
     if (bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04) {
+      // Decode up to the first 2048 bytes of the zip stream to inspect entry names
+      const headerSnippet = new TextDecoder('latin1').decode(bytes.slice(0, Math.min(bytes.length, 2048)));
+
+      if (headerSnippet.includes('word/') || headerSnippet.includes('[Content_Types].xml')) {
+        return SUPPORTED_FORMATS.docx;
+      }
+      if (headerSnippet.includes('mimetypeapplication/epub+zip') || headerSnippet.includes('META-INF/container.xml')) {
+        return SUPPORTED_FORMATS.epub;
+      }
+      if (headerSnippet.includes('mimetypeapplication/vnd.oasis.opendocument.text')) {
+        return SUPPORTED_FORMATS.odt;
+      }
+      if (headerSnippet.includes('ComicInfo.xml')) {
+        return SUPPORTED_FORMATS.cbz;
+      }
+
       if (fallbackFilename) {
         const lower = fallbackFilename.toLowerCase();
+        if (lower.endsWith('.docx')) return SUPPORTED_FORMATS.docx;
         if (lower.endsWith('.epub')) return SUPPORTED_FORMATS.epub;
         if (lower.endsWith('.cbz')) return SUPPORTED_FORMATS.cbz;
-        if (lower.endsWith('.docx')) return SUPPORTED_FORMATS.docx;
         if (lower.endsWith('.odt')) return SUPPORTED_FORMATS.odt;
         if (lower.endsWith('.zip')) return SUPPORTED_FORMATS.zip;
       }

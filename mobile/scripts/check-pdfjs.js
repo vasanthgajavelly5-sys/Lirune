@@ -14,9 +14,23 @@ const generated = fs.readFileSync(
 );
 
 const cases = [
-  ['PDFJS_SOURCE', path.join(root, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.min.js')],
-  ['PDFJS_WORKER', path.join(root, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.min.js')],
+  ['PDFJS_SOURCE', path.join(root, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.min.mjs')],
+  ['PDFJS_WORKER', path.join(root, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.min.mjs')],
 ];
+
+function convertModuleToClassic(content, globalName, requiredExports) {
+  content = content.replace(/import\.meta\.url/g, 'undefined');
+  const exportPattern = /export\{([\s\S]*?)\};\s*$/;
+  const match = content.match(exportPattern);
+  if (!match || match.index === undefined) throw new Error('module export list missing');
+  const bindings = {};
+  for (const entry of match[1].split(',')) {
+    const parts = entry.trim().split(/\s+as\s+/);
+    if (parts.length === 2) bindings[parts[1]] = parts[0];
+  }
+  const bridge = requiredExports.map((name) => `${name}: ${bindings[name]}`).join(', ');
+  return `${content.slice(0, match.index)}globalThis.${globalName} = { ${bridge} };`;
+}
 
 let failed = false;
 
@@ -37,7 +51,14 @@ for (const [name, originalPath] of cases) {
     continue;
   }
 
-  const original = fs.readFileSync(originalPath, 'utf8');
+  const moduleSource = fs.readFileSync(originalPath, 'utf8');
+  const original = convertModuleToClassic(
+    moduleSource,
+    name === 'PDFJS_SOURCE' ? 'pdfjsLib' : 'pdfjsWorker',
+    name === 'PDFJS_SOURCE'
+      ? ['getDocument', 'GlobalWorkerOptions', 'PDFWorker']
+      : ['WorkerMessageHandler']
+  );
 
   // 1. literal -> value
   let value;

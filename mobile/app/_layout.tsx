@@ -6,7 +6,12 @@
 import React, { useEffect, useRef } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { LogBox } from 'react-native';
 import * as Linking from 'expo-linking';
+
+// Suppress React Native dev overlay floating toasts (yellow/red boxes).
+// Console logs still appear in logcat; the app uses its own LiruneToast for user feedback.
+LogBox.ignoreAllLogs();
 import { ThemeProvider } from '@/theme/ThemeContext';
 import { useSettingsStore } from '@/state/settingsStore';
 import { useLibraryStore } from '@/state/libraryStore';
@@ -38,10 +43,7 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
           const cleanUrl = url.split('?')[0].split('#')[0];
           const decoded = decodeURIComponent(cleanUrl);
           const parts = decoded.includes('/') ? decoded.split('/') : decoded.split('%2F');
-          let fileName = parts[parts.length - 1] || 'book.epub';
-          if (!fileName.includes('.')) {
-            fileName = `${fileName}.epub`;
-          }
+          let fileName = parts[parts.length - 1] || 'document';
           logger.info(TAG, `Received external file intent: ${fileName} (${url})`);
 
           let targetUri = url;

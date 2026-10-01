@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
+import { sanitizeHtml } from '@/services/security/sanitizeHtml';
 import { SELECTION_WATCHER_JS, parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
@@ -52,7 +53,7 @@ export function HtmlReaderView({
       try {
         const raw = await fileStorage.readAsString(bookPath);
         if (active) {
-          setHtmlContent(raw);
+          setHtmlContent(sanitizeHtml(raw));
           setIsLoading(false);
         }
       } catch (err) {

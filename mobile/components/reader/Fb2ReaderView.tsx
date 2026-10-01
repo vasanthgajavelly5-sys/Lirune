@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
+import { sanitizeHtml } from '@/services/security/sanitizeHtml';
 import { SELECTION_WATCHER_JS, parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
@@ -201,7 +202,7 @@ export function Fb2ReaderView({
       </style>
     </head>
     <body>
-      ${renderedHtml}
+      ${sanitizeHtml(renderedHtml)}
       <script>
         // Throttled: the native side persists progress with two SQL writes per
         // call, so an unthrottled 'scroll' event produced heavy DB churn.

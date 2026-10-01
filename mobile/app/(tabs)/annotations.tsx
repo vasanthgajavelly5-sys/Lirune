@@ -3,7 +3,7 @@
  * View, search, sort, and jump to all highlights, notes, and bookmarks across all books.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -21,31 +21,15 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useThemeContext } from '@/theme/ThemeContext';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useReaderStore } from '@/state/readerStore';
-import { SQLiteBookRepository } from '@/repositories/SQLiteBookRepository';
+import { useAnnotationStore, UnifiedAnnotation } from '@/state/annotationStore';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
 import { LiruneDialog } from '@/components/LiruneDialog';
-import { Bookmark, Highlight, Note, Book } from '@/models/Book';
 import { logger } from '@/utils/logger';
 
 const TAG = 'GlobalAnnotations';
 
 type AnnotationType = 'all' | 'highlight' | 'note' | 'bookmark';
 type SortOption = 'newest' | 'oldest' | 'book';
-
-interface UnifiedAnnotation {
-  id: string;
-  type: 'highlight' | 'note' | 'bookmark';
-  bookId: string;
-  bookTitle: string;
-  bookAuthor: string;
-  bookCoverColor: string;
-  chapter?: string;
-  text?: string;
-  noteText?: string;
-  color?: string;
-  cfi: string;
-  dateCreated: number;
-}
 
 export default function GlobalAnnotationsScreen() {
   const router = useRouter();
@@ -54,112 +38,27 @@ export default function GlobalAnnotationsScreen() {
 
   const { books } = useLibraryStore();
   const { openBook } = useReaderStore();
+  const { annotations, isLoading, loadAnnotations, removeAnnotation } = useAnnotationStore();
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [annotations, setAnnotations] = useState<UnifiedAnnotation[]>([]);
   const [selectedType, setSelectedType] = useState<AnnotationType>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('newest');
   const [itemToDelete, setItemToDelete] = useState<UnifiedAnnotation | null>(null);
 
-  const repo = useMemo(() => new SQLiteBookRepository(), []);
-
-  const loadAllAnnotations = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const store = useLibraryStore.getState();
-      if (!store.hasLoaded) {
-        await store.loadLibrary({ silent: true });
-      }
-
-      const currentBooks = useLibraryStore.getState().books;
-      const bookMap = new Map<string, Book>();
-      for (const b of currentBooks) {
-        bookMap.set(b.id, b);
-      }
-
-      const [allBookmarks, allHighlights, allNotes] = await Promise.all([
-        repo.getAllBookmarks(),
-        repo.getAllHighlights(),
-        repo.getAllNotes(),
-      ]);
-
-      const unified: UnifiedAnnotation[] = [];
-
-      for (const bm of allBookmarks) {
-        const book = bookMap.get(bm.bookId);
-        unified.push({
-          id: bm.id,
-          type: 'bookmark',
-          bookId: bm.bookId,
-          bookTitle: book?.title || 'Unknown Book',
-          bookAuthor: book?.author || 'Unknown Author',
-          bookCoverColor: book?.coverColor || '#2C2D35',
-          chapter: bm.chapter,
-          text: bm.previewText,
-          cfi: bm.cfi,
-          dateCreated: bm.dateCreated,
-        });
-      }
-
-      for (const hl of allHighlights) {
-        const book = bookMap.get(hl.bookId);
-        unified.push({
-          id: hl.id,
-          type: 'highlight',
-          bookId: hl.bookId,
-          bookTitle: book?.title || 'Unknown Book',
-          bookAuthor: book?.author || 'Unknown Author',
-          bookCoverColor: book?.coverColor || '#2C2D35',
-          chapter: hl.chapter,
-          text: hl.text,
-          noteText: hl.note,
-          color: hl.color,
-          cfi: hl.cfiRange,
-          dateCreated: hl.dateCreated,
-        });
-      }
-
-      for (const nt of allNotes) {
-        const book = bookMap.get(nt.bookId);
-        unified.push({
-          id: nt.id,
-          type: 'note',
-          bookId: nt.bookId,
-          bookTitle: book?.title || 'Unknown Book',
-          bookAuthor: book?.author || 'Unknown Author',
-          bookCoverColor: book?.coverColor || '#2C2D35',
-          chapter: nt.chapter,
-          noteText: nt.text,
-          cfi: nt.cfi,
-          dateCreated: nt.dateCreated,
-        });
-      }
-
-      setAnnotations(unified);
-    } catch (err) {
-      logger.error(TAG, 'Error loading global annotations', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [repo]);
+  useEffect(() => {
+    loadAnnotations();
+  }, [loadAnnotations]);
 
   useFocusEffect(
     useCallback(() => {
-      loadAllAnnotations();
-    }, [loadAllAnnotations])
+      // Background silent sync on screen focus - never flickers a loading spinner
+      loadAnnotations({ silent: true });
+    }, [loadAnnotations])
   );
 
   const handleDeleteAnnotation = async (item: UnifiedAnnotation) => {
     try {
-      if (item.type === 'bookmark') {
-        await repo.removeBookmark(item.id);
-      } else if (item.type === 'highlight') {
-        await repo.removeHighlight(item.id);
-      } else if (item.type === 'note') {
-        await repo.removeNote(item.id);
-      }
-      setAnnotations((prev) => prev.filter((a) => a.id !== item.id));
+      await removeAnnotation(item.id, item.type);
       setItemToDelete(null);
     } catch (err) {
       logger.error(TAG, 'Failed deleting annotation', err);

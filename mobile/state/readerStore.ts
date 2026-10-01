@@ -13,8 +13,12 @@ import {
 } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
+import { ProgressPersistenceQueue } from './progressPersistenceQueue';
 
 const TAG = 'ReaderStore';
+const progressQueue = new ProgressPersistenceQueue((progress) =>
+  getBookRepository().updateReadingProgress(progress)
+);
 
 interface ReaderState {
   currentBook: Book | null;
@@ -123,9 +127,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   closeBook: async () => {
     const { currentBook, progressPercent, currentCfi, currentChapter } = get();
     if (currentBook) {
-      const repo = getBookRepository();
       const now = Date.now();
-      await repo.updateReadingProgress({
+      await progressQueue.enqueue({
         bookId: currentBook.id,
         cfi: currentCfi || '',
         chapter: currentChapter,
@@ -133,6 +136,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         timeSpent: 0,
         lastRead: now,
       });
+      await progressQueue.flush(currentBook.id);
     }
 
     set({
@@ -158,8 +162,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       currentChapter: chapter !== undefined ? chapter : get().currentChapter,
     });
 
-    const repo = getBookRepository();
-    await repo.updateReadingProgress({
+    await progressQueue.enqueue({
       bookId: currentBook.id,
       cfi: cfi || get().currentCfi || '',
       chapter: chapter || get().currentChapter,

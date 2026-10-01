@@ -40,6 +40,8 @@ export function TtsControlsSheet({
   const [showVoicePicker, setShowVoicePicker] = useState(false);
 
   useEffect(() => {
+    ttsService.hydrateVoiceSelection();
+    ttsService.queryAvailableVoices();
     const unsubscribe = ttsService.subscribe((state) => {
       setTtsState(state);
     });
@@ -172,17 +174,18 @@ export function TtsControlsSheet({
         </View>
 
         {/* Voice Selector */}
-        {ttsState.availableVoices.length > 0 && (
-          <TouchableOpacity
-            style={[styles.voiceBtn, { borderColor: palette.border || 'rgba(128,128,128,0.2)' }]}
-            onPress={() => setShowVoicePicker(true)}
-          >
-            <Ionicons name="mic-outline" size={14} color={palette.text} style={{ marginRight: 4 }} />
-            <Text style={[styles.voiceBtnText, { color: palette.text }]} numberOfLines={1}>
-              Voice
-            </Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={[styles.voiceBtn, { borderColor: palette.border || 'rgba(128,128,128,0.2)' }]}
+          onPress={() => {
+            ttsService.queryAvailableVoices();
+            setShowVoicePicker(true);
+          }}
+        >
+          <Ionicons name="mic-outline" size={14} color={palette.text} style={{ marginRight: 4 }} />
+          <Text style={[styles.voiceBtnText, { color: palette.text }]} numberOfLines={1}>
+            {ttsState.availableVoices.length > 0 ? 'Voice' : 'Voice (System)'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Voice Selection Modal */}
@@ -197,6 +200,30 @@ export function TtsControlsSheet({
             </View>
 
             <ScrollView style={{ maxHeight: 320 }}>
+              {/* Default System Voice option */}
+              <TouchableOpacity
+                style={[
+                  styles.voiceItem,
+                  {
+                    backgroundColor: !ttsState.selectedVoiceIdentifier
+                      ? (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')
+                      : 'transparent',
+                  },
+                ]}
+                onPress={() => {
+                  ttsService.setVoice(undefined);
+                  setShowVoicePicker(false);
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.voiceName, { color: palette.text }]}>System Default Voice</Text>
+                  <Text style={[styles.voiceLang, { color: palette.muted }]}>Device native TTS</Text>
+                </View>
+                {!ttsState.selectedVoiceIdentifier && (
+                  <Ionicons name="checkmark" size={18} color={palette.link} />
+                )}
+              </TouchableOpacity>
+
               {ttsState.availableVoices.map((voice) => {
                 const isSelected = voice.identifier === ttsState.selectedVoiceIdentifier;
                 return (

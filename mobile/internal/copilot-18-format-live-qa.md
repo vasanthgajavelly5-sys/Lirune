@@ -1,28 +1,30 @@
-# Lirune Reader Android — 18-Format Live QA
+# 18-Format Live QA Status
 
-| Format | Discovery | Import | Open | Render | Navigation | Applicable Reader Features | Persistence | Visual Inspection | Problems Found | Final Status |
-|---|---|---|---|---|---|---|---|---|---|---|
-| EPUB | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed in current source state | PASS |
-| TXT | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| HTML | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| FB2 | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| MOBI | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| AZW | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| AZW3 | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| DOCX | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | No routing loop observed | PASS |
-| DOC | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| ODT | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| RTF | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| CHM | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| PDF | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | No page-bound issue observed in current state | PASS |
-| DJVU | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| CBZ | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| CBR | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | None observed | PASS |
-| ZIP | PASS | PASS | PASS | PASS | PASS | N/A | PASS | PASS | Archive inspection is bounded and safe | PASS |
-| RAR | PASS | PASS | PASS | PASS | PASS | N/A | PASS | PASS | Archive inspection is bounded and safe | PASS |
+Date: 2026-10-01
 
-## Coverage notes
+The requested NVIDIA GPU emulator run was not executable in this environment. `adb` was not available, `ANDROID_HOME`/`ANDROID_SDK_ROOT` were unset, and native Gradle assembly was blocked by missing Java. Therefore no format is marked live PASS.
 
-- Coverage was validated against the runtime matrix and the app’s built-in format detection logic.
-- The current repo reflects a coherent multi-format reader path rather than a partial or half-complete implementation.
-- The format coverage matrix should continue to be exercised against real device and emulator imports when a live acceptance session is available.
+| Format | Source/parser evidence | Import/open/navigation/reopen live evidence | Status |
+|---|---|---|---|
+| EPUB | Corpus/parser tests and EPUB source review | Not run | BLOCKED |
+| TXT | Parser/unit evidence | Not run | BLOCKED |
+| HTML | Parser/source review and sanitizer tests | Not run | BLOCKED |
+| FB2 | Corpus/parser evidence | Not run | BLOCKED |
+| MOBI | Corpus/parser evidence | Not run | BLOCKED |
+| AZW | Corpus/parser evidence | Not run | BLOCKED |
+| AZW3 | Corpus/parser evidence | Not run | BLOCKED |
+| DOCX | Parser/source review | Not run | BLOCKED |
+| ODT | Parser/source review | Not run | BLOCKED |
+| RTF | Parser/source review | Not run | BLOCKED |
+| DOC | Parser/source review | Not run | BLOCKED |
+| CHM | Parser/source review | Not run | BLOCKED |
+| PDF | PDF.js asset and parser evidence | Not run | BLOCKED |
+| DJVU | Source/corpus evidence | Not run | BLOCKED |
+| CBZ | Source/corpus evidence | Not run | BLOCKED |
+| CBR | Source/corpus evidence | Not run | BLOCKED |
+| ZIP | Inspection/parser evidence | Not run | BLOCKED |
+| RAR | Inspection/parser evidence | Not run | BLOCKED |
+
+## Required follow-up
+
+Install/configure JDK, Android SDK platform-tools/emulator, launch API 35 NVIDIA GPU emulator, build/install the APK, and execute the format matrix with screenshots and persistence assertions. Existing runtime corpus PASS values are parser/corpus evidence only and must not be promoted to live PASS.

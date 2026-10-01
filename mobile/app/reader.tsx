@@ -4,7 +4,7 @@
  * canonical source resolution, error boundaries, and edge-to-edge safe areas.
  */
 
-import React, { useEffect, useCallback, useState, useRef } from 'react';
+import React, { useEffect, useCallback, useState, useRef, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -49,13 +49,14 @@ import { ttsService } from '@/services/tts/TtsService';
 import { READER_THEMES } from '@/theme/Colors';
 import { Bookmark, TOCItem, SearchResult, Book } from '@/models/Book';
 import type { SelectionPayload } from '@/services/reader/selectionBridge';
-import { SourceUnavailableError } from '@/utils/errors';
+import { SourceUnavailableError, UnsupportedFormatError } from '@/utils/errors';
+import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
 
 const TAG = 'ReaderScreen';
 const HIGHLIGHT_COLORS = ['#FFEB3B', '#4ECDC4', '#FF8A80', '#A8E6CF', '#FFD3B6', '#DED2F9'];
 
-type ReaderResolutionStatus = 'resolving' | 'loading' | 'ready' | 'failed' | 'unavailable';
+type ReaderResolutionStatus = 'resolving' | 'loading' | 'ready' | 'failed' | 'unavailable' | 'unsupported';
 
 export default function ReaderScreen() {
   const router = useRouter();
@@ -64,7 +65,14 @@ export default function ReaderScreen() {
   const isExitingRef = useRef(false);
 
   const { books } = useLibraryStore();
-  const { readerSettings, updateReaderSettings, resetReaderSettings } = useSettingsStore();
+  const { readerSettings, updateReaderSettings, resetReaderSettings, accessibility } = useSettingsStore();
+  const effectiveSettings = useMemo(
+    () => ({
+      ...readerSettings,
+      fontSize: Math.round(readerSettings.fontSize * (accessibility.readerFontScaling || 1.0)),
+    }),
+    [readerSettings, accessibility.readerFontScaling]
+  );
 
   const {
     currentBook,
@@ -107,6 +115,7 @@ export default function ReaderScreen() {
   const [resolvedPath, setResolvedPath] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionPayload>({ text: '', top: 0 });
+  const [readerContentText, setReaderContentText] = useState('');
   const [isTtsVisible, setIsTtsVisible] = useState(false);
   const [isDictionaryVisible, setIsDictionaryVisible] = useState(false);
   const [isThumbnailsVisible, setIsThumbnailsVisible] = useState(false);
@@ -117,17 +126,11 @@ export default function ReaderScreen() {
 
   const handleOpenTTS = useCallback(() => {
     if (!currentBook) return;
-    const textToSpeak = [
-      currentBook.title,
-      currentChapter ? `Chapter: ${currentChapter}` : '',
-      selection.text ? selection.text : '',
-    ]
-      .filter(Boolean)
-      .join('. ');
+    const textToSpeak = selection.text.trim() || readerContentText.trim();
 
     ttsService.loadText(textToSpeak || `${currentBook.title}. By ${currentBook.author || 'Unknown'}.`);
     setIsTtsVisible(true);
-  }, [currentBook, currentChapter, selection.text]);
+  }, [currentBook, readerContentText, selection.text]);
 
   const handleCreateHighlight = useCallback(
     async (color: string) => {
@@ -161,7 +164,10 @@ export default function ReaderScreen() {
       logger.info(TAG, `Source ready at: ${resolved.localPath}`);
     } catch (err: any) {
       logger.error(TAG, `Source resolution error for "${book.title}"`, err);
-      if (err instanceof SourceUnavailableError || err.name === 'SourceUnavailableError') {
+      if (err instanceof UnsupportedFormatError || err.name === 'UnsupportedFormatError') {
+        setResolutionStatus('unsupported');
+        setErrorMessage(err.message || 'This document format is not supported.');
+      } else if (err instanceof SourceUnavailableError || err.name === 'SourceUnavailableError') {
         setResolutionStatus('unavailable');
         setErrorMessage(err.message || 'Original file is no longer accessible at this location.');
       } else {
@@ -170,6 +176,24 @@ export default function ReaderScreen() {
       }
     }
   }, []);
+
+  const [retryCount, setRetryCount] = useState(0);
+
+  const handleUpdateChapterCount = useCallback(
+    async (count: number) => {
+      if (!currentBook || currentBook.chapterCount === count || count <= 0) return;
+      try {
+        const updatedBook: Book = { ...currentBook, chapterCount: count };
+        const repo = getBookRepository();
+        await repo.updateBook(updatedBook);
+        useLibraryStore.getState().updateBook(updatedBook);
+        useReaderStore.setState({ currentBook: updatedBook });
+      } catch (err) {
+        logger.warn(TAG, 'Failed to persist document chapter/page count', err);
+      }
+    },
+    [currentBook]
+  );
 
   useEffect(() => {
     if (currentBook) {
@@ -356,8 +380,39 @@ export default function ReaderScreen() {
     );
   }
 
+  // Status Screen: Format Unsupported
+  if (resolutionStatus === 'unsupported') {
+    return (
+      <View style={[styles.statusContainer, { backgroundColor: palette.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <StatusBar hidden={false} barStyle={isThemeDark ? 'light-content' : 'dark-content'} />
+        <View style={[styles.errorIconOrb, { backgroundColor: 'rgba(255, 171, 0, 0.12)' }]}>
+          <Ionicons name="document-text-outline" size={42} color="#FFAB00" />
+        </View>
+        <Text style={[styles.statusTitle, { color: palette.text }]}>{currentBook.title}</Text>
+        <Text style={[styles.statusSubtitle, { color: palette.muted }]}>
+          Document Format Unsupported
+        </Text>
+        <Text style={styles.errorDescription}>
+          {errorMessage || 'This file format is not supported by Lirune Reader.'}
+        </Text>
+
+        <View style={styles.recoveryBtnRow}>
+          <TouchableOpacity
+            style={[styles.primaryRecoveryBtn, { backgroundColor: palette.link || (isThemeDark ? '#C9B8FF' : '#4C4666') }]}
+            onPress={handleExitReader}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="library-outline" size={18} color={isThemeDark ? '#1A1A1D' : '#FFFFFF'} style={{ marginRight: 6 }} />
+            <Text style={[styles.primaryRecoveryBtnText, { color: isThemeDark ? '#1A1A1D' : '#FFFFFF' }]}>Back to Library</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   // Status Screen: General Failure
   if (resolutionStatus === 'failed') {
+    const canRetry = retryCount < 3;
     return (
       <View style={[styles.statusContainer, { backgroundColor: palette.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <StatusBar hidden={false} barStyle={isThemeDark ? 'light-content' : 'dark-content'} />
@@ -375,14 +430,25 @@ export default function ReaderScreen() {
         ) : null}
 
         <View style={styles.recoveryBtnRow}>
-          <TouchableOpacity
-            style={[styles.primaryRecoveryBtn, { backgroundColor: palette.link || (isThemeDark ? '#C9B8FF' : '#4C4666') }]}
-            onPress={() => resolveCurrentBook(currentBook)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="refresh" size={18} color={isThemeDark ? '#1A1A1D' : '#FFFFFF'} style={{ marginRight: 6 }} />
-            <Text style={[styles.primaryRecoveryBtnText, { color: isThemeDark ? '#1A1A1D' : '#FFFFFF' }]}>Retry</Text>
-          </TouchableOpacity>
+          {canRetry ? (
+            <TouchableOpacity
+              style={[styles.primaryRecoveryBtn, { backgroundColor: palette.link || (isThemeDark ? '#C9B8FF' : '#4C4666') }]}
+              onPress={() => {
+                setRetryCount((prev) => prev + 1);
+                resolveCurrentBook(currentBook);
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="refresh" size={18} color={isThemeDark ? '#1A1A1D' : '#FFFFFF'} style={{ marginRight: 6 }} />
+              <Text style={[styles.primaryRecoveryBtnText, { color: isThemeDark ? '#1A1A1D' : '#FFFFFF' }]}>
+                Retry ({3 - retryCount} left)
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={[styles.errorDescription, { marginBottom: 12 }]}>
+              Maximum retry attempts reached.
+            </Text>
+          )}
 
           <TouchableOpacity
             style={[styles.secondaryRecoveryBtn, { borderColor: isThemeDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)' }]}
@@ -423,13 +489,15 @@ export default function ReaderScreen() {
         {activeBook.format === 'epub' && (
           <EpubReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
+            onChapterCountLoaded={handleUpdateChapterCount}
             onTOCLoaded={setTOC}
             targetCfi={currentCfi}
             onSearchResults={handleSearchResults}
             onSelectionChange={handleSelectionChange}
+            onContentTextChange={setReaderContentText}
             searchQuery={searchQuery}
           />
         )}
@@ -437,9 +505,10 @@ export default function ReaderScreen() {
         {activeBook.format === 'pdf' && (
           <PdfReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
+            onTotalPagesLoaded={handleUpdateChapterCount}
             targetCfi={currentCfi}
             onSearchResults={handleSearchResults}
             searchQuery={searchQuery}
@@ -449,7 +518,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'txt' && (
           <TxtReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             targetCfi={currentCfi}
@@ -461,7 +530,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'html' && (
           <HtmlReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             onTOCLoaded={setTOC}
@@ -475,7 +544,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'fb2' && (
           <Fb2ReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             onTOCLoaded={setTOC}
@@ -489,7 +558,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'cbz' && (
           <CbzReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             targetCfi={currentCfi}
@@ -499,7 +568,7 @@ export default function ReaderScreen() {
         {(activeBook.format === 'mobi' || activeBook.format === 'azw' || activeBook.format === 'azw3') && (
           <MobiReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             onTOCLoaded={setTOC}
@@ -512,11 +581,14 @@ export default function ReaderScreen() {
         {activeBook.format === 'docx' && (
           <DocxReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
+            onChapterCountLoaded={handleUpdateChapterCount}
             targetCfi={currentCfi || undefined}
             onSearchResults={handleSearchResults}
+            onSelectionChange={handleSelectionChange}
+            onContentTextChange={setReaderContentText}
             searchQuery={searchQuery}
           />
         )}
@@ -524,7 +596,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'odt' && (
           <OdtReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             targetCfi={currentCfi || undefined}
@@ -536,7 +608,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'rtf' && (
           <RtfReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             targetCfi={currentCfi || undefined}
@@ -548,7 +620,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'doc' && (
           <DocReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             targetCfi={currentCfi || undefined}
@@ -560,7 +632,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'chm' && (
           <ChmReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             targetCfi={currentCfi || undefined}
@@ -572,7 +644,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'djvu' && (
           <DjvuReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             targetCfi={currentCfi || undefined}
@@ -582,7 +654,7 @@ export default function ReaderScreen() {
         {activeBook.format === 'cbr' && (
           <CbrReaderView
             book={activeBook}
-            settings={readerSettings}
+            settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             targetCfi={currentCfi || undefined}
@@ -736,7 +808,7 @@ export default function ReaderScreen() {
         bookTitle={activeBook.title}
         onSelectPage={(pageNum) => {
           const percent = Math.round(((pageNum - 1) / Math.max(1, activeBook.chapterCount || 1)) * 100);
-          updateProgress(percent, `page_${pageNum}`);
+          updateProgress(percent, `page:${pageNum}`);
         }}
         onClose={() => setIsThumbnailsVisible(false)}
       />

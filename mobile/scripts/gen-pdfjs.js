@@ -18,9 +18,32 @@ const outDir = path.join(root, 'services', 'pdf');
 const outFile = path.join(outDir, 'pdfjsAssets.ts');
 
 const sources = [
-  ['PDFJS_SOURCE', 'pdf.min.js'],
-  ['PDFJS_WORKER', 'pdf.worker.min.js'],
+  ['PDFJS_SOURCE', 'pdf.min.mjs'],
+  ['PDFJS_WORKER', 'pdf.worker.min.mjs'],
 ];
+
+function convertModuleToClassic(content, globalName, requiredExports) {
+  content = content.replace(/import\.meta\.url/g, 'undefined');
+  const exportPattern = /export\{([\s\S]*?)\};\s*$/;
+  const match = content.match(exportPattern);
+  if (!match || match.index === undefined) {
+    throw new Error(`Could not find the module export list for ${globalName}`);
+  }
+
+  const bindings = {};
+  for (const entry of match[1].split(',')) {
+    const parts = entry.trim().split(/\s+as\s+/);
+    if (parts.length === 2) bindings[parts[1]] = parts[0];
+  }
+
+  const bridge = requiredExports.map((exportName) => {
+    const localName = bindings[exportName];
+    if (!localName) throw new Error(`Missing ${exportName} export in ${globalName}`);
+    return `${exportName}: ${localName}`;
+  });
+
+  return `${content.slice(0, match.index)}globalThis.${globalName} = { ${bridge.join(', ')} };`;
+}
 
 const parts = [
   '/**',
@@ -40,7 +63,14 @@ for (const [name, file] of sources) {
     console.error(`Missing ${full} — is pdfjs-dist installed?`);
     process.exit(1);
   }
-  const content = fs.readFileSync(full, 'utf8');
+  let content = fs.readFileSync(full, 'utf8');
+  content = convertModuleToClassic(
+    content,
+    name === 'PDFJS_SOURCE' ? 'pdfjsLib' : 'pdfjsWorker',
+    name === 'PDFJS_SOURCE'
+      ? ['getDocument', 'GlobalWorkerOptions', 'PDFWorker']
+      : ['WorkerMessageHandler']
+  );
 
   // Emit a plain JSON string literal holding the RAW library source. The source
   // contains backticks and ${, so the consumer must escape it via

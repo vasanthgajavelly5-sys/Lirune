@@ -5,9 +5,11 @@
  */
 
 import * as Speech from 'expo-speech';
+import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
 
 const TAG = 'TtsService';
+const VOICE_PREFERENCE_KEY = 'ttsVoiceIdentifier';
 
 export interface TtsState {
   isPlaying: boolean;
@@ -34,6 +36,7 @@ export class TtsService {
   private pitch = 1.0;
   private availableVoices: Speech.Voice[] = [];
   private selectedVoiceIdentifier?: string;
+  private voiceSaveChain: Promise<void> = Promise.resolve();
   private listeners: Set<TtsListener> = new Set();
 
   private constructor() {
@@ -47,12 +50,52 @@ export class TtsService {
     return TtsService.instance;
   }
 
-  private async initVoices() {
+  async queryAvailableVoices(): Promise<Speech.Voice[]> {
     try {
-      this.availableVoices = await Speech.getAvailableVoicesAsync();
+      const voices = await Speech.getAvailableVoicesAsync();
+      if (voices && Array.isArray(voices)) {
+        this.availableVoices = voices;
+        this.notify();
+      }
     } catch (err) {
       logger.warn(TAG, 'Unable to query available offline TTS voices', err);
     }
+    return this.availableVoices;
+  }
+
+  private async initVoices() {
+    await this.queryAvailableVoices();
+  }
+
+  async hydrateVoiceSelection(): Promise<void> {
+    try {
+      await this.queryAvailableVoices();
+      const voiceIdentifier = await getBookRepository().getPreference<string | null>(
+        VOICE_PREFERENCE_KEY,
+        null
+      );
+      this.selectedVoiceIdentifier = voiceIdentifier || undefined;
+      this.notify();
+    } catch (err) {
+      logger.warn(TAG, 'Unable to hydrate offline TTS voice selection', err);
+    }
+  }
+
+  async saveVoiceSelection(): Promise<void> {
+    const selectedVoiceIdentifier = this.selectedVoiceIdentifier || null;
+    this.voiceSaveChain = this.voiceSaveChain
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await getBookRepository().setPreference(
+            VOICE_PREFERENCE_KEY,
+            selectedVoiceIdentifier
+          );
+        } catch (err) {
+          logger.warn(TAG, 'Unable to persist offline TTS voice selection', err);
+        }
+      });
+    await this.voiceSaveChain;
   }
 
   subscribe(listener: TtsListener): () => void {
@@ -216,6 +259,7 @@ export class TtsService {
 
   setVoice(voiceId?: string) {
     this.selectedVoiceIdentifier = voiceId;
+    void this.saveVoiceSelection();
     if (this.isPlaying) {
       Speech.stop();
       this.speakCurrent();

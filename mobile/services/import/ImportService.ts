@@ -5,6 +5,7 @@
  */
 
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   Book,
   BookFormat,
@@ -13,6 +14,7 @@ import {
 import { getBookRepository } from '@/repositories';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { MetadataExtractor } from '@/services/metadata/MetadataExtractor';
+import { FormatDetector } from '@/services/discovery/FormatDetector';
 import {
   AppError,
   UnsupportedFormatError,
@@ -21,6 +23,7 @@ import {
 import { logger } from '@/utils/logger';
 
 const TAG = 'ImportService';
+const MAX_IMPORT_BYTES = 512 * 1024 * 1024;
 
 function generateUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -74,7 +77,19 @@ export class ImportService {
           'text/html',
           'application/x-fictionbook+xml',
           'application/vnd.comicbook+zip',
-          '*/*', // Allow Android file managers that might not report specific MIME types
+          'application/vnd.comicbook-rar',
+          'application/x-mobipocket-ebook',
+          'application/vnd.amazon.ebook',
+          'application/x-mobi8-ebook',
+          'image/vnd.djvu',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/rtf',
+          'application/vnd.oasis.opendocument.text',
+          'application/vnd.ms-htmlhelp',
+          'application/zip',
+          'application/x-rar-compressed',
+          '*/*', // Universal fallback for Android content providers
         ],
         copyToCacheDirectory: true,
         // Must be explicit: this legacy API defaults base64 to TRUE, which
@@ -127,16 +142,16 @@ export class ImportService {
     try {
       logger.info(TAG, `Processing import for file: ${fileName}`);
 
-      // 1. Identify format by extension
-      const formatInfo = getFormatFromExtension(fileName);
-      if (!formatInfo.supported) {
-        throw new UnsupportedFormatError(
-          fileName.split('.').pop() || 'unknown',
-          formatInfo.reason
+      // 1. Initial format check by extension
+      let formatInfo = getFormatFromExtension(fileName);
+      let preliminaryFormat: BookFormat | undefined = formatInfo.supported ? (formatInfo.id as BookFormat) : undefined;
+
+      if (fileSizeHint !== undefined && fileSizeHint > MAX_IMPORT_BYTES) {
+        throw new ImportFailureError(
+          fileName,
+          'This file is too large to import safely. Choose a file smaller than 512 MB.'
         );
       }
-
-      const format = formatInfo.id as BookFormat;
 
       // 2. Check for duplicate by filename and size if already in library
       const existingBooks = await repo.getBooks();
@@ -144,7 +159,7 @@ export class ImportService {
       const normFileName = cleanFileName.replace(/[^a-z0-9]/g, '');
       const duplicate = existingBooks.find(
         (b) => {
-          if (b.format !== format) return false;
+          if (preliminaryFormat && b.format !== preliminaryFormat) return false;
           const bTitle = b.title.toLowerCase();
           const normTitle = bTitle.replace(/[^a-z0-9]/g, '');
           return (
@@ -169,6 +184,44 @@ export class ImportService {
       );
 
       try {
+        if (fileSize > MAX_IMPORT_BYTES) {
+          throw new ImportFailureError(
+            fileName,
+            'This file is too large to import safely. Choose a file smaller than 512 MB.'
+          );
+        }
+
+        // Verify format via magic bytes from the copied file to prevent false routing (e.g. DOCX -> EPUB)
+        let resolvedFormat = preliminaryFormat;
+        try {
+          const sampleBase64 = await FileSystem.readAsStringAsync(destPath, {
+            encoding: FileSystem.EncodingType.Base64,
+            length: 2048,
+          });
+          if (sampleBase64) {
+            const binaryString = atob(sampleBase64);
+            const rawBytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              rawBytes[i] = binaryString.charCodeAt(i);
+            }
+            const detected = FormatDetector.fromMagicBytes(rawBytes, fileName);
+            if (detected.supported) {
+              resolvedFormat = detected.id as BookFormat;
+            }
+          }
+        } catch {
+          // If sample read fails, fallback to preliminary format
+        }
+
+        if (!resolvedFormat) {
+          throw new UnsupportedFormatError(
+            fileName.split('.').pop() || 'unknown',
+            'This document format is not supported.'
+          );
+        }
+
+        const format = resolvedFormat;
+
         // 4. Extract format-specific metadata & cover
         const metadata = await MetadataExtractor.extract(
           destPath,

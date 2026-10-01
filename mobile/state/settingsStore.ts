@@ -10,6 +10,7 @@ import {
 } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
+import { ttsService } from '@/services/tts/TtsService';
 
 const TAG = 'SettingsStore';
 
@@ -88,6 +89,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         hasCompletedWelcome: !!savedWelcome,
         isLoaded: true,
       });
+      await ttsService.hydrateVoiceSelection();
     } catch (err) {
       logger.error(TAG, 'Error loading settings', err);
       set({ isLoaded: true });

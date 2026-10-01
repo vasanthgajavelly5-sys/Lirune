@@ -12,7 +12,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
-  Linking,
   Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -136,20 +135,18 @@ export default function SettingsScreen() {
     setShowClearDialog(false);
     try {
       const repo = getBookRepository();
+      const books = useLibraryStore.getState().books;
+      for (const book of books) {
+        await fileStorage.deleteBookFiles(book.filePath || book.uri || '', book.coverUrl);
+      }
       await repo.clearAllData();
-      await loadLibrary();
+      useLibraryStore.setState({ books: [], collections: [], hasLoaded: true });
       const stats = await fileStorage.getStorageUsage();
       setStorageStats(stats);
       setToastMessage('Library data has been cleared.');
     } catch {
       setToastMessage('Could not clear library data.');
     }
-  };
-
-  const openSupportLink = () => {
-    Linking.openURL('https://buymeacoffee.com/vasanthgajavelly').catch(() => {
-      setToastMessage('Could not open support link.');
-    });
   };
 
   const alignments: ('left' | 'center' | 'right' | 'justify')[] = [
@@ -166,10 +163,11 @@ export default function SettingsScreen() {
   ];
 
   const sortOptions = [
+    { id: 'recent', label: 'Recent' },
     { id: 'title', label: 'Title' },
     { id: 'author', label: 'Author' },
-    { id: 'dateAdded', label: 'Date Added' },
-    { id: 'lastRead', label: 'Last Read' },
+    { id: 'added', label: 'Date Added' },
+    { id: 'progress', label: 'Progress' },
   ] as const;
 
   return (
@@ -777,28 +775,9 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 7. ABOUT & SUPPORT */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>About &amp; Support</Text>
+        {/* 7. ABOUT */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>About</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          <TouchableOpacity
-            style={[styles.supportBtn, { backgroundColor: colors.surfaceElevated, borderColor: colors.accent }]}
-            onPress={openSupportLink}
-            activeOpacity={0.8}
-          >
-            <View style={styles.supportLeft}>
-              <Ionicons name="cafe" size={20} color="#FFDD00" />
-              <View>
-                <Text style={[styles.supportTitle, { color: colors.text }]}>Support Lirune Reader</Text>
-                <Text style={[styles.supportSubtitle, { color: colors.textSecondary }]}>
-                  Buy Me a Coffee to support indie development
-                </Text>
-              </View>
-            </View>
-            <Ionicons name="open-outline" size={16} color={colors.accent} />
-          </TouchableOpacity>
-
-          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
-
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Application</Text>
             <Text style={[styles.rowValue, { color: colors.textSecondary }]}>Lirune Reader</Text>
@@ -843,7 +822,7 @@ export default function SettingsScreen() {
       <LiruneDialog
         visible={showClearDialog}
         title="Clear Local Library?"
-        message="This will remove all imported books, reading progress, and annotations from this device. Downloaded files on your disk will not be deleted."
+        message="This will remove all imported books, managed files, reading progress, and annotations from this device."
         confirmText="Clear Library"
         cancelText="Cancel"
         isDestructive={true}

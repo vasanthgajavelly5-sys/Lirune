@@ -14,7 +14,6 @@ import {
   Animated,
   Dimensions,
   BackHandler,
-  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, usePathname } from 'expo-router';
@@ -348,17 +347,6 @@ function LiruneSlideDrawer({
             </Text>
           </TouchableOpacity>
 
-          {/* Buy Me a Coffee Support Button */}
-          <TouchableOpacity
-            style={[styles.coffeeBtn, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}
-            onPress={() => Linking.openURL('https://buymeacoffee.com/vasanthgajavelly')}
-            activeOpacity={0.75}
-          >
-            <Ionicons name="cafe" size={17} color={colors.accent} />
-            <Text style={[styles.coffeeBtnText, { color: colors.accent }]}>
-              Support Lirune
-            </Text>
-          </TouchableOpacity>
 
           <Text style={[styles.versionText, { color: colors.textMuted }]}>
             Lirune Reader · v4.0.4

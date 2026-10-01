@@ -11,8 +11,9 @@ import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { DocxParser } from '@/services/docx/DocxParser';
 import { SELECTION_WATCHER_JS, SelectionPayload } from '@/services/reader/selectionBridge';
-import { allowReaderNavigation } from '@/services/security/webviewPolicy';
+import { READER_WEBVIEW_PROPS, allowReaderNavigation } from '@/services/security/webviewPolicy';
 import { logger } from '@/utils/logger';
+import { sanitizeHtml } from '@/services/security/sanitizeHtml';
 
 const TAG = 'DocxReaderView';
 
@@ -21,10 +22,12 @@ interface DocxReaderViewProps {
   settings: ReaderSettings;
   onToggleControls: () => void;
   onProgressChange: (percent: number, cfi?: string, chapter?: string) => void;
+  onChapterCountLoaded?: (count: number) => void;
   onTOCLoaded?: (toc: TOCItem[]) => void;
   targetCfi?: string;
   onSearchResults?: (results: SearchResult[]) => void;
   onSelectionChange?: (payload: SelectionPayload) => void;
+  onContentTextChange?: (html: string) => void;
   searchQuery?: string;
 }
 
@@ -33,10 +36,12 @@ export function DocxReaderView({
   settings,
   onToggleControls,
   onProgressChange,
+  onChapterCountLoaded,
   onTOCLoaded,
   targetCfi,
   onSearchResults,
   onSelectionChange,
+  onContentTextChange,
   searchQuery,
 }: DocxReaderViewProps) {
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
@@ -61,11 +66,13 @@ export function DocxReaderView({
         if (!active) return;
 
         setHtmlContent(parsed.html);
+        onContentTextChange?.(parsed.html);
         setIsLoading(false);
 
         // Extract TOC from headings
+        const headings = parsed.html.match(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi) || [];
+        onChapterCountLoaded?.(Math.max(1, headings.length));
         if (onTOCLoaded) {
-          const headings = parsed.html.match(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi) || [];
           const toc: TOCItem[] = headings.map((h, i) => {
             const cleanText = h.replace(/<[^>]+>/g, '').trim();
             return {
@@ -90,7 +97,7 @@ export function DocxReaderView({
     return () => {
       active = false;
     };
-  }, [book.filePath, book.uri, onTOCLoaded]);
+  }, [book.filePath, book.uri, onContentTextChange, onTOCLoaded]);
 
   const handleMessage = useCallback(
     (e: WebViewMessageEvent) => {
@@ -109,6 +116,13 @@ export function DocxReaderView({
     },
     [onToggleControls, onProgressChange, onSelectionChange]
   );
+
+  const handleLoadEnd = useCallback(() => {
+    if (!targetCfi?.startsWith('scroll:')) return;
+    const offset = Number.parseInt(targetCfi.replace('scroll:', ''), 10);
+    if (!Number.isFinite(offset) || offset < 0) return;
+    webViewRef.current?.injectJavaScript(`window.scrollTo(0, ${offset}); true;`);
+  }, [targetCfi]);
 
   if (isLoading) {
     return (
@@ -165,7 +179,7 @@ export function DocxReaderView({
       </style>
     </head>
     <body>
-      ${htmlContent}
+      ${sanitizeHtml(htmlContent)}
       <script>
         document.body.addEventListener('click', function(e) {
           if (e.target.tagName !== 'A') {
@@ -193,10 +207,11 @@ export function DocxReaderView({
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
       <WebView
         ref={webViewRef}
-        originWhitelist={['*']}
+        {...READER_WEBVIEW_PROPS}
         source={{ html: injectedHtml }}
         style={{ backgroundColor: palette.bg }}
         onMessage={handleMessage}
+        onLoadEnd={handleLoadEnd}
         onShouldStartLoadWithRequest={allowReaderNavigation}
         scrollEnabled={true}
       />

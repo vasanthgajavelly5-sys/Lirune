@@ -1,0 +1,45 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Lirune Reader"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Pepper Carrot Episode 01 (cbr)"
+    direction: UP
+    timeout: 30000
+- tapOn: "Pepper Carrot Episode 01 (cbr)"
+- extendedWaitUntil:
+    visible: ".* / 5"
+    timeout: 30000
+- tapOn:
+    point: "10%,50%"
+- tapOn:
+    point: "10%,50%"
+- tapOn:
+    point: "10%,50%"
+- tapOn:
+    point: "10%,50%"
+- tapOn:
+    point: "10%,50%"
+- assertVisible: "1 / 5"
+- tapOn:
+    point: "90%,50%"
+- extendedWaitUntil:
+    visible: "2 / 5"
+    timeout: 10000
+- pressKey: BACK
+- extendedWaitUntil:
+    visible: "Lirune Reader"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Pepper Carrot Episode 01 (cbr)"
+    direction: UP
+    timeout: 30000
+- tapOn: "Pepper Carrot Episode 01 (cbr)"
+- extendedWaitUntil:
+    visible: "2 / 5"
+    timeout: 30000

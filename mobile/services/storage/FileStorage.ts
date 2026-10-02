@@ -46,6 +46,7 @@ export class FileStorageService {
       this.initialized = true;
     } catch (err) {
       logger.error(TAG, 'Error creating storage directories', err);
+      throw new Error('App storage is unavailable. Please check device storage and try again.');
     }
   }
 
@@ -105,18 +106,27 @@ export class FileStorageService {
         });
       } catch (readErr) {
         logger.warn(TAG, `Failed both copyAsync and readAsString fallback for ${sourceUri}`, readErr);
+        await FileSystem.deleteAsync(destPath, { idempotent: true }).catch(() => undefined);
         throw new Error('The selected file could not be copied into app storage.');
       }
     }
 
-    const info = await FileSystem.getInfoAsync(destPath);
-    const fileSize = info.exists && !info.isDirectory ? info.size : 0;
-    if (!info.exists || info.isDirectory || fileSize <= 0) {
+    try {
+      const info = await FileSystem.getInfoAsync(destPath);
+      const fileSize = info.exists && !info.isDirectory ? info.size ?? 0 : 0;
+      if (!info.exists || info.isDirectory || fileSize <= 0) {
+        throw new Error('The selected file could not be copied into app storage.');
+      }
+
+      logger.info(TAG, `Saved book to app storage: ${destPath} (${fileSize} bytes)`);
+      return { destPath, fileSize };
+    } catch (err) {
+      await FileSystem.deleteAsync(destPath, { idempotent: true }).catch(() => undefined);
+      if (err instanceof Error && err.message === 'The selected file could not be copied into app storage.') {
+        throw err;
+      }
       throw new Error('The selected file could not be copied into app storage.');
     }
-
-    logger.info(TAG, `Saved book to app storage: ${destPath} (${fileSize} bytes)`);
-    return { destPath, fileSize };
   }
 
   /**
@@ -143,6 +153,7 @@ export class FileStorageService {
       return coverPath;
     } catch (err) {
       logger.warn(TAG, `Failed to save cover image for ${fileId}`, err);
+      await FileSystem.deleteAsync(coverPath, { idempotent: true }).catch(() => undefined);
       return '';
     }
   }
@@ -263,20 +274,28 @@ export class FileStorageService {
   async deleteBookFiles(filePath: string, coverUrl?: string): Promise<void> {
     if (Platform.OS === 'web') return;
 
-    try {
-      const bookInfo = await FileSystem.getInfoAsync(filePath);
-      if (bookInfo.exists) {
-        await FileSystem.deleteAsync(filePath, { idempotent: true });
+    // Only remove app-owned copies. `Book.uri` may be a SAF/content URI for a
+    // user's original document and must never be passed to deleteAsync.
+    if (filePath && filePath.startsWith(BOOKS_DIR)) {
+      try {
+        const bookInfo = await FileSystem.getInfoAsync(filePath);
+        if (bookInfo.exists) {
+          await FileSystem.deleteAsync(filePath, { idempotent: true });
+        }
+      } catch (err) {
+        logger.warn(TAG, `Failed to delete book file ${filePath}`, err);
       }
+    }
 
-      if (coverUrl && coverUrl.startsWith(COVERS_DIR)) {
+    if (coverUrl && coverUrl.startsWith(COVERS_DIR)) {
+      try {
         const coverInfo = await FileSystem.getInfoAsync(coverUrl);
         if (coverInfo.exists) {
           await FileSystem.deleteAsync(coverUrl, { idempotent: true });
         }
+      } catch (err) {
+        logger.warn(TAG, `Failed to delete cover file ${coverUrl}`, err);
       }
-    } catch (err) {
-      logger.warn(TAG, `Failed to delete files for ${filePath}`, err);
     }
   }
 
@@ -291,20 +310,24 @@ export class FileStorageService {
     let bookCount = 0;
 
     try {
-      const books = await FileSystem.readDirectoryAsync(BOOKS_DIR);
-      bookCount = books.length;
-      for (const name of books) {
-        const info = await FileSystem.getInfoAsync(`${BOOKS_DIR}${name}`);
+      const [books, covers] = await Promise.all([
+        FileSystem.readDirectoryAsync(BOOKS_DIR),
+        FileSystem.readDirectoryAsync(COVERS_DIR),
+      ]);
+      const entries = await Promise.all([
+        ...books.map(async (name) => ({
+          kind: 'book' as const,
+          info: await FileSystem.getInfoAsync(`${BOOKS_DIR}${name}`),
+        })),
+        ...covers.map(async (name) => ({
+          kind: 'cover' as const,
+          info: await FileSystem.getInfoAsync(`${COVERS_DIR}${name}`),
+        })),
+      ]);
+      for (const { kind, info } of entries) {
         if (info.exists && !info.isDirectory) {
-          totalBytes += info.size;
-        }
-      }
-
-      const covers = await FileSystem.readDirectoryAsync(COVERS_DIR);
-      for (const name of covers) {
-        const info = await FileSystem.getInfoAsync(`${COVERS_DIR}${name}`);
-        if (info.exists && !info.isDirectory) {
-          totalBytes += info.size;
+          totalBytes += info.size ?? 0;
+          if (kind === 'book') bookCount++;
         }
       }
     } catch (err) {

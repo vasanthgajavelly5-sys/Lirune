@@ -19,7 +19,7 @@ export interface ParsedDocx {
 
 export class DocxParser {
   static async parse(buffer: ArrayBuffer | Uint8Array | string): Promise<ParsedDocx> {
-    const zip = await JSZip.loadAsync(buffer);
+    const zip = await JSZip.loadAsync(buffer, typeof buffer === 'string' ? { base64: true } : undefined);
 
     // 1. Metadata from docProps/core.xml
     let title = 'Untitled Document';

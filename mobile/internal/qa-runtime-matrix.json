@@ -1070,7 +1070,7 @@
         "NAVIGATION": "NOT_RUN (Parser Matrix)",
         "PROGRESS": "NOT_RUN (Parser Matrix)",
         "POSITION_RESTORE": "NOT_RUN (Parser Matrix)",
-        "SEARCH": "PASS",
+        "SEARCH": "PASS (Indexed)",
         "THEME": "NOT_RUN (Parser Matrix)",
         "TYPOGRAPHY": "NOT_RUN (Parser Matrix)",
         "ANNOTATIONS": "NOT_RUN (Parser Matrix)",

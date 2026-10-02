@@ -48,14 +48,18 @@ export function CbrReaderView({
 
   const palette = READER_THEMES[settings.theme] || READER_THEMES.sepia;
   const isMountedRef = useRef(true);
+  const restoredRef = useRef(false);
 
   useEffect(() => {
     isMountedRef.current = true;
     let cancelled = false;
 
     async function loadCbr() {
+      restoredRef.current = false;
       setIsLoading(true);
       setLoadError(null);
+      setPageUris([]);
+      setCurrentPageIndex(0);
       try {
         const filePath = book.filePath || book.uri || '';
         const base64 = await FileSystem.readAsStringAsync(filePath, {
@@ -124,6 +128,26 @@ export function CbrReaderView({
       isMountedRef.current = false;
     };
   }, [book.filePath, book.uri, book.id]);
+
+  useEffect(() => {
+    if (restoredRef.current || pageUris.length === 0) return;
+    restoredRef.current = true;
+
+    let initialPage = 0;
+    if (targetCfi?.startsWith('page:')) {
+      const index = Number.parseInt(targetCfi.slice('page:'.length), 10);
+      if (Number.isFinite(index) && index >= 0 && index < pageUris.length) {
+        initialPage = index;
+      }
+    } else if (book.progress > 0) {
+      initialPage = Math.min(
+        pageUris.length - 1,
+        Math.max(0, Math.round((book.progress / 100) * pageUris.length) - 1)
+      );
+    }
+
+    setCurrentPageIndex(initialPage);
+  }, [pageUris.length, targetCfi, book.progress]);
 
   const goToNextPage = () => {
     if (currentPageIndex < pageUris.length - 1) {

@@ -13,6 +13,7 @@ import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
 import { sanitizeHtml } from '@/services/security/sanitizeHtml';
 import { SELECTION_WATCHER_JS, parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
 import { resolveZipPath } from '@/services/epub/zipPaths';
+import { inlineEpubCss } from '@/services/epub/inlineCss';
 import JSZip from 'jszip';
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
@@ -64,6 +65,28 @@ async function extractChapterHtml(
   // Image resolution relative to the CHAPTER directory
   const chapterDir = itemPath.includes('/') ? itemPath.substring(0, itemPath.lastIndexOf('/') + 1) : '';
 
+  // EPUB stylesheets live in the archive; WebView cannot resolve their relative
+  // URLs from an in-memory HTML document. Inline local CSS/assets into this
+  // chapter while dropping remote imports/resources.
+  const cssChunks: { css: string; path: string }[] = [];
+  const inlineStyleRegex = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
+  let styleMatch: RegExpExecArray | null;
+  while ((styleMatch = inlineStyleRegex.exec(rawHtml)) !== null) cssChunks.push({ css: styleMatch[1], path: itemPath });
+  const linkRegex = /<link\b([^>]*)>/gi;
+  let linkMatch: RegExpExecArray | null;
+  while ((linkMatch = linkRegex.exec(rawHtml)) !== null) {
+    const attrs = linkMatch[1];
+    const rel = attrs.match(/\brel=["']([^"']+)["']/i)?.[1] || '';
+    const href = attrs.match(/\bhref=["']([^"']+)["']/i)?.[1];
+    if (!href || /^(?:https?:|\/\/|data:)/i.test(href) || !rel.toLowerCase().split(/\s+/).includes('stylesheet')) continue;
+    const stylesheetPath = resolveZipPath(chapterDir, href);
+    const stylesheet = zip.file(stylesheetPath) || Object.values(zip.files).find((entry) => entry.name.toLowerCase() === stylesheetPath.toLowerCase());
+    if (stylesheet) cssChunks.push({ css: await stylesheet.async('text'), path: stylesheetPath });
+  }
+  const safeCss = (await Promise.all(cssChunks.map(({ css, path }) => inlineEpubCss(css, path, zip))))
+    .filter(Boolean)
+    .join('\n');
+
   const imgRegex = /<(?:img|image)\b[^>]*\b(?:src|xlink:href|href)=["']([^"']+)["'][^>]*\/?>/gi;
   let imgMatch;
   const foundImages: string[] = [];
@@ -103,7 +126,7 @@ async function extractChapterHtml(
   const bodyMatch = rawHtml.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   const chapterHtmlContent = bodyMatch ? bodyMatch[1] : rawHtml;
 
-  return { title, html: sanitizeHtml(chapterHtmlContent) };
+  return { title, html: `${safeCss ? `<style>${safeCss}</style>` : ''}${sanitizeHtml(chapterHtmlContent)}` };
 }
 
 function escapeHtmlText(value: string): string {
@@ -170,11 +193,11 @@ export function EpubReaderView({
       zipRef.current = null;
       chapterCacheRef.current.clear();
       try {
-        const base64 = await fileStorage.readAsBase64(bookPath);
-        if (!base64) {
+        const archive = await fileStorage.readAsArrayBuffer(bookPath);
+        if (archive.byteLength === 0) {
           throw new Error('EPUB file is empty or missing from storage.');
         }
-        const zip = await JSZip.loadAsync(base64, { base64: true });
+        const zip = await JSZip.loadAsync(archive);
         validateArchiveBudget(
           Object.values(zip.files).map((entry) => {
             const data = (entry as unknown as { _data?: { compressedSize?: number; uncompressedSize?: number } })._data;
@@ -417,45 +440,7 @@ export function EpubReaderView({
             onChapterCountLoaded(loadedChapters.length);
           }
           setIsLoading(false);
-
-          if (continuousDocumentRef.current && loadedChapters.length > 1) {
-            // Asynchronously load and inject remaining chapters in spine order
-            setTimeout(async () => {
-              const zip = zipRef.current;
-              if (!zip) return;
-              // Prioritize adjacent chapters first, then outward
-              const order: number[] = [];
-              if (initialIdx + 1 < loadedChapters.length) order.push(initialIdx + 1);
-              if (initialIdx - 1 >= 0) order.push(initialIdx - 1);
-              for (let i = 0; i < loadedChapters.length; i++) {
-                if (i !== initialIdx && !order.includes(i)) order.push(i);
-              }
-
-              for (const idx of order) {
-                if (!isMounted) break;
-                if (!chapterCacheRef.current.has(idx)) {
-                  try {
-                    const chData = await extractChapterHtml(zip, loadedChapters[idx].itemPath, opfDir);
-                    chapterCacheRef.current.set(idx, chData.html);
-                    const safeJson = JSON.stringify(chData.html);
-                    webViewRef.current?.injectJavaScript(`
-                      (function() {
-                        var bodyEl = document.getElementById('chapter-body-${idx}');
-                        var secEl = document.getElementById('chapter-${idx}');
-                        if (bodyEl && secEl && secEl.getAttribute('data-loaded') !== 'true') {
-                          bodyEl.innerHTML = ${safeJson};
-                          secEl.setAttribute('data-loaded', 'true');
-                        }
-                      })();
-                      true;
-                    `);
-                  } catch (err) {
-                    logger.warn(TAG, `Failed prefetching chapter ${idx}`, err);
-                  }
-                }
-              }
-            }, 100);
-          } else if (initialIdx + 1 < loadedChapters.length) {
+          if (!continuousDocumentRef.current && initialIdx + 1 < loadedChapters.length) {
             // Paginated prefetch next chapter
             setTimeout(async () => {
               if (!chapterCacheRef.current.has(initialIdx + 1) && zipRef.current) {
@@ -989,6 +974,7 @@ export function EpubReaderView({
     <body>
       ${chapterHtml}
       <script>
+        window.__epubHydrating = true;
         var currentZoom = 1.0;
         var baseFontSize = ${settings.fontSize};
         var initialPinchDist = 0;
@@ -1050,6 +1036,7 @@ export function EpubReaderView({
         });
 
         window.addEventListener('scroll', function() {
+          if (window.__epubHydrating) return;
           var total = document.documentElement.scrollHeight - window.innerHeight;
           var percent = total > 0 ? Math.min(100, Math.round((window.scrollY / total) * 100)) : 0;
           var markers = Array.prototype.slice.call(document.querySelectorAll('[data-chapter-index]'));
@@ -1121,6 +1108,47 @@ export function EpubReaderView({
     }
   };
 
+  const hydrateContinuousDocument = async () => {
+    if (!continuousDocumentRef.current) return;
+    const zip = zipRef.current;
+    if (!zip) return;
+
+    // The shell is rendered before the WebView exists. Hydrate only after its
+    // load event; the former timer could inject into an unmounted/old document.
+    const order = chapters.map((_, index) => index);
+    order.sort((a, b) => Math.abs(a - currentChapterIndex) - Math.abs(b - currentChapterIndex));
+    for (const index of order) {
+      if (index === currentChapterIndex) continue;
+      try {
+        let html = chapterCacheRef.current.get(index);
+        if (!html) {
+          const data = await extractChapterHtml(zip, chapters[index].itemPath, opfDirRef.current);
+          html = data.html;
+          chapterCacheRef.current.set(index, html);
+        }
+        webViewRef.current?.injectJavaScript(`
+          (function() {
+            var body = document.getElementById('chapter-body-${index}');
+            var section = document.getElementById('chapter-${index}');
+            if (body && section) {
+              body.innerHTML = ${JSON.stringify(html)};
+              section.setAttribute('data-loaded', 'true');
+            }
+          })(); true;
+        `);
+      } catch (err) {
+        logger.warn(TAG, `Failed loading continuous chapter ${index}`, err);
+      }
+    }
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        window.__epubHydrating = false;
+        window.scrollTo(0, ${Math.max(0, initialScrollY)});
+        window.dispatchEvent(new Event('scroll'));
+      })(); true;
+    `);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
       <WebView
@@ -1130,6 +1158,7 @@ export function EpubReaderView({
         source={{ html: renderedHtml }}
         style={{ backgroundColor: palette.bg }}
         onMessage={handleMessage}
+        onLoadEnd={() => { void hydrateContinuousDocument(); }}
         scrollEnabled={!isPaginated}
         showsVerticalScrollIndicator={false}
       />

@@ -1,0 +1,15 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "18 books in library"
+    timeout: 120000
+- scrollUntilVisible:
+    element:
+      text: "Apache Tika Simple RTF (rtf)"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Apache Tika Simple RTF (rtf)"
+- waitForAnimationToEnd:
+    timeout: 10000

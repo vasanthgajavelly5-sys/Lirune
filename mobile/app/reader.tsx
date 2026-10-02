@@ -287,7 +287,12 @@ export default function ReaderScreen() {
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const newAsset = result.assets[0];
-        const updatedBook = await SourceResolver.relinkSource(currentBook, newAsset.uri);
+        const updatedBook = await SourceResolver.relinkSource(
+          currentBook,
+          newAsset.uri,
+          newAsset.name,
+          newAsset.size
+        );
         openBook(updatedBook);
         resolveCurrentBook(updatedBook);
       }

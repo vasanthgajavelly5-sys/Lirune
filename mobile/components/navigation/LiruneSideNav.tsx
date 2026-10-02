@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, usePathname } from 'expo-router';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeContext } from '@/theme/ThemeContext';
 
@@ -349,7 +350,7 @@ function LiruneSlideDrawer({
 
 
           <Text style={[styles.versionText, { color: colors.textMuted }]}>
-            Lirune Reader · v4.0.4
+            Lirune Reader · v{Constants.expoConfig?.version ?? 'Unknown'}
           </Text>
         </View>
       </Animated.View>

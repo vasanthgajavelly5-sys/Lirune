@@ -8,6 +8,7 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Book } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
+import { fileStorage } from '@/services/storage/FileStorage';
 import { SourceUnavailableError } from '@/utils/errors';
 import { logger } from '@/utils/logger';
 
@@ -190,19 +191,53 @@ export class SourceResolver {
   /**
    * Re-links a missing book to a new SAF or local URI.
    */
-  static async relinkSource(book: Book, newUri: string): Promise<Book> {
+  static async relinkSource(
+    book: Book,
+    newUri: string,
+    originalName?: string,
+    fileSizeHint?: number
+  ): Promise<Book> {
     logger.info(TAG, `Re-linking book "${book.title}" (${book.id}) to new URI: ${newUri}`);
+    if (fileSizeHint !== undefined && fileSizeHint > 512 * 1024 * 1024) {
+      throw new SourceUnavailableError(newUri, 'This file is too large to relink safely (maximum 512 MB).');
+    }
     const repo = getBookRepository();
+    // A cached source belongs to the previous URI. Invalidate it before
+    // resolving the replacement so the reader cannot silently reopen stale data.
+    if (Platform.OS !== 'web') {
+      try {
+        const oldCache = `${CACHE_DIR}${book.id}/`;
+        const cacheInfo = await FileSystem.getInfoAsync(oldCache);
+        if (cacheInfo.exists) await FileSystem.deleteAsync(oldCache, { idempotent: true });
+      } catch (err) {
+        logger.warn(TAG, `Failed to invalidate relink cache for ${book.id}`, err);
+        throw new SourceUnavailableError(
+          newUri,
+          'Could not clear the previous cached copy. Please try relinking again.'
+        );
+      }
+    }
+    const extension = book.format || book.filePath?.match(/\.([A-Za-z0-9]+)$/)?.[1] || 'bin';
+    const fileName = originalName || `${book.title}.${extension}`;
+    const fileId = `${book.id}-relink-${Date.now()}`;
+    const { destPath, fileSize } = await fileStorage.copyToAppStorage(newUri, fileId, fileName);
     const updatedBook: Book = {
       ...book,
       uri: newUri,
+      filePath: destPath,
+      fileSize,
       availability: 'available',
     };
-    await repo.updateBook(updatedBook);
-
-    // Validate resolution
-    await this.resolve(updatedBook);
-    return updatedBook;
+    try {
+      await repo.updateBook(updatedBook);
+      if (book.filePath && book.filePath !== destPath) {
+        await fileStorage.deleteBookFiles(book.filePath);
+      }
+      return updatedBook;
+    } catch (err) {
+      await fileStorage.deleteBookFiles(destPath);
+      throw err;
+    }
   }
 
   /**

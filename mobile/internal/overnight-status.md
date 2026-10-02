@@ -6,6 +6,15 @@ Branch: `origin/android` (local `android`)
 Main agent session: `ses_f06bac146ffeC5UXDy60kO3oau` ("Maestro MCP setup for Lirune Android project")
 Monitoring agent session: `ses_f06a59e84ffejaJ7KMSIt8vOSB`
 
+> Current user direction (2026-10-02): pause file-format testing, preserve all findings/fixes in the format notes, work on EPUB engine and storage fixes, and only after both are complete check for code errors and push the release. This supersedes earlier suggestions in this historical log to continue the format matrix. No release push has happened.
+
+## Checkpoint — 17:20 IST, 2026-10-02
+
+- File-format QA stopped at the user's direction; collected outcomes and failures remain in `copilot-18-format-live-qa.md`.
+- EPUB source changes: ZIP input uses an ArrayBuffer; local EPUB CSS and CSS image/font resources are inlined; continuous-scroll hydration waits for WebView load, restores saved scroll after filling the one-document chapter sections, and suppresses premature progress.
+- Storage/import changes: app storage setup failures surface; partial copy/cover files are cleaned; external SAF originals cannot be deleted by library cleanup; book/cover deletion attempts are independent; usage counts only actual book files; exact normalized-name matching replaces unsafe size/substring duplicate guesses; relinking replaces the source with a durable app-private copy and clears the prior SAF cache.
+- Source-only work; no further live EPUB/storage/format QA has been run. Still need final `npm test`, `npm run typecheck`, `npm run lint`, native release build/package audit, review, commit, push/tag, and release creation. Do not claim a release until remote publication is confirmed.
+
 Toolchain paths:
 - JDK: `C:\Users\vasanth\jdk17`
 - Android SDK: `C:\Users\vasanth\android-sdk`
@@ -757,6 +766,40 @@ Notes:
 
 ---
 
+## Checkpoint — 14:50
+
+Elapsed: ~716 min since baseline (02:54). **Milestone interval: work committed AND pushed.**
+Main task state: **PROGRESSING — and now durable.** Board `busy`. Strongest interval of the post-reboot phase.
+Current phase: Parser expansion (ODT, RTF) plus a native Gradle rebuild, following the first commit of the mission's resumed work.
+Current operation: Authored `OdtParser.ts` (14:26:49) and `RtfParser.ts` (14:27:51), **committed and pushed at 14:39:13**, then restarted the emulator and started a Gradle build. Smoke evidence `smoke_current.png` written **14:50:04** — under a minute before this snapshot.
+Last successful action: `smoke_current.png` at 14:50:04. Actively working.
+Tests: **Running.** `smoke_current.png` (14:50:04) indicates a smoke pass in flight post-rebuild.
+Build: **A Gradle build is RUNNING** — `java.exe` PID 19984 at 195.8 s CPU, confirmed as `GradleDaemon 9.3.1` from `~/.gradle/wrapper/dists/gradle-9.3.1`. First Gradle activity seen since before the reboot. Metro `node` PID 10456 CPU jumped 49s → **178s** (+129), consistent with heavy rebundling for the parser changes.
+Emulator: **ONLINE — restarted by the main agent (not by me).** New PIDs: `emulator.exe` 1972, `qemu-system-x86_64` 22340 (183 s CPU). `adb.exe` also changed, 17096 → 5268. Device `device`, transport_id 1, `boot_completed=1`, bootanim `stopped`. **App survived the emulator restart — `com.lirune.reader` is still installed**, so either no wipe was used or the APK was reinstalled. App process is currently **not running** (empty `pidof`), consistent with a mid-rebuild/reinstall moment rather than a failure.
+Maestro: Metro `node` PID 10464… (`node` 10456) healthy; `/status` **HTTP 200 in 0.054 s**. Two `node_repl` processes (8428, 18752) and `node` 11752/19788 appeared — consistent with interactive tooling/MCP sessions. Tunnel `host-17 tcp:8081 tcp:8081` still present in prior check.
+Formats completed: **54/54 discovery+import.** Parser work now extends to **ODT and RTF** (both touched in the commit), on top of the previously verified EPUB, DOC and MOBI.
+Formats remaining: Depth still unproven for most formats, but parser *implementation* now covers ODT and RTF, which is new and forward progress.
+Issues fixed: **Committed and verified.** Commit `315d7f2` "fix: parser fixes for ODT, RTF, DOC, EPUB SVG cover, and TTS accessibility" — **20 files changed, +1215/−27**, including:
+- `DocParser.ts` (+63/−14) — Word metadata filtering / HYPERLINK stripping
+- `EpubReaderView.tsx` (+10) — SVG→`<img>` cover fix
+- `TtsControlsSheet.tsx` (+1) — accessibility label
+- `OdtParser.ts` (+5), `RtfParser.ts` (+74/−…) — **new parser fixes**
+- All 14 Maestro flows (`mobile/e2e/01`–`13`)
+- `mobile/internal/overnight-status.md` (+832) — this monitoring log was committed too
+Issues remaining: Unknown at ID granularity.
+Current defect: **None observed.** No crash, no `FATAL`, no `Unable to load script`, no new `failure-*.png` (`.maestro-mcp` still holds only 3 screenshots, newest 08:00:46).
+Current blocker: **None.** Rig healthy; app temporarily down only because a rebuild is in progress.
+Recovery action taken: **None needed, and none taken.** Main agent restarted its own emulator and started its own build — correctly so, since it owns that work and my earlier instance had already served its purpose. I did not interfere. Read-only observation plus a `git show` of the commit; no production code touched, nothing committed by me.
+Git commit: **`315d7f2` (HEAD)** — and **pushed**: `git rev-list --left-right --count origin/android...android` returns **`0  0`**, i.e. local and `origin/android` are identical.
+Notes:
+- **The durability risk I have flagged at every checkpoint since 08:25 has been resolved.** Work is now committed *and* pushed to `origin`, so it has survived the 13:38 reboot rather than merely coexisting with it. Recording this as closed; I will stop repeating the warning unless new uncommitted work accumulates.
+- My monitoring log was included in the commit (832 lines). That is fine and arguably useful — it preserves the mission record — but flagging it so it is a deliberate choice: anyone regenerating that file will produce commit noise on the next cycle. Not asking for it to be removed; just noting the trade-off now that it is in history.
+- New working state to baseline: emulator PIDs 1972/22340, adb 5268, Gradle daemon 19984, Metro 10456. Earlier post-reboot PIDs (15096/8764/17096/10456) are superseded.
+- Verification note for honesty: the Gradle build and smoke test were **in progress** at sampling time, so I have confirmed that a build was launched and smoke evidence is being produced, **not** that either succeeded. Next checkpoint will show the outcome.
+- Next checkpoint ~15:15.
+
+---
+
 ## Checkpoint — 08:05
 
 Elapsed: Takeover / Mission Start
@@ -830,3 +873,60 @@ Current blocker: None
 Recovery action taken: Fixed extractChapterHtml to transform SVG cover wrappers and image tags into standard webview img tags before HTML sanitization.
 Git commit: dab006c (plus local reader fixes & Maestro test suite)
 Notes: Proceeding immediately to test continuous scroll across chapters (Issue 15), then loading and verifying remaining 17 formats from /sdcard/Download/lirune-qa-corpus/.
+## Supervisor checkpoint — 2026-10-02 14.46 +05:30
+
+Main task: ACTIVE; Expo dev server is running (port 8081), Maestro MCP processes are present, and recent QA flow files 11–13 were updated at 14:23. Latest commit: 315d7f2 at 14:39. No current Gradle/build/test process was found.
+Emulator: db devices -l returned no connected devices. AVD qa_android is installed, but no emulator instance is running; adb logcat has no accessible device output. This is the only actionable blocker for live Android QA.
+Git: branch ndroid...origin/android; numerous untracked QA screenshots, helper scripts, and .maestro-mcp/ are present. No tracked modifications appeared in git status; these artifacts are uncommitted and should be preserved.
+Recovery: No process was interrupted and no code/build/commit/push changes were made. Did not start an emulator while the main QA task may be managing the device.
+
+---
+
+## Checkpoint — 2026-10-02 15:34 +05:30
+
+Elapsed: ~50 minutes since resuming this task.
+Current phase: Live reader regression and targeted defect repair.
+Current task: Revalidate comic readers, persist CBR page position, and synchronize displayed app version with Expo config.
+Last successful operation: Maestro flows 14 (CBR restore), 15 (CBZ restore), and updated 05 (About version) passed on `emulator-5554`.
+Current tests: `npm run typecheck` PASS; CBR and CBZ each opened, navigated, closed, reopened, and restored page 2 of 5; About asserted Version 4.0.5. Full unit suite/lint not run in this checkpoint.
+Live emulator: `emulator-5554`, AVD `qa_android`, Android 15 / API 35, online; existing 18-book library retained.
+Maestro: 2.11.0; Metro reachable on 8081 with adb reverse.
+Formats completed: Existing 54/54 discovery/import evidence retained. Reader-depth evidence from prior session retained for EPUB, DOC, MOBI, FB2, and CHM. CBR and CBZ have one live sample each verified for open/navigation/reopen/progress restore today; remaining samples and 15 formats need full reader-depth coverage.
+Formats remaining: Full 18-format open/navigation/content/reopen/error matrix remains incomplete; 54-item source corpus is not present under `/sdcard/Download/lirune-qa-corpus` after emulator restart.
+Original issues verified: 1, 2, 3, 4, 6, 12, 13, 14 have prior live evidence; issue 6 was also rerun today. Issues 5, 7, 8, 9, 10, 11, 15 remain PARTIAL.
+New defects found: CBR ignored its saved page token and reopened at page 1; About and drawer hard-coded 4.0.4 while app config/install report 4.0.5. A short smoke flow also timed out during slow cold library hydration.
+Defects fixed: CBR now restores page-token position (live page 2/5 reopen flow passes); About and drawer read `Constants.expoConfig.version` (live 4.0.5 assertion and screenshot pass); About flow now waits for cold library load.
+EPUB progress: Existing deep-session findings and evidence retained; continuous mode still lacks verified whole-book multi-chapter scrolling.
+Tablet progress: No tablet-specific live run this checkpoint.
+APK/build state: `:app:assembleDebug` BUILD SUCCESSFUL and debug APK installed. APK at `mobile/android/app/build/outputs/apk/debug/app-debug.apk`, 111,921,390 bytes; versionName 4.0.5. Debug JS served by Metro.
+APK size: Debug APK ~106.8 MiB; release size/content audit not run.
+Current blocker: No environment blocker. Full corpus directory is absent from shared storage; 18 retained imported books are available inside app storage for one-sample format checks.
+Recovery action: Started the recorded AVD, restored adb reverse, assembled and reinstalled debug APK, and used longer cold-start waits. A one-off Fabric SIGSEGV happened at 14:50; four later cold launches passed with a 60-second content wait. Root cause not established. A temporary `enableScreens(false)` experiment was removed; it did not provide reliable evidence of a fix.
+Latest commit: `315d7f2` (unchanged).
+Next action: Run the full automated suite/lint; continue Issue 5/7/9/10/11/15 and the remaining format reader matrix; test fixed RTF/ODT live; investigate APK/security/provenance audits.
+Notes: No commit, push, release, or version bump was made. User-required release 4.0.5 remains gated on the broader regression; existing app config was already 4.0.5 before this checkpoint.
+
+## Checkpoint — 2026-10-02 16:26 +05:30
+
+Current task: Continue Android QA recovery and targeted fixes.
+Current tests: `npm run typecheck` PASS; `npm test` PASS (45/45); `npm run lint` PASS (0 errors, 19 warnings). Lint's prior sole error (`Buffer` undefined in the Node helper) was fixed by importing `Buffer` from `buffer` explicitly.
+Live Maestro: flows 14 (CBR page restore), 15 (CBZ page restore), and 05 (About version) PASS on API 35 emulator. CBR/CBZ reopen at page 2/5; About shows 4.0.5.
+Unresolved runtime observation: One Fabric SIGSEGV occurred during an earlier cold launch; four later cold launches passed. Root cause remains unknown.
+Release gate: Not met. Full 18-format reader matrix, remaining issue regressions, EPUB continuous-scroll continuity, tablet run, release APK audits/build/signing/smoke and final regression remain. No commit, push, tag, or release created.
+
+## Checkpoint — 2026-10-02 17:36 +05:30
+
+User direction: stop further file-format QA, preserve the completed findings, improve EPUB and storage, then run code checks and push.
+
+- `npm test` PASS 49/49; `npm run typecheck` PASS; lint 0 errors / 19 warnings; `git diff --check` PASS.
+- EPUB source work covers WebView-ready chapter hydration/position restore, binary JSZip input, and safe local stylesheet/font/image inlining. CSS helper has focused tests. No live EPUB retest.
+- Storage source work covers safe app-owned deletion, durable SAF relink, partial-file cleanup, accurate usage totals, exact duplicate naming, and stale-cache invalidation. No live storage matrix.
+- Release build compiled JS/native and failed only at package signing: release config is missing `storeFile`. Only debug keystore exists and release env keys are unset. Provenance/license blockers remain in `copilot-provenance-license-audit.md`.
+- No APK/tag/release created. Continue with source review and preserve this release gate; never substitute debug signing or publish a release artifact without the correct signer/clearance.
+
+## Checkpoint — 2026-10-02 16:55 +05:30
+
+Resumed live QA after user asked whether work was ongoing. The previous monitor is not a background process; active work resumed in this turn.
+ODT: Opened `Textract Raw Text (odt)` from the retained 18-book library on API 35. Screenshot visually confirms expected sample heading/content. Maestro flow `16_odt_live.yaml` passes launch/library-ready/select/open. Reader text is not exposed for text assertions, so status is PARTIAL (visual content evidence, one sample), not full format PASS.
+Existing flow 13 is stale and failed at its absent TXT selector `Alice in Wonderland`; it did not reach any reader. This reflects missing corpus items, not an observed TXT reader defect. Added ODT evidence and corrected the format matrix.
+Emulator activity otherwise succeeded. Release gate remains unmet; the full matrix and other pending audits remain.

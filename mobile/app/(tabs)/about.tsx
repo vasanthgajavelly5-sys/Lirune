@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeContext } from '@/theme/ThemeContext';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
@@ -60,7 +61,7 @@ export default function AboutScreen() {
           <Text style={[styles.wordmark, { color: colors.text }]}>Lirune Reader</Text>
           <Text style={[styles.tagline, { color: colors.textSecondary }]}>A calm, private home for your books</Text>
           <View style={[styles.versionBadge, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-            <Text style={[styles.versionText, { color: colors.textSecondary }]}>Version 4.0.4 (Android)</Text>
+            <Text style={[styles.versionText, { color: colors.textSecondary }]}>Version {Constants.expoConfig?.version ?? 'Unknown'} (Android)</Text>
           </View>
         </View>
 

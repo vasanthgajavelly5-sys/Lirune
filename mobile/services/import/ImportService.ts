@@ -156,18 +156,15 @@ export class ImportService {
       // 2. Check for duplicate by filename and size if already in library
       const existingBooks = await repo.getBooks();
       const cleanFileName = fileName.replace(/\.[^/.]+$/, '').toLowerCase();
-      const normFileName = cleanFileName.replace(/[^a-z0-9]/g, '');
+      const normFileName = cleanFileName.normalize('NFKC').replace(/[^a-z0-9]/g, '');
       const duplicate = existingBooks.find(
         (b) => {
           if (preliminaryFormat && b.format !== preliminaryFormat) return false;
-          const bTitle = b.title.toLowerCase();
-          const normTitle = bTitle.replace(/[^a-z0-9]/g, '');
-          return (
-            bTitle === cleanFileName ||
-            (normFileName.length > 3 && normTitle.includes(normFileName)) ||
-            (normTitle.length > 3 && normFileName.includes(normTitle)) ||
-            (fileSizeHint && b.fileSize === fileSizeHint && b.fileSize > 0)
-          );
+          const normTitle = b.title.toLowerCase().normalize('NFKC').replace(/[^a-z0-9]/g, '');
+          // Size alone and substring matches can suppress importing a different
+          // book (or “Book 10” when “Book 1” exists). Without hashing the content,
+          // an exact normalized name is the safe duplicate signal.
+          return normFileName.length > 0 && normTitle === normFileName;
         }
       );
       if (duplicate) {

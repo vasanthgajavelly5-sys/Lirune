@@ -29,6 +29,21 @@ function stripRtfGroup(text: string, start: number): number {
   return text.length;
 }
 
+/** Remove ignorable destinations such as Word's generator and private groups. */
+function removeIgnorableDestinationGroups(text: string): string {
+  let result = '';
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '{' && /^\{\\\*\\[a-z]+/i.test(text.slice(i))) {
+      i = stripRtfGroup(text, i);
+      continue;
+    }
+    result += text[i];
+    i++;
+  }
+  return result;
+}
+
 /**
  * Remove all top-level RTF groups whose control word matches any of the given names.
  * Handles arbitrarily nested braces correctly.
@@ -67,7 +82,8 @@ export class RtfParser {
     if (authorMatch && authorMatch[1].trim()) author = authorMatch[1].trim();
 
     // 2. Remove RTF header groups that contain no body text
-    let cleaned = removeRtfHeaderGroups(rtfText, [
+    let cleaned = removeIgnorableDestinationGroups(rtfText);
+    cleaned = removeRtfHeaderGroups(cleaned, [
       'fonttbl', 'colortbl', 'stylesheet', 'info',
       'header', 'footer', 'headerl', 'headerr', 'headerf',
       'footerl', 'footerr', 'footerf', 'listtable', 'listoverridetable',
@@ -75,8 +91,9 @@ export class RtfParser {
       'datastore', 'latentstyles', 'nonesttables', 'expandedcolortbl',
     ]);
 
-    // Strip the outer RTF wrapper {\\rtf1...
-    cleaned = cleaned.replace(/^\{\\rtf1[^{]*/i, '').replace(/\}$/, '');
+    // Strip only the root marker. The remaining root control words are removed below;
+    // consuming through the next brace can erase the entire body after group cleanup.
+    cleaned = cleaned.replace(/^\{\\rtf1\b/i, '').replace(/\}$/, '');
 
     // Convert unicode escapes: \u1234? -> character
     cleaned = cleaned.replace(/\\u(-?\d+)\??/g, (_, codeStr) => {
@@ -87,8 +104,20 @@ export class RtfParser {
 
     // Convert hex escapes: \'e9 -> character
     cleaned = cleaned.replace(/\\'([0-9a-fA-F]{2})/g, (_, hex) => {
-      return String.fromCharCode(parseInt(hex, 16));
+      return new TextDecoder('windows-1252').decode(new Uint8Array([parseInt(hex, 16)]));
     });
+
+    const punctuation: Record<string, string> = {
+      lquote: '‘',
+      rquote: '’',
+      ldblquote: '“',
+      rdblquote: '”',
+      emdash: '—',
+      endash: '–',
+      bullet: '•',
+      tab: '\t',
+    };
+    cleaned = cleaned.replace(/\\(lquote|rquote|ldblquote|rdblquote|emdash|endash|bullet|tab)\b\s?/g, (_, word: string) => punctuation[word]);
 
     // Convert paragraphs: \par
     const paragraphs = cleaned.split(/\\par\b/gi);
@@ -125,4 +154,3 @@ export class RtfParser {
     };
   }
 }
-

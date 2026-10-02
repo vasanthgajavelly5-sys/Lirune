@@ -124,8 +124,8 @@ export function PdfReaderView({
           } catch(e) {}
         };
       </script>
-      <script>${PDFJS_INLINE}</script>
-      <script>${PDFJS_WORKER_INLINE}</script>
+      <script>(function(){${PDFJS_INLINE}\n}).call(window);</script>
+      <script>(function(){${PDFJS_WORKER_INLINE}\n}).call(window);</script>
       <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body {

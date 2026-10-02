@@ -1,7 +1,10 @@
 appId: com.lirune.reader
 ---
 - launchApp:
-    stopApp: false
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Lirune Reader"
+    timeout: 60000
 
 # Open drawer
 - tapOn:
@@ -14,6 +17,7 @@ appId: com.lirune.reader
 - assertVisible: "About"
 - assertVisible: "Supported Formats"
 - assertVisible: "Privacy and Philosophy"
+- assertVisible: "Version 4.0.5 (Android)"
 
 # Test Back navigation
 - back

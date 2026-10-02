@@ -1,0 +1,15 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "18 books in library"
+    timeout: 120000
+- scrollUntilVisible:
+    element:
+      text: "Alice in Wonderland (txt)"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "Alice in Wonderland (txt)"
+- waitForAnimationToEnd:
+    timeout: 10000

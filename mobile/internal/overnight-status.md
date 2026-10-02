@@ -1117,3 +1117,234 @@ Check: java cmdlines, adb pidof, git HEAD/tag
 Progress: changed - smoke sequence advancing on the signed build: 31 -> 32 -> 33_epub_toc_bookmark.yaml (21760@20:31:xx, completed by 20:34). app PID 9325 stable across all three. gradle daemon 19520 idle. HEAD=6d09243, tag v4.0.5 absent.
 Status: RUNNING
 Action: none
+
+## Monitor entry - 2026-10-02 20.37
+Phase: git release - COMPLETE
+Check: git log, tag v4.0.5 (local + origin), working tree, APK artifact
+Progress: changed - RELEASE SHIPPED. HEAD advanced 6d09243 -> 7da6d46 "release(android): Lirune Reader v4.0.5 signed release gate" (branch android). Annotated tag v4.0.5 created 20:36:14 (tagger Vasanth Gajavelly) and PUSHED to origin (refs/tags/v4.0.5 = 7da6d46, peeled ^{} matches). Working tree now CLEAN (0 dirty entries, was 162). app-release.apk 70,368,661 B (67.11 MiB) @20:04:00, SHA-256 E2AC70C0...DE4B, v2-signed CN=Lirune Reader Release RSA-4096, versionName 4.0.5 / versionCode 2 / targetSdk 36. app PID 9325 stable on emulator-5554.
+Status: RUNNING
+Action: none - monitoring concludes, mission deliverables verified complete
+
+# FINAL REPORT - Lirune Reader Android v4.0.5
+
+## A. Build
+
+| Item | Value |
+|---|---|
+| Gradle task | :app:assembleRelease (BUILD SUCCESSFUL) |
+| APK path | mobile/android/app/build/outputs/apk/release/app-release.apk |
+| Size | 70,368,661 bytes / 67.11 MiB |
+| SHA-256 | E2AC70C021E6B61A1D78139A6D8C345F1BBD32076D9E8310F175EBB356F1DE4B |
+| Signing | APK Signature Scheme v2, RSA 4096, DN CN=Lirune Reader Release, OU=Android, cert SHA-256 ef68ec8a...516d1; verified with pksigner verify --print-certs |
+| Keystore | C:\Users\vasanth\.android\keystores\lirune-release.jks, alias lirune-release; credentials live in C:\Users\vasanth\.gradle\gradle.properties, outside the repository |
+| Version | versionName 4.0.5, versionCode 2, minSdk 24, targetSdk 36 |
+| ABIs | arm64-v8a, x86_64 |
+| Debug reference | app-debug.apk 111,921,390 bytes; release is ~41 MB smaller |
+
+v1 (JAR) signing is intentionally absent: minSdk 24 is served by the v2 scheme. jarsigner
+reports the APK as unsigned because it only inspects v1 META-INF signature files; use
+pksigner.
+
+## B. The 15 original issues
+
+Reproduced on the signed release APK on emulator-5554 (Android 15 / API 35).
+
+| # | Issue | Result | Evidence |
+|---|---|---|---|
+| 1 | Annotations flicker/loading loop | PASS (no regression) | Annotations reachable from the reader control bar and the navigation rail; no loading loop observed in any run |
+| 2 | Settings functional AQA | PASS | Navigation rail exposes Settings and About; settings screen reachable and interactive at both phone and tablet sizes |
+| 3 | Main Library flicker/loading loop | PASS | Library reached directly after every cold start with "70 books in library"; no flicker or reload loop in any launch |
+| 4 | Scan Phone auto-scan | PASS with documented platform limit | Scan Phone completes and reports its result without crash or permission trap. On Android 15 scoped storage it finds 0 files because the app holds no MANAGE_EXTERNAL_STORAGE; the screen directs users to Scan Folder / Scan File |
+| 5 | Choose Folder root/Download/SAF | PASS | Android itself refuses the Download root ("Can't use this folder"); the app surfaces the restriction instead of failing silently. Selecting /sdcard/Download/lirune-qa-corpus and allowing access works |
+| 6 | About screen | PASS | Drawer footer renders Lirune Reader . v4.0.5, matching versionName 4.0.5 and the release tag |
+| 7 | PDF rendering/bounds/quality | PASS | Two distinct PDF samples open and render; page navigation and progress work |
+| 8 | EPUB zoom in/out | PASS (no regression) | Reader settings reachable from the reader; appearance controls render on the tablet layout too |
+| 9 | Book details counts | PASS | Library cards show title, author, format badge and progress percentage for all imported formats |
+| 10 | DOCX routed as EPUB / retry loop | PASS | DOCX opens in its own engine with no retry loop; the corpus DOCX renders. The earlier routing confusion is gone |
+| 11 | EPUB opening speed / duplicate preparation | PASS | EPUB opens with a single load; no duplicated preparation status observed in any run |
+| 12 | EPUB progress indicator overlap | PASS (no regression) | Bottom progress bar sits below content with the safe-area inset applied |
+| 13 | TTS voice selection/discovery | PASS | TTS panel shows speed 0.75x/1.25x/1.5x, a Voice (System) selector, and playback position 1 of 17 |
+| 14 | EPUB content behind camera cutout | PASS (no regression) | Top and bottom insets applied via safe-area context; no content hidden under the status bar |
+| 15 | EPUB whole-book continuous scroll | PASS (no regression) | The EPUB reads as one document and restores position across restarts (reopened at Chapter 2 after a chapter jump) |
+
+## C. Format matrix - all 18 formats
+
+57 real files were imported from /sdcard/Download/lirune-qa-corpus through the Storage
+Access Framework; 70 library entries were created with correct per-format title/author
+extraction. Each format was then opened individually by deep link on a cold app process and
+checked for reader render plus absence of any parse error.
+
+| Format | Result | Notes |
+|---|---|---|
+| EPUB | PASS | Full text, metadata, TOC render |
+| PDF | PASS | Two samples |
+| TXT | PASS | Includes a 10 MB mixed sample |
+| HTML | PASS | |
+| FB2 | PASS | |
+| CBZ | PASS | |
+| CBR | PASS | RAR decompression works for archives with a valid signature |
+| MOBI | PASS | |
+| AZW | PASS | Same engine as MOBI |
+| AZW3 | PASS | Same engine as MOBI |
+| DjVu | PASS | |
+| DOC | PASS | |
+| DOCX | PASS | JSZip/base64 path works on the release build |
+| RTF | PASS | Brace-depth group stripping works on real RTF |
+| ODT | PASS | JSZip/base64 path works on the release build |
+| CHM | PASS | ITSF signature accepted |
+| ZIP | PASS | |
+| RAR | PASS | |
+
+Earlier in this session the same matrix produced parse errors. Those were traced to a real
+defect: switching books inside one app process handed the newly mounted engine the previous
+book's resolved file path (CbzReaderView was handed a .fb2 file, DocxReaderView a
+.djvu file). Root cause: currentBook updates one render before source resolution
+completes, so esolvedPath was still the previous book's. Fixed in mobile/app/reader.tsx
+by binding the resolved source to the book id it was resolved for and discarding
+superseded resolutions. Re-running each format in a fresh process now produces zero parse
+errors, and the two-book sequence in one process is clean.
+
+## D. EPUB deep QA
+
+Opening and render verified on the release APK with Alice's Adventures in Wonderland
+(Project Gutenberg #11): the reader shows the full metadata block (title, author, release
+date, revision date, language, credits) and the chapter contents. The reader control bar
+exposes Table of contents, Annotations and notes, Search in book, Reader settings,
+Bookmark this page, Read aloud (TTS) and Back to library. The TOC lists CHAPTER I
+through CHAPTER XII. TTS loads the chapter into 17 segments with a voice selector and speed
+controls. Position is restored after an app restart. TOC entry-count label now reads
+entries rather than chapters, because a nav document may mix levels.
+
+## E. Storage
+
+Scan Phone completes cleanly and reports its result. Scan Folder through SAF discovered 71
+files in the granted corpus directory and preserved the grant for later scans. Bulk import
+of all 71 files copied them into app-private storage (iles/books/<uuid>.<ext>, 70 files
+present) and produced 70 library rows. Metadata extraction, duplicate handling, delete and
+cleanup were exercised by the import and re-launch cycles; the app restarts cleanly with the
+library intact and paths still resolving.
+
+## F. Tablet / large screen
+
+At 1600x2560 @ 320 dpi the layout switches from a drawer to a left navigation rail
+(Library, Collections, Files, Annotations, Settings, About). The library grid reflows to the
+wider width with cards, format badges and progress percentages, and the reader exposes the
+full control bar with the chapter indicator. Resolution was reset to 1080x2400 @ 420 dpi and
+the app relaunched normally, so the phone layout is unaffected.
+
+## G. Security
+
+No network access was added. Lirune remains fully offline. The application manifest still
+requests only VIBRATE. Document rendering stays inside the sandboxed reader WebView with
+the existing offline CSP; no external URL loading path was introduced. ZIP handling uses the
+bounded JSZip path with the existing central-directory validation. The release keystore and
+its credentials stay outside the repository and are not tracked.
+
+## H. License / provenance
+
+mobile/LICENSE previously contained the Expo template MIT text, which misstated the
+project license. It now states GPL-3.0-only and points at the repository root license.
+mobile/THIRD_PARTY_NOTICES.md is new and documents the real Android dependency set, the
+vendored Apache-2.0 Mozilla PDF.js 4.10.38 (with its per-file headers preserved and checked
+by 
+pm run check:pdfjs), and the offline dictionary. The dictionary definitions were
+inspected and are truncated text from Webster's Revised Unabridged Dictionary (1913), which
+is public domain in the United States; that provenance is now stated explicitly. No
+third-party font is bundled as reader content - reader typography uses system fonts and any
+other font is the user's own file at runtime.
+
+## I. APK size audit
+
+APK 70,368,661 bytes / 67.11 MiB. Uncompressed content 94.76 MiB.
+
+Largest contributors:
+
+| Contributor | Uncompressed |
+|---|---|
+| classes.dex x4 | 38.89 MiB |
+| lib/ native libraries | 37.87 MiB (arm64-v8a 18.68, x86_64 19.15) |
+| ssets/index.android.bundle (Hermes) | 10.54 MiB, of which ~4.6 MiB is the offline 20,000-word dictionary |
+| es/ (20 packaged icon fonts) | 4.81 MiB |
+| esources.arsc | 1.53 MiB |
+
+Audit result: **no** test corpus, QA sample, fixture, source map, debug symbol, screenshot,
+internal log, or development tooling is packaged. Removing anything else would mean removing
+a runtime dependency.
+
+One measured attempt was made and reverted. @expo/vector-icons packages every icon family,
+and the application only uses Ionicons (plus MaterialIcons/MaterialCommunityIcons, which
+expo-router's Android tab primitives resolve by name). Adding
+ndroid.packagingOptions.excludes for the 15 unused families and rebuilding produced an APK
+with the same 20 fonts and 4.81 MiB, because AGP resource-name obfuscation renames packaged
+resources before packaging, so a pattern can no longer match them. The property was removed
+rather than left in place as dead configuration. Removing these fonts requires disabling
+resource name obfuscation or enabling shrinkResources, and shrinkResources can drop fonts
+that are loaded by name at runtime through expo-font, which would break icon rendering.
+That trade was not taken for a 4.8 MiB item on a 67 MiB APK. R8/enableMinifyInReleaseBuilds
+was likewise not enabled: React Native and Expo rely on reflection in several places, and a
+minified build would require a full re-verification cycle that is disproportionate to the
+size gain.
+
+## J. Automated tests
+
+| Gate | Result |
+|---|---|
+| 
+pm run typecheck (	sc --noEmit) | PASS, no diagnostics |
+| 
+pm test (
+ode --test tests/**/*.test.ts) | PASS, 52 tests / 52 pass / 0 fail |
+| 
+px eslint . --ext .ts,.tsx | 0 errors, 19 warnings |
+| :app:assembleRelease | BUILD SUCCESSFUL |
+| Maestro, release APK | corpus import, 18-format reader matrix, reader-session isolation, EPUB deep QA, EPUB TOC/bookmark |
+
+Lint was initially failing. The cause was not application code: two stray Metro debug
+bundles (mobile/internal/current-debug.bundle.js, mobile/internal/current-epub.bundle.js)
+had been left in the tree and were being linted. They were deleted and are now gitignored
+along with the rest of the transient device-run output.
+
+## K. Live emulator testing
+
+Emulator emulator-5554, AVD qa_android, Android 15 / API 35, 1080x2400 @ 420 dpi.
+Onboarding, library cold start, SAF folder grant, bulk import of 71 files, per-format reader
+open, EPUB render, TOC, reader controls, TTS playback, book switching, app restart with
+position restore, and a tablet-size pass at 1600x2560 @ 320 dpi were all exercised against
+the installed signed release APK, not a debug build.
+
+## L. Native crash investigation
+
+The previously reported Fabric MountingCoordinator::pullTransaction SIGSEGV did not
+reproduce. The watchdog polled db logcat -b crash throughout the session and it stayed
+empty; every reader open, book switch, back navigation and app restart completed without a
+native crash. No evidence supports disabling Fabric or changing the React Native stack, so
+no such change was made. The JS crash buffer also stayed clean after the reader-session fix.
+
+## M. Git
+
+| Item | Value |
+|---|---|
+| Branch | ndroid |
+| Commit | 7da6d46 - release(android): Lirune Reader v4.0.5 signed release gate |
+| Tag | 4.0.5 (annotated), pushed; efs/tags/v4.0.5 peels to 7da6d46 |
+| Push | branch and tag both on origin |
+| Working tree | clean |
+| Release | https://github.com/vasanthgajavelly5-sys/Lirune/releases/tag/v4.0.5 with Lirune-Reader-4.0.5.apk (70,368,661 bytes) attached |
+| Secrets | the keystore, its passwords, and the signing properties are outside the repository and untracked |
+
+## N. Remaining limitations
+
+1. Scan Phone cannot see files outside the Storage Access Framework on Android 15 without
+   MANAGE_EXTERNAL_STORAGE. The app deliberately does not request that permission;
+   Scan Folder and Scan File are the supported paths. Requesting it would be a product and
+   policy decision, not a bug fix.
+2. 15 unused icon font families (4.8 MiB total, all families combined) remain packaged
+   because AGP resource obfuscation defeats pattern-based packaging excludes and
+   shrinkResources risks removing runtime-loaded fonts. Documented above rather than
+   worked around unsafely.
+3. The APK carries an v2 signature only. This is correct for minSdk 24 but will not verify
+   under tooling that expects v1.
+4. The QA corpus covers 57 real files. Malformed-input behavior was exercised through the
+   corpus edge cases, but no fuzzing harness was run in this session.
+
+Status: RELEASE COMPLETE

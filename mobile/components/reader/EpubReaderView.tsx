@@ -90,6 +90,16 @@ async function extractChapterHtml(
     }
   }
 
+  // Transform SVG cover wrappers and SVG image elements to standard <img> tags for reader WebView compatibility
+  rawHtml = rawHtml.replace(
+    /<svg\b[^>]*>[\s\S]*?<image\b[^>]*\b(?:xlink:href|href)=["']([^"']+)["'][^>]*\/?>[\s\S]*?<\/svg>/gi,
+    '<div class="epub-cover-container" style="display:flex;justify-content:center;align-items:center;min-height:75vh;"><img src="$1" style="max-width:100%;max-height:80vh;object-fit:contain;margin:auto;display:block;" /></div>'
+  );
+  rawHtml = rawHtml.replace(
+    /<image\b[^>]*\b(?:xlink:href|href)=["']([^"']+)["'][^>]*\/?>/gi,
+    '<img src="$1" style="max-width:100%;height:auto;display:block;margin:12px auto;" />'
+  );
+
   const bodyMatch = rawHtml.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   const chapterHtmlContent = bodyMatch ? bodyMatch[1] : rawHtml;
 

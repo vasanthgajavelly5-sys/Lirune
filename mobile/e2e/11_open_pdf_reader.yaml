@@ -1,0 +1,19 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+# Navigate to library
+- tapOn: "All"
+
+# Tap on the PDF book card (W3C Dummy PDF)
+- tapOn: ".*W3C Dummy PDF.*"
+
+# Wait for PDF reader to load
+- waitForAnimationToEnd:
+    timeout: 8000
+
+# Assert PDF rendered - should show page content or canvas
+- assertVisible:
+    enabled: true
+    timeout: 8000

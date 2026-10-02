@@ -1,0 +1,8 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+- tapOn:
+    text: ".*Voice.*"
+    optional: false

@@ -1,0 +1,48 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+# Navigate to library  
+- tapOn: "All"
+
+# Tap on the EPUB book card
+- tapOn: ".*100x Return System.*"
+
+# Wait for EPUB to load
+- waitForAnimationToEnd:
+    timeout: 8000
+
+# Tap reader area to show controls
+- tapOn:
+    point: "50%,50%"
+
+# Look for scroll mode option - go to appearance/settings
+- tapOn:
+    point: "85%,95%"
+
+# Wait for controls
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Try to switch to scroll mode (if available in controls)
+- scrollUntilVisible:
+    element:
+      text: "Scroll"
+    direction: DOWN
+    timeout: 3000
+    optional: true
+
+# Go back to reader and navigate forward multiple pages to cross chapter
+- tapOn:
+    point: "10%,90%"
+
+# Navigate right/forward to cross chapters
+- tapOn:
+    point: "80%,50%"
+- waitForAnimationToEnd:
+    timeout: 2000
+- tapOn:
+    point: "80%,50%"
+- waitForAnimationToEnd:
+    timeout: 2000

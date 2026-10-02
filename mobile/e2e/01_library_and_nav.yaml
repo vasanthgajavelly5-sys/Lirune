@@ -1,0 +1,7 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+- assertVisible: "Lirune Reader"
+- assertVisible: "Import"
+- assertVisible: "All"

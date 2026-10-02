@@ -19,7 +19,10 @@ export interface ParsedOdt {
 
 export class OdtParser {
   static async parse(buffer: ArrayBuffer | Uint8Array | string): Promise<ParsedOdt> {
-    const zip = await JSZip.loadAsync(buffer);
+    // JSZip requires {base64: true} when the input is a base64-encoded string
+    const zip = typeof buffer === 'string'
+      ? await JSZip.loadAsync(buffer, { base64: true })
+      : await JSZip.loadAsync(buffer);
 
     // 1. Metadata from meta.xml
     let title = 'Untitled ODT Document';

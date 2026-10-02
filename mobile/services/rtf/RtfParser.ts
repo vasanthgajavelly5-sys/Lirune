@@ -13,6 +13,46 @@ export interface ParsedRtf {
   html: string;
 }
 
+/**
+ * Strip an RTF group starting at index `start` (which should point to `{`).
+ * Returns the index after the closing `}`.
+ */
+function stripRtfGroup(text: string, start: number): number {
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return text.length;
+}
+
+/**
+ * Remove all top-level RTF groups whose control word matches any of the given names.
+ * Handles arbitrarily nested braces correctly.
+ */
+function removeRtfHeaderGroups(text: string, groupNames: string[]): string {
+  const pattern = new RegExp(`^\\{\\\\(${groupNames.join('|')})\\b`, 'i');
+  let result = '';
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '{') {
+      // Look ahead at the control word
+      const slice = text.slice(i);
+      if (pattern.test(slice)) {
+        // Skip entire group
+        i = stripRtfGroup(text, i);
+        continue;
+      }
+    }
+    result += text[i];
+    i++;
+  }
+  return result;
+}
+
 export class RtfParser {
   static parse(input: string | Uint8Array): ParsedRtf {
     const rtfText = typeof input === 'string' ? input : new TextDecoder('latin1').decode(input);
@@ -20,19 +60,23 @@ export class RtfParser {
     let title = 'Untitled RTF';
     let author = 'Unknown Author';
 
-    const titleMatch = rtfText.match(/{\\info[\s\S]*?{\\title\s+([^}]+)}/i);
+    const titleMatch = rtfText.match(/\{\\info[\s\S]*?\{\\title\s+([^}]+)\}/i);
     if (titleMatch && titleMatch[1].trim()) title = titleMatch[1].trim();
 
-    const authorMatch = rtfText.match(/{\\info[\s\S]*?{\\author\s+([^}]+)}/i);
+    const authorMatch = rtfText.match(/\{\\info[\s\S]*?\{\\author\s+([^}]+)\}/i);
     if (authorMatch && authorMatch[1].trim()) author = authorMatch[1].trim();
 
-    // 2. Tokenize and parse RTF body
-    // Remove headers: fonttbl, colortbl, stylesheet, info
-    let cleaned = rtfText
-      .replace(/{\\fonttbl[\s\S]*?}/gi, '')
-      .replace(/{\\colortbl[\s\S]*?}/gi, '')
-      .replace(/{\\stylesheet[\s\S]*?}/gi, '')
-      .replace(/{\\info[\s\S]*?}/gi, '');
+    // 2. Remove RTF header groups that contain no body text
+    let cleaned = removeRtfHeaderGroups(rtfText, [
+      'fonttbl', 'colortbl', 'stylesheet', 'info',
+      'header', 'footer', 'headerl', 'headerr', 'headerf',
+      'footerl', 'footerr', 'footerf', 'listtable', 'listoverridetable',
+      'rsidtbl', 'mmathPr', 'themedata', 'colorschememapping',
+      'datastore', 'latentstyles', 'nonesttables', 'expandedcolortbl',
+    ]);
+
+    // Strip the outer RTF wrapper {\\rtf1...
+    cleaned = cleaned.replace(/^\{\\rtf1[^{]*/i, '').replace(/\}$/, '');
 
     // Convert unicode escapes: \u1234? -> character
     cleaned = cleaned.replace(/\\u(-?\d+)\??/g, (_, codeStr) => {
@@ -58,13 +102,18 @@ export class RtfParser {
         .replace(/\\i\s+/g, '<i>')
         .replace(/\\i0\b/g, '</i>');
 
-      // Remove other control words: \word
+      // Remove other control words: \word or \word123
       pText = pText.replace(/\\[a-zA-Z]+(-?\d+)?\s?/g, '');
       // Remove braces
       pText = pText.replace(/[{}]/g, '').trim();
 
-      if (pText.length > 0) {
-        htmlParagraphs.push(`<p>${pText}</p>`);
+      // Filter out lines that are clearly still RTF header garbage (semicolons, all-caps junk)
+      if (pText.length > 0 && !/^[A-Z0-9 ;,.*\\-]{20,}$/.test(pText)) {
+        const escaped = pText
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        htmlParagraphs.push(`<p>${escaped}</p>`);
       }
     }
 
@@ -76,3 +125,4 @@ export class RtfParser {
     };
   }
 }
+

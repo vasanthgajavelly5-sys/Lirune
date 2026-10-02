@@ -1,0 +1,19 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+# Open drawer
+- tapOn:
+    point: "8%,10%"
+
+# Tap on About
+- tapOn: "About"
+
+# Assertions on About screen
+- assertVisible: "About"
+- assertVisible: "Supported Formats"
+- assertVisible: "Privacy and Philosophy"
+
+# Test Back navigation
+- back

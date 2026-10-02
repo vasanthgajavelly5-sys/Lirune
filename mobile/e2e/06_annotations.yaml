@@ -1,0 +1,24 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+# Open drawer
+- tapOn:
+    point: "8%,10%"
+
+# Tap Annotations
+- tapOn: "Annotations"
+
+# Assertions on Annotations screen
+- assertVisible: "Annotations"
+- assertVisible: "All"
+- assertVisible: "Highlights"
+- assertVisible: "Notes"
+- assertVisible: "Bookmarks"
+
+# Test filter chips
+- tapOn: "Highlights"
+- tapOn: "Notes"
+- tapOn: "Bookmarks"
+- tapOn: "All"

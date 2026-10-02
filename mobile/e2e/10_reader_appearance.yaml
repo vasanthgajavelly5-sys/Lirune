@@ -1,0 +1,14 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+# Tap center to ensure controls are visible
+- tapOn:
+    point: "50%,50%"
+    optional: true
+
+# Tap on Reader settings
+- tapOn:
+    label: "Reader settings"
+    optional: false

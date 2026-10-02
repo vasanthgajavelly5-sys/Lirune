@@ -26,9 +26,17 @@ export class DocParser {
 
     let textContent = '';
 
+    // Known Word internal metadata strings to discard completely
+    const WORD_INTERNAL = new Set([
+      'bjbj', 'ObjectPool', 'WordDocument', 'CompObj', 'DocumentSummaryInformation',
+      'SummaryInformation', '1Table', '0Table', 'Data', 'Macros', 'VBA', 'Normal',
+      'Default Paragraph Font', 'Table Grid', 'Times New Roman', 'Arial', 'Calibri',
+      'Courier New', 'Symbol', 'Wingdings', 'Microsoft Word', 'MSWD', 'Word.Document',
+    ]);
+
     if (isOle) {
-      // Extract textual characters from the WordDocument stream by looking for text runs.
-      // Word 97-2003 stores text either as 8-bit CP1252 or 16-bit UTF-16LE.
+      // Extract textual characters from the WordDocument stream.
+      // Word 97-2003 stores text as 16-bit UTF-16LE or 8-bit CP1252.
       const textParts: string[] = [];
       let currentRun = '';
 
@@ -38,8 +46,8 @@ export class DocParser {
         const b1 = bytes[i];
         const b2 = bytes[i + 1];
 
-        // Check for printable UTF-16LE ASCII character (b2 === 0 and b1 is printable ASCII or newline)
         if (b2 === 0 && ((b1 >= 32 && b1 <= 126) || b1 === 10 || b1 === 13 || b1 === 9)) {
+          // UTF-16LE printable character
           if (b1 === 13 || b1 === 10) {
             if (currentRun.trim().length > 0) {
               textParts.push(currentRun.trim());
@@ -50,7 +58,7 @@ export class DocParser {
           }
           i += 2;
         } else if (b1 >= 32 && b1 <= 126) {
-          // Printable ASCII 8-bit run
+          // Printable ASCII 8-bit character
           currentRun += String.fromCharCode(b1);
           i += 1;
         } else {
@@ -66,19 +74,46 @@ export class DocParser {
         textParts.push(currentRun.trim());
       }
 
-      // Filter out binary metadata garbage: keep runs that have real words
-      const validParagraphs = textParts.filter((p) => {
-        if (p.length < 3) return false;
-        // Ignore internal Word object strings like "Normal", "Default Paragraph Font", "Table Grid"
-        if (/^(Normal|Default Paragraph Font|Table Grid|Times New Roman|Arial|Calibri)$/i.test(p)) return false;
-        return /[a-zA-Z0-9]/.test(p);
-      });
+      // Filter and clean extracted text runs
+      const validParagraphs = textParts
+        .filter((p) => {
+          if (p.length < 3) return false;
+          if (WORD_INTERNAL.has(p) || WORD_INTERNAL.has(p.trim())) return false;
+          // Discard short all-caps/no-vowel binary metadata strings
+          if (/^[A-Z0-9]{2,8}$/.test(p) && !/[aeiouAEIOU]/.test(p)) return false;
+          if (!/[a-zA-Z0-9]/.test(p)) return false;
+          return true;
+        })
+        .map((p) => {
+          // Strip Word field codes: HYPERLINK "url" \h
+          p = p.replace(/HYPERLINK\s+"[^"]*"\s*(\\[a-z]*)*/gi, '');
+          p = p.replace(/HYPERLINK\s+\S+\s*(\\[a-z]*)*/gi, '');
+          // Strip standalone field modifier sequences (\h, \l, \o, etc.)
+          p = p.replace(/\\[a-zA-Z]\b\s*/g, '');
+          return p.trim();
+        })
+        .filter((p) => p.length > 0);
 
-      textContent = validParagraphs.map((p) => `<p>${p.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`).join('\n');
+      textContent = validParagraphs
+        .map((p) => {
+          const escaped = p
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+          return `<p>${escaped}</p>`;
+        })
+        .join('\n');
     } else {
-      // Fallback text decode
+      // Fallback: plain text decode
       const raw = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-      textContent = raw.split(/\r?\n/).filter((l) => l.trim().length > 0).map((l) => `<p>${l}</p>`).join('\n');
+      textContent = raw
+        .split(/\r?\n/)
+        .filter((l) => l.trim().length > 0)
+        .map((l) => {
+          const esc = l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          return `<p>${esc}</p>`;
+        })
+        .join('\n');
     }
 
     const fullHtml = textContent || '<p>Empty Word document.</p>';

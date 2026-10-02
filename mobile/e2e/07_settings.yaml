@@ -1,0 +1,23 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+# Open drawer
+- tapOn:
+    point: "8%,10%"
+
+# Tap Settings
+- tapOn: "Settings"
+
+# Assertions on Settings screen
+- assertVisible: "Settings"
+- assertVisible: "Appearance"
+- assertVisible: "Reading Defaults"
+
+# Test Theme Switching
+- tapOn: "Dark"
+- tapOn: "Light"
+
+# Test Back navigation
+- back

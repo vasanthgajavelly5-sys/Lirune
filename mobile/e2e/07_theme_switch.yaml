@@ -1,0 +1,12 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+- tapOn: "Dark"
+- takeScreenshot: "mobile/internal/screen_settings_dark"
+
+- tapOn: "Light"
+- takeScreenshot: "mobile/internal/screen_settings_light"
+
+- back

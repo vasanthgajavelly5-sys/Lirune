@@ -112,7 +112,10 @@ export default function ReaderScreen() {
   } = useReaderStore();
 
   const [resolutionStatus, setResolutionStatus] = useState<ReaderResolutionStatus>('resolving');
-  const [resolvedPath, setResolvedPath] = useState<string | null>(null);
+  // The resolved path is bound to the book it was resolved for. Without this binding a
+  // book switch can render the new book's engine with the previous book's file path,
+  // because the store's currentBook updates one render before resolution completes.
+  const [resolvedSource, setResolvedSource] = useState<{ bookId: string; path: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionPayload>({ text: '', top: 0 });
   const [readerContentText, setReaderContentText] = useState('');
@@ -155,11 +158,13 @@ export default function ReaderScreen() {
   // 2. Canonical Source Resolution
   const resolveCurrentBook = useCallback(async (book: Book) => {
     setResolutionStatus('resolving');
+    setResolvedSource(null);
     setErrorMessage(null);
     try {
       logger.info(TAG, `Resolving source for "${book.title}" (${book.id})`);
       const resolved = await SourceResolver.resolve(book);
-      setResolvedPath(resolved.localPath);
+      if (useReaderStore.getState().currentBook?.id !== book.id) return;
+      setResolvedSource({ bookId: book.id, path: resolved.localPath });
       setResolutionStatus('ready');
       logger.info(TAG, `Source ready at: ${resolved.localPath}`);
     } catch (err: any) {
@@ -469,6 +474,8 @@ export default function ReaderScreen() {
   }
 
   // Construct active book with resolved local path
+  const resolvedPath =
+    resolvedSource && resolvedSource.bookId === currentBook.id ? resolvedSource.path : null;
   const activeBook: Book = {
     ...currentBook,
     filePath: resolvedPath || currentBook.filePath || currentBook.uri,

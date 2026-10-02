@@ -73,7 +73,7 @@ export function ChapterSheet({
               <View>
                 <Text style={[styles.headerTitle, { color: textColor }]}>Table of Contents</Text>
                 <Text style={[styles.headerSubtitle, { color: mutedColor }]}>
-                  {toc.length} {toc.length === 1 ? 'chapter' : 'chapters'}
+                  {toc.length} {toc.length === 1 ? 'entry' : 'entries'}
                 </Text>
               </View>
             </View>

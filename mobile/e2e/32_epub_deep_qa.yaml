@@ -1,0 +1,56 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+- openLink: "lirune://reader?bookId=a6fc4859-e00c-45a3-aa8d-625f92413400"
+- extendedWaitUntil:
+    visible: "Display Error"
+    timeout: 25000
+    optional: true
+- assertNotVisible: "Display Error"
+- tapOn:
+    point: "50%,50%"
+- extendedWaitUntil:
+    visible: ".*(Table of Contents|Contents|chapters|entries).*"
+    timeout: 20000
+    optional: true
+- takeScreenshot: "epub_controls"
+- tapOn:
+    text: ".*(Table of Contents|Contents).*"
+    optional: true
+- extendedWaitUntil:
+    visible: "entries"
+    timeout: 15000
+    optional: true
+- takeScreenshot: "epub_toc"
+- tapOn:
+    text: "CHAPTER I.*"
+    optional: true
+    index: 1
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: "epub_chapter1"
+- tapOn:
+    point: "50%,50%"
+- tapOn:
+    text: ".*(Search|search).*"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*(No results|matches|result).*|"
+    timeout: 10000
+    optional: true
+- takeScreenshot: "epub_search"
+- tapOn:
+    point: "50%,50%"
+- tapOn:
+    point: "50%,50%"
+- tapOn:
+    text: ".*(Bookmark|bookmark).*"
+    optional: true
+- takeScreenshot: "epub_bookmark"
+- tapOn:
+    point: "50%,50%"
+- tapOn:
+    text: ".*(TTS|Text to Speech|Read aloud|Speak).*"
+    optional: true
+- takeScreenshot: "epub_tts"

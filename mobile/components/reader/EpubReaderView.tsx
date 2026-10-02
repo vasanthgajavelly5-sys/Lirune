@@ -14,6 +14,7 @@ import { sanitizeHtml } from '@/services/security/sanitizeHtml';
 import { SELECTION_WATCHER_JS, parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
 import { resolveZipPath } from '@/services/epub/zipPaths';
 import { inlineEpubCss } from '@/services/epub/inlineCss';
+import { createSpineTarget, parseSpineTarget } from '@/services/epub/navigation';
 import JSZip from 'jszip';
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
@@ -172,6 +173,12 @@ export function EpubReaderView({
   const opfDirRef = useRef<string>('');
   const restorePendingRef = useRef(true);
   const continuousDocumentRef = useRef(false);
+  const pendingChapterNavigationRef = useRef<number | null>(null);
+  const targetCfiRef = useRef(targetCfi);
+
+  useEffect(() => {
+    targetCfiRef.current = targetCfi;
+  }, [targetCfi]);
 
   const isPaginated = settings.flow !== 'scrolled';
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
@@ -347,9 +354,10 @@ export function EpubReaderView({
         // Rewrite TOC hrefs to spine:N
         for (const item of tocItems) {
           if (!item.href) continue;
-          const idx = spineIndexFor(item.href);
+          const [hrefPath, fragment] = item.href.split('#', 2);
+          const idx = spineIndexFor(hrefPath);
           if (idx !== null) {
-            item.href = `spine:${idx}`;
+            item.href = createSpineTarget(idx, fragment);
           }
         }
 
@@ -391,14 +399,10 @@ export function EpubReaderView({
 
         // Determine starting chapter index
         let initialIdx = 0;
-        if (targetCfi && targetCfi.startsWith('spine:')) {
-          const targetParts = targetCfi.replace('spine:', '').split(':scroll:');
-          const idx = parseInt(targetParts[0], 10);
-          if (!isNaN(idx) && idx >= 0 && idx < loadedChapters.length) {
-            initialIdx = idx;
-          }
-          const savedScrollY = targetParts[1] ? parseInt(targetParts[1], 10) : 0;
-          if (!isNaN(savedScrollY) && savedScrollY >= 0) setInitialScrollY(savedScrollY);
+        const savedTarget = targetCfi ? parseSpineTarget(targetCfi) : null;
+        if (savedTarget && savedTarget.spineIndex < loadedChapters.length) {
+          initialIdx = savedTarget.spineIndex;
+          setInitialScrollY(savedTarget.scrollY || 0);
         } else if (book.progress && book.progress > 0 && loadedChapters.length > 0) {
           initialIdx = Math.min(
             loadedChapters.length - 1,
@@ -472,10 +476,13 @@ export function EpubReaderView({
 
   // Jump to target chapter if targetCfi changes
   useEffect(() => {
-    if (targetCfi && targetCfi.startsWith('spine:') && chapters.length > 0) {
-      const targetParts = targetCfi.replace('spine:', '').split(':scroll:');
-      const idx = parseInt(targetParts[0], 10);
-      if (continuousDocumentRef.current && !isNaN(idx)) {
+    const target = targetCfi ? parseSpineTarget(targetCfi) : null;
+    if (target && chapters.length > 0) {
+      const { spineIndex: idx } = target;
+      if (idx < 0 || idx >= chapters.length) return;
+      if (continuousDocumentRef.current) {
+        pendingChapterNavigationRef.current = idx;
+        setCurrentChapterIndex(idx);
         // If chapter isn't in cache yet, extract it on-demand immediately
         if (zipRef.current && !chapterCacheRef.current.has(idx) && idx < chapters.length) {
           extractChapterHtml(zipRef.current, chapters[idx].itemPath, opfDirRef.current).then((res) => {
@@ -494,24 +501,24 @@ export function EpubReaderView({
             `);
           });
         }
-        const offset = targetParts[1] ? parseInt(targetParts[1], 10) : undefined;
         webViewRef.current?.injectJavaScript(`
           (function() {
             var target = document.getElementById('chapter-${idx}');
             if (target) {
-              ${offset !== undefined ? `window.scrollTo(0, target.offsetTop + ${offset});` : `target.scrollIntoView({ behavior: 'smooth' });`}
+              ${target.anchor
+                ? `var anchor = document.getElementById(${JSON.stringify(target.anchor)}); (anchor && target.contains(anchor) ? anchor : target).scrollIntoView({ behavior: 'smooth' });`
+                : target.scrollY !== undefined
+                  ? `window.scrollTo(0, ${target.scrollY});`
+                  : `target.scrollIntoView({ behavior: 'smooth' });`}
             }
           })();
           true;
         `);
         return;
       }
-      if (!isNaN(idx) && idx >= 0 && idx < chapters.length) {
-        setCurrentChapterIndex(idx);
-        setCurrentPage(0);
-      }
-      const savedScrollY = targetParts[1] ? parseInt(targetParts[1], 10) : 0;
-      setInitialScrollY(Number.isFinite(savedScrollY) && savedScrollY >= 0 ? savedScrollY : 0);
+      setCurrentChapterIndex(idx);
+      setCurrentPage(0);
+      setInitialScrollY(target.scrollY || 0);
     }
   }, [targetCfi, chapters]);
 
@@ -553,6 +560,7 @@ export function EpubReaderView({
   useEffect(() => {
     if (chapters.length === 0) return;
     if (restorePendingRef.current) return;
+    if (!isPaginated) return;
     const currentChapter = chapters[currentChapterIndex];
     let percent = Math.round(((currentChapterIndex + 1) / chapters.length) * 100);
 
@@ -1078,6 +1086,9 @@ export function EpubReaderView({
           Math.max(0, Number.isFinite(data.chapterIndex) ? data.chapterIndex : currentChapterIndex),
           Math.max(0, chapters.length - 1)
         );
+        const pendingChapter = pendingChapterNavigationRef.current;
+        if (pendingChapter !== null && chapterIndex !== pendingChapter) return;
+        if (pendingChapter !== null) pendingChapterNavigationRef.current = null;
         if (continuousDocumentRef.current && chapterIndex !== currentChapterIndex) {
           setCurrentChapterIndex(chapterIndex);
         }
@@ -1140,10 +1151,21 @@ export function EpubReaderView({
         logger.warn(TAG, `Failed loading continuous chapter ${index}`, err);
       }
     }
+    const restoreTarget = targetCfiRef.current ? parseSpineTarget(targetCfiRef.current) : null;
+    const restoreChapter = restoreTarget && restoreTarget.spineIndex < chapters.length
+      ? restoreTarget.spineIndex
+      : null;
+    const restoreScript = restoreChapter === null
+      ? `window.scrollTo(0, ${Math.max(0, initialScrollY)});`
+      : restoreTarget?.anchor
+        ? `var section = document.getElementById('chapter-${restoreChapter}'); var anchor = document.getElementById(${JSON.stringify(restoreTarget.anchor)}); (anchor && section && section.contains(anchor) ? anchor : section).scrollIntoView();`
+        : restoreTarget?.scrollY !== undefined
+          ? `window.scrollTo(0, ${restoreTarget.scrollY});`
+          : `var section = document.getElementById('chapter-${restoreChapter}'); if (section) section.scrollIntoView();`;
     webViewRef.current?.injectJavaScript(`
       (function() {
         window.__epubHydrating = false;
-        window.scrollTo(0, ${Math.max(0, initialScrollY)});
+        ${restoreScript}
         window.dispatchEvent(new Event('scroll'));
       })(); true;
     `);

@@ -1,0 +1,15 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+- openLink: "lirune://reader?bookId=${BOOK_ID}"
+- extendedWaitUntil:
+    visible: "Display Error"
+    timeout: 20000
+    optional: true
+- assertNotVisible: "Display Error"
+- tapOn:
+    point: "50%,50%"
+    optional: true
+- assertNotVisible: "Display Error"
+- takeScreenshot: "fmt_${LABEL}"

@@ -1,0 +1,9 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+- tapOn: "All"
+- tapOn: "Alice in Wonderland (epub)"
+- waitForAnimationToEnd:
+    timeout: 10000
+- takeScreenshot: mobile/internal/epub_resume_open

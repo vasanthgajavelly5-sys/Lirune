@@ -1,0 +1,28 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+- openLink: "lirune://search"
+- extendedWaitUntil:
+    visible: "Scan Phone"
+    timeout: 40000
+- scrollUntilVisible:
+    element:
+      text: "Select All New.*"
+    direction: DOWN
+    timeout: 60000
+    speed: 40
+    centerElement: false
+- tapOn: "Select All New.*"
+- scrollUntilVisible:
+    element:
+      text: "Import Selected \\([1-9].*"
+    direction: UP
+    timeout: 60000
+    speed: 40
+    centerElement: false
+- tapOn: "Import Selected \\([1-9].*"
+- extendedWaitUntil:
+    notVisible: "Importing.*"
+    timeout: 900000
+- takeScreenshot: "corpus_import_result"

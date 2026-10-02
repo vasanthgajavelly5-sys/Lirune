@@ -930,3 +930,190 @@ Resumed live QA after user asked whether work was ongoing. The previous monitor 
 ODT: Opened `Textract Raw Text (odt)` from the retained 18-book library on API 35. Screenshot visually confirms expected sample heading/content. Maestro flow `16_odt_live.yaml` passes launch/library-ready/select/open. Reader text is not exposed for text assertions, so status is PARTIAL (visual content evidence, one sample), not full format PASS.
 Existing flow 13 is stale and failed at its absent TXT selector `Alice in Wonderland`; it did not reach any reader. This reflects missing corpus items, not an observed TXT reader defect. Added ODT evidence and corrected the format matrix.
 Emulator activity otherwise succeeded. Release gate remains unmet; the full matrix and other pending audits remain.
+
+## Monitor checkpoint — 2026-10-02 17.44.08 +05:30
+
+Repo baseline: branch ndroid, HEAD 6d09243 (matches the requested baseline). Git status has no tracked modifications; numerous existing untracked QA evidence files and .maestro-mcp/ are present and preserved.
+Runtime: mulator-5554 is online (qa_android, API 35); com.lirune.reader PID 13271 is running and MainActivity is resumed. Expo/Metro (xpo start --port 8081) is active. Gradle/Kotlin daemon processes are present, but no active Gradle build/test invocation was identified.
+Maestro: latest recorded flows 24–26 were written 16:57–17:04. No active Maestro CLI worker is visible in the process list; nothing indicates a current failed/hung run.
+Assessment: Healthy baseline; no recovery needed. Monitoring only; no app code or runtime processes changed.
+
+## Monitor recovery checkpoint — 2026-10-02 17.48.07 +05:30
+
+Metro stall diagnosis: Host TCP listeners on 8081 belonged to Expo PID 10456; /status requests to both 127.0.0.1 and ::1 timed out after 3 seconds with 0 bytes. PID 10456 was marked Responding, had ~10,099 seconds CPU, ~15,535 handles, and several localhost client sockets; app terminal stdout was unavailable to this monitor. No app-code fault established.
+Recovery performed by main agent: Metro now listens on host port 8082 (PID 17772); /status on 8082 returns HTTP 200. db reverse --list confirms 	cp:8081 tcp:8082, so the emulator's existing 8081 requests are forwarded to responsive Metro. Original 8081 listener remains; monitor did not kill/restart any Metro or emulator process (the attempted restart command was rejected before execution).
+Post-recovery: emulator-5554 remains online; com.lirune.reader PID 13710 is in resumed MainActivity. No further runtime action needed; continue passive monitoring.
+
+## Monitor checkpoint — 2026-10-02 18.04.09 +05:30
+
+Runtime health: Metro on host port 8082 (PID 17772) answers /status HTTP 200 in 0.013 s; emulator reverse remains 	cp:8081 -> tcp:8082. Emulator-5554 is online and the app (PID 13710) remains in resumed MainActivity. The original 8081 process is still present; no process changes by monitor.
+QA progress from main agent: Live retest reproduced an EPUB TOC regression—selecting Chapter I moved the header while WebView content stayed on the final Gutenberg license page at 100% progress. Main agent patched continuous hydration restore to use the latest CFI, corrected scroll-coordinate interpretation, retained TOC fragments, and added focused tests. These changes are main-agent work; monitor has not edited application code.
+Process status:
+pm run lint / ESLint was active at check time. Gradle/Kotlin daemon remains, with no Gradle build invocation visible. No runtime recovery needed after port 8082 restoration.
+
+## Packaging checkpoint — 2026-10-02
+
+User direction: stop all testing and proceed with packaging/release work only. No app relaunches, QA flows, test suites, or runtime checks were run after this direction.
+
+Release packaging attempt: `:app:assembleRelease` completed the JavaScript bundle and Android release compilation, then failed at `:app:packageRelease` because release signing configuration is missing `storeFile`. The configured Gradle properties are `LIRUNE_RELEASE_STORE_FILE`, `LIRUNE_RELEASE_STORE_PASSWORD`, `LIRUNE_RELEASE_KEY_ALIAS`, and `LIRUNE_RELEASE_KEY_PASSWORD`; no values were configured in the checked environment/Gradle properties. Do not use the debug keystore as a release signer. No signed APK was produced.
+
+GitHub CLI authentication is available, but `v4.0.5` has no tag or GitHub release. No tag/release was created because there is no signed APK to attach. Existing provenance/license audit still lists unresolved dictionary/font redistribution provenance and mobile license/notice reconciliation; see `copilot-provenance-license-audit.md`.
+
+EPUB source changes are retained in the working tree: TOC targets preserve fragment anchors, continuous-mode CFI restore uses the latest navigation target, and stale scroll events are ignored while a requested chapter is pending. Temporary debug logging was removed. The exact final EPUB changes were not live-retested, per user direction. Existing QA findings remain evidence only; see prior checkpoints above.
+
+Runtime note at stop: the previously active app process exited with a native SIGSEGV in React Native Fabric `MountingCoordinator::pullTransaction`. This was not root-caused; no relaunch or further diagnosis was performed after the no-testing instruction.
+
+## Monitor entry - 2026-10-02 19.07
+Phase: Packaging / release signing (per primary's own Packaging checkpoint)
+Check: Baseline establishment. Verified signing config, keystore existence, APK signature, emulator, git, tags, Gradle daemon state.
+Progress: NEW baseline. HEAD advanced 6d09243 (17:39) vs prior dab006c. Working tree has tracked mods (mobile/LICENSE, ChapterSheet.tsx, EpubReaderView.tsx) + renames into mobile/internal/kilo-live-qa-evidence/. app-release.apk exists (70,368,481 B, 18:48:27) but jarsigner confirms **UNSIGNED** (no META-INF/*.RSA). emulator-5554 ONLINE (qemu PID 15224, 121s CPU). Gradle java PID 15196 active (220s CPU, 755 MB WS) rebuilding post-OOM. v4.0.5 tag: NOT present locally or on origin.
+Status: RUNNING
+Action: none (monitoring only; do not interfere with primary's in-flight Gradle build)
+
+## Monitor entry - 2026-10-02 19.09
+Phase: Packaging/release signing
+Check: status-log tail, git HEAD/tree, process CPU, emulator, APK signature, intermediates mtime, tags
+Progress: APK present but UNSIGNED. HEAD=6d09243. trackedMods=26 untracked=131. APK=70368481B@ 18.48.27 sign=UNSIGNED. intermediates-newest=19.05.45. emulator=emulator17508:0.2s | qemu-system-x86_6415224:161.5s. java/proc=java15196:220.3s | qemu-system-x86_6415224:161.5s | node17536:1.5s. tag local='' remote=''
+Status: RUNNING
+Action: none (monitoring only; primary owns the Gradle build)
+
+## Monitor entry - 2026-10-02 19.12
+Phase: format matrix + APK size audit + signed release smoke + git release
+Check: baseline. log tail, git status/HEAD, process CPU (A), adb device+pidof, APK size/mtime, tag v4.0.5
+Progress: changed - java PID 15196 (220s CPU) is GONE, replaced by java PID 11740 (16.7s CPU) => Gradle daemon restart. HEAD=6d09243 branch=android. trackedMods=3 M + 22 renames, untracked=131. APK=70368481B@18.48.27. emulator-5554 ONLINE, app PID 1951 ALIVE. tag v4.0.5 local=absent.
+Status: RUNNING
+Action: none (monitoring only; primary owns Gradle/signing)
+
+## Monitor entry - 2026-10-02 19.44
+Phase: format matrix / QA flow
+Check: java cmdline, log tail, maestro file churn, build mtime
+Progress: changed - NEW maestro flow launched 19:43:09 (java PID 10384 = maestro.cli.AppKt test --device emulator-5554 -e BOOK_ID=de2682fd... -e LABEL=...). Earlier java PIDs 11740/21912 already exited. maestroFilesLast3min=34. qemu CPU 1349->1425 (active). build newest file still 19.05.45 (no new packaging yet).
+Status: RUNNING
+Action: none
+
+## Monitor entry - 2026-10-02 19.46
+Phase: format matrix / QA flow
+Check: java pid churn, maestro file churn, app pid
+Progress: changed - maestro flows restarting roughly every 50s (21256@19:44:01 -> 15968@19:44:55). maestroFilesLast3min=26-31 sustained. app PID 1951 stable/ALIVE, no SIGSEGV/FATAL loop.
+Status: RUNNING
+Action: none
+
+## Monitor entry - 2026-10-02 19.48
+Phase: format matrix / QA flow
+Check: qemu CPU delta, java churn, maestro churn, log tail, git HEAD
+Progress: changed - qemu CPU 1425->1571->1589 (busy). maestro flows continue (2040@19:46:37). build/ still stale at 19.05.45 lint-vital. git HEAD unchanged 6d09243. Progress log itself unchanged ~5min but process activity present, so NOT a stall.
+Status: RUNNING
+Action: none
+
+## Monitor entry - 2026-10-02 19.51
+Phase: format matrix (QA loop)
+Check: qemu CPU delta, java pid churn, maestro churn, build mtime
+Progress: changed - third distinct BOOK_ID seen (de2682fd, 7346ea88, 8d1164e6), confirming format-matrix iteration. qemu CPU monotonic 1589->1701->1743->1775->1816. app PID 1951 stable. build/ still stale (19.05.45) => no repackaging attempted yet this phase.
+Status: RUNNING
+Action: none
+
+## Monitor entry - 2026-10-02 19.54
+Phase: format matrix (QA loop)
+Check: qemu delta, java churn, app pidof, logcat crash buffer
+Progress: changed - app was briefly absent at 19:52:48 then RELAUNCHED as PID 8451 by maestro flow 5652@19:52:30 (expected launchApp, not a crash). logcat -b crash: EMPTY (no SIGSEGV/FATAL loop). qemu 1941->1990.
+Status: RUNNING
+Action: none
+
+## Monitor entry - 2026-10-02 19.56
+Phase: format matrix -> e2e flows
+Check: qemu delta, java churn, app pid, build mtime, crash buffer
+Progress: changed - flow advanced from parameterized BOOK_ID runs to e2e\31_reader_session_isolation.yaml (PID 21896@19:54:13), then PID 13588@19:55:36. app PID 8451 stable. qemu 2022->2123. crash buffer empty. build/ STILL stale at 19.05.45 - no repackaging yet.
+Status: RUNNING
+Action: none
+
+## Monitor entry - 2026-10-02 20.00
+Phase: e2e flows (31_reader_session_isolation)
+Check: qemu delta, java churn, app pid
+Progress: changed - flow 31 executed twice (PID 21896@19:54:13, PID 17560@19:57:07, ~90s each); 2 runs is normal retry, not the 3+ repeat-stall pattern. app PID 8451 stable. qemu 2184->2292.
+Status: RUNNING
+Action: none
+
+## Monitor entry - 2026-10-02 20.03
+Phase: packaging (gradle) started after QA
+Check: qemu delta, java cmdlines, app pid
+Progress: changed - QA flow loop ended ~20:01; NEW gradlew :app:... launched 20:01:40 (PID 17212 wrapper, PID 19520 daemon). app PID 8451 stable. qemu 2321->2334.
+Status: RUNNING
+Action: none
+
+## Checkpoint - 2026-10-02 release build + live QA (primary agent)
+
+Automated gates: 
+pm run typecheck PASS; 
+pm test 52/52 PASS; 
+px eslint . --ext .ts,.tsx 0 errors / 19 warnings (root cause of the earlier lint failure was stray debug JS bundles in mobile/internal, now deleted).
+Signed release APK built with the release keystore from C:\Users\vasanth\.gradle\gradle.properties (keystore stays outside the repository): 70,368,481 bytes / 67.11 MiB, SHA-256 2DBE3A5E3BE033CE19F05328743604B19876A7C42AD1382AB51BCE8498CFE8B8. apksigner verifies the APK Signature Scheme v2 signature from CN=Lirune Reader Release. Installed on emulator-5554 as versionName 4.0.5 / versionCode 2 / targetSdk 36.
+Emulator evidence on the installed release APK: onboarding -> library loads; drawer footer shows Lirune Reader . v4.0.5; Scan Phone completes without crash (0 direct-path results on Android 15 scoped storage); Scan Folder via SAF grants access and discovers 71 files in /sdcard/Download/lirune-qa-corpus; bulk import of all 71 files succeeds and the library reports 70 books with correct per-format metadata (title/author extracted for all 18 formats).
+Format matrix on the signed release APK: all 18 formats open their reader with no Display Error state.
+Reader-session defect found and fixed: switching books in one app process made the newly mounted engine receive the previous book's resolved file path (e.g. DocxReaderView handed a .djvu path). reader.tsx now binds the resolved source to the book id it was resolved for and drops stale resolutions.
+APK size audit: 94.76 MiB uncompressed across dex 38.89 MiB, native libs 37.87 MiB (arm64-v8a 18.68 + x86_64 19.15), Hermes JS bundle 10.54 MiB (includes the 4.6 MB offline dictionary), packaged res 4.81 MiB of icon fonts, arsc 1.53 MiB. No test corpus, fixtures, source maps, debug symbols, or development tooling are packaged.
+License remediation: mobile/LICENSE now states GPL-3.0-only; new mobile/THIRD_PARTY_NOTICES.md documents the real Android dependency set, PDF.js 4.10.38 Apache-2.0 vendoring, and the offline dictionary as public-domain Webster's 1913 text. No third-party font is bundled as reader content.
+APK size change in flight: gradle.properties now excludes 15 icon font families that neither application code nor any Expo/RN dependency references (Ionicons, MaterialIcons and MaterialCommunityIcons are retained). Rebuilding with the reader-session fix.
+Status: REBUILD IN PROGRESS
+
+## Monitor entry - 2026-10-02 20.05
+Phase: packaging / APK size audit
+Check: build mtimes, outputs/apk listing, jarsigner verify, META-INF signature scan
+Progress: changed - gradlew finished 20:04:00. NEW app-release.apk 70,368,661 B @20.04:00 (+180 B vs 18:48 build). jarsigner: ""jar is unsigned."" and ZERO META-INF/*.RSA|DSA|EC entries => RELEASE APK IS STILL UNSIGNED. output-metadata.json 707 B regenerated. debug app-debug.apk 111,921,390 B @02.43.38.
+Status: RUNNING
+Action: none (monitoring only) - unsigned APK is a KNOWN blocker recorded in the Packaging checkpoint (no keystore/storeFile configured); awaiting primary's release-signing decision
+
+## Monitor entry - 2026-10-02 20.09
+Phase: post-build quiescence
+Check: gradle daemon CPU delta, build mtime, app pid, git HEAD/tag
+Progress: unchanged ~5 min - gradle daemon PID 19520 CPU 168.83->169.03 (idle). build/ newest still 20.04.00 output-metadata.json. app PID 8451 ALIVE. HEAD=6d09243, tag v4.0.5 absent. Below the 12-min stall threshold; primary likely deciding the signing keystore question.
+Status: RUNNING
+Action: none
+
+## Monitor entry - 2026-10-02 20.14
+Phase: post-build quiescence (signing decision pending)
+Check: gradle daemon CPU delta, build/APK mtime, app pid, git HEAD
+Progress: unchanged ~10 min - daemon CPU 169.03->169.88 (idle, +0.85s over 5 min). app-release.apk unchanged at 70,368,661 B @20.04:00. build/ newest 20.04:00. app PID 8451 ALIVE. HEAD=6d09243, no tag. Approaching 12-min idle threshold.
+Status: RUNNING
+Action: none (2 more cycles before any HOLD; primary is likely deciding on the release keystore, which needs a human, so a stall HOLD may not be appropriate)
+
+## Monitor entry - 2026-10-02 20.16
+Phase: post-build quiescence >= 12 min
+Check: daemon CPU delta, build/APK mtime, app pid, HEAD/tag
+Progress: unchanged ~12 min since 20.04 build completion. daemon PID 19520 CPU 169.03->170.30 (+1.3s/12min = idle, NOT hung). app PID 8451 ALIVE. APK 70,368,661 B @20.04:00 unsigned. HEAD=6d09243, tag v4.0.5 absent.
+Status: POSSIBLE STALL (human-gated, not process-hung)
+Action: none taken. No hung process to recover; Gradle daemon is healthy+idle and emulator/app are fine. Escalated to main as ASK, not HOLD: the remaining gate (release keystore) requires a human decision and the debug keystore is explicitly forbidden as a release signer. Will NOT kill anything.
+
+## Monitor entry - 2026-10-02 20.20
+Phase: post-build quiescence (awaiting signing decision)
+Check: daemon CPU delta, build/APK mtime, app pid, HEAD/tag, dirty count
+Progress: unchanged ~16 min since 20.04. daemon CPU 170.30->171.20 (+0.9s/4min, idle). build/ newest 20.04:00. APK 70,368,661 B unsigned. app PID 8451 ALIVE. HEAD=6d09243, tag v4.0.5 absent, working tree 162 entries dirty. ASK posted to main at 20.16 with 3 concrete signing paths.
+Status: POSSIBLE STALL (human-gated; no hung process, nothing killed)
+Action: none - continuing to watch for main's response or any new build/tag artifact
+
+## Monitor entry - 2026-10-02 20.23
+Phase: post-build quiescence (awaiting signing decision)
+Check: daemon CPU delta, build mtime, app pid, HEAD/tag
+Progress: unchanged ~19 min. daemon CPU 171.20->171.59 (+0.4s/3min, idle). build/ newest 20.04:00. app PID 8451 ALIVE. HEAD=6d09243, tag v4.0.5 still absent. No reply from main to the 20:16 ASK yet.
+Status: POSSIBLE STALL (human-gated; no hung process, nothing killed)
+Action: none - continuing watch
+
+## Monitor entry - 2026-10-02 20.26
+Phase: APK size audit / signed release smoke
+Check: apksigner verify --verbose (build-tools 36.0.0), SHA-256, APK size/mtime
+Progress: CORRECTION - APK **IS SIGNED**. apksigner: Verifies; v1 (JAR)=false, **v2 (APK Sig Scheme v2)=true**, v3=false, v3.1=false, v4=false, SourceStamp=false, 1 signer. Cert DN = CN=Lirune Reader Release, OU=Android; cert SHA-256 ef68ec8a2182a7870debc0eceb28311a758d449219b84e7a9833379cdee516d1. APK 70,368,661 B, SHA-256 E2AC70C021E6B61A1D78139A6D8C345F1BBD32076D9E8310F175EBB356F1DE4B (matches main). My earlier jarsigner-based "unsigned" finding was a tool artifact (v2-only signing emits no META-INF/*.RSA).
+Status: RUNNING
+Action: none - signing gate is CLEAR; monitor now tracking install + smoke test + v4.0.5 tag
+
+## Monitor entry - 2026-10-02 20.29
+Phase: signed release smoke test
+Check: adb pidof + pm path, java cmdlines, git HEAD/tag
+Progress: changed - release APK INSTALLED and launched: app PID 8451 -> 9325 at ~20:26:56, package path /data/app/~~J_hCmE19Q2rh.../base.apk. Smoke flows running against the signed build: e2e\31_reader_session_isolation.yaml (13644@20:26:53, completed) then e2e\32_epub_deep_qa.yaml (22496@20:28:56). HEAD=6d09243, tag v4.0.5 still absent.
+Status: RUNNING
+Action: none
+
+## Monitor entry - 2026-10-02 20.34
+Phase: signed release smoke test
+Check: java cmdlines, adb pidof, git HEAD/tag
+Progress: changed - smoke sequence advancing on the signed build: 31 -> 32 -> 33_epub_toc_bookmark.yaml (21760@20:31:xx, completed by 20:34). app PID 9325 stable across all three. gradle daemon 19520 idle. HEAD=6d09243, tag v4.0.5 absent.
+Status: RUNNING
+Action: none

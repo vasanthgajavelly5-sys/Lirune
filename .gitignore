@@ -52,3 +52,19 @@ scratch/
 Batch*-Fixes/
 start-emulator.bat
 
+# Live-QA scratch captured by adb/Maestro during device runs.
+# Screenshots and UI dumps under mobile/internal/kilo-live-qa-evidence/ are tracked on
+# purpose; the loose copies in mobile/internal/ are transient run output.
+.maestro-mcp/
+mobile/internal/*.png
+mobile/internal/*.xml
+mobile/internal/*.db
+mobile/internal/lirune_*.db
+mobile/internal/*_sample_qa.*
+mobile/internal/current-*.bundle.js
+mobile/internal/check_rtf_regex.mjs
+mobile/internal/inspect_epub.js
+mobile/internal/test_extract.js
+mobile/internal/query_qa_db.py
+Screenshot_*.png
+

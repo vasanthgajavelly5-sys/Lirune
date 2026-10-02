@@ -1,0 +1,16 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+- tapOn: "All"
+- tapOn: "Alice in Wonderland (epub)"
+- waitForAnimationToEnd:
+    timeout: 10000
+- tapOn:
+    point: "50%,50%"
+- tapOn:
+    label: "Table of contents"
+- tapOn: "CHAPTER I. Down the Rabbit-Hole"
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertVisible: "CHAPTER I"

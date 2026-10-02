@@ -1,0 +1,40 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+- openLink: "lirune://reader?bookId=a6fc4859-e00c-45a3-aa8d-625f92413400"
+- extendedWaitUntil:
+    visible: "Display Error"
+    timeout: 25000
+    optional: true
+- assertNotVisible: "Display Error"
+- tapOn:
+    point: "50%,22%"
+- tapOn: "Table of contents"
+- extendedWaitUntil:
+    visible: "CHAPTER I\\."
+    timeout: 15000
+- assertVisible: "CHAPTER I\\."
+- tapOn:
+    text: "CHAPTER III\\..*"
+    index: 0
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: "epub_toc_ch3"
+- tapOn:
+    point: "50%,22%"
+- tapOn: "Bookmark this page"
+- takeScreenshot: "epub_bookmark_added"
+- tapOn:
+    point: "50%,22%"
+- tapOn: "Reader settings"
+- takeScreenshot: "epub_reader_settings"
+- scrollUntilVisible:
+    element:
+      text: ".*(Scroll|Pagination|Flow).*"
+    direction: DOWN
+    timeout: 20000
+    optional: true
+    centerElement: false
+- takeScreenshot: "epub_reader_settings_scrolled"

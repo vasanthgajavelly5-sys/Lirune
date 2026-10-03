@@ -10,7 +10,7 @@
  */
 
 import type { EpubArchive } from './archive.ts';
-import { resolveZipPath } from './zipPaths.ts';
+import { resolveZipHref, resolveZipPath } from './zipPaths.ts';
 import { createSpineTarget } from './navigation.ts';
 import { scanTokens, parseAttributes, toPlainText, elementInner, findElementEnd } from './markup.ts';
 import type { TOCItem } from '../../models/Book.ts';
@@ -101,7 +101,10 @@ function resolveCover(
 
 interface NavEntry {
   label: string;
-  href: string;
+  /** Archive path of the target, already resolved against the nav document's directory. */
+  path: string;
+  /** Element id inside the target, when the href carried a `#fragment`. */
+  fragment?: string;
   depth: number;
 }
 
@@ -109,7 +112,8 @@ interface NavEntry {
  * EPUB 3 navigation document.
  *
  * Prefers the `epub:type="toc"` nav; falls back to the whole document, which is
- * what most EPUB 3 files use anyway.
+ * what most EPUB 3 files use anyway. `<ol>` nesting is counted while walking so
+ * a nested entry indents under its parent instead of flattening to the left.
  */
 function parseNavDocument(navXhtml: string, navDir: string): NavEntry[] {
   const tokens = scanTokens(navXhtml);
@@ -132,14 +136,22 @@ function parseNavDocument(navXhtml: string, navDir: string): NavEntry[] {
 
   for (const scopeIndex of scopeIndexes) {
     const end = findElementEnd(tokens, scopeIndex);
+    let olDepth = 0;
     for (let i = scopeIndex + 1; i < (end === -1 ? tokens.length : end); i++) {
       const token = tokens[i];
+      if (token.lower === 'ol') {
+        if (!token.closing && !token.selfClosing) olDepth++;
+        else if (token.closing) olDepth = Math.max(0, olDepth - 1);
+        continue;
+      }
       if (token.lower !== 'a' || token.closing) continue;
       const href = parseAttributes(token.attrs).find((a) => a.name === 'href')?.value;
       if (!href) continue;
       const label = toPlainText(elementInner(navXhtml, tokens, i));
       if (!label) continue;
-      entries.push({ label, href: resolveZipPath(navDir, href), depth: 0 });
+      const target = resolveZipHref(navDir, href);
+      if (!target.path) continue;
+      entries.push({ label, path: target.path, fragment: target.fragment, depth: Math.max(0, olDepth - 1) });
     }
     if (entries.length > 0) break;
   }
@@ -147,13 +159,35 @@ function parseNavDocument(navXhtml: string, navDir: string): NavEntry[] {
   return entries;
 }
 
-/** EPUB 2 NCX: nested navPoint elements, flattened in document order. */
-function parseNcxDocument(ncxXml: string): NavEntry[] {
+/**
+ * EPUB 2 NCX: nested `navPoint` elements, flattened in document order.
+ *
+ * `src` is relative to the directory holding the NCX (usually the same directory
+ * as the OPF), never to the archive root — resolving it against the archive root
+ * is why NCX entries in `OEBPS/toc.ncx` used to point at nothing.
+ */
+function parseNcxDocument(ncxXml: string, ncxDir: string): NavEntry[] {
   const tokens = scanTokens(ncxXml);
   const entries: NavEntry[] = [];
+  const navPointDepth: number[] = [];
+  let depth = 0;
 
   tokens.forEach((token, index) => {
-    if (token.lower !== 'navpoint' || token.closing) return;
+    if (token.lower !== 'navpoint') return;
+    const closing = token.closing;
+    const selfClosing = token.selfClosing;
+
+    if (closing) {
+      depth = Math.max(0, depth - 1);
+      navPointDepth.pop();
+      return;
+    }
+    if (selfClosing) return;
+
+    const currentDepth = depth;
+    depth++;
+    navPointDepth.push(currentDepth);
+
     const close = findElementEnd(tokens, index);
     const block = ncxXml.slice(token.end, close === -1 ? ncxXml.length : tokens[close].start);
 
@@ -163,7 +197,9 @@ function parseNcxDocument(ncxXml: string): NavEntry[] {
     const label = toPlainText(textMatch[1]);
     const src = attribute(contentMatch[1], 'src');
     if (!label || !src) return;
-    entries.push({ label, href: src, depth: 0 });
+    const target = resolveZipHref(ncxDir, src);
+    if (!target.path) return;
+    entries.push({ label, path: target.path, fragment: target.fragment, depth: currentDepth });
   });
 
   return entries;
@@ -272,30 +308,41 @@ export async function readEpubPackage(archive: EpubArchive): Promise<EpubPackage
     );
     if (ncxItem) {
       const ncxXml = await archive.readText(ncxItem.path);
-      if (ncxXml) entries = parseNcxDocument(ncxXml);
+      if (ncxXml) {
+        const ncxDir = ncxItem.path.includes('/')
+          ? ncxItem.path.slice(0, ncxItem.path.lastIndexOf('/') + 1)
+          : '';
+        entries = parseNcxDocument(ncxXml, ncxDir);
+      }
     }
   }
 
   const toc: TOCItem[] = [];
   const chapterTitleByIndex = new Map<number, string>();
   entries.forEach((entry, order) => {
-    // `entry.href` is already an archive path (resolved against the navigation
-    // document for nav, against the OPF for NCX), so it must not be resolved again.
-    const [pathPart, fragment] = entry.href.split('#', 2);
-    const index = spineIndexFor(pathPart);
+    // `entry.path` is already an archive path (resolved against the navigation
+    // document for nav, against the NCX directory for NCX), so it must not be
+    // resolved again.
+    const index = spineIndexFor(entry.path);
     const id = `toc_${order}`;
-    let href: string | undefined;
-    if (index !== null) {
-      href = createSpineTarget(index, fragment);
+    // An entry that does not land on a spine item (a standalone TOC page, an
+    // external link) stays in the list — dropping it would hide real chapters —
+    // but carries no target.
+    const href = index === null ? undefined : createSpineTarget(index, entry.fragment);
+    if (index !== null && !chapterTitleByIndex.has(index)) {
       // The book's own navigation metadata is the best chapter title there is.
-      if (!chapterTitleByIndex.has(index)) chapterTitleByIndex.set(index, entry.label);
+      chapterTitleByIndex.set(index, entry.label);
     }
-    toc.push({ id, label: entry.label, href });
+    toc.push({ id, label: entry.label, href, depth: entry.depth });
   });
 
-  const chapterTitles = spine.map((_, index) => {
-    return chapterTitleByIndex.get(index) || `Chapter ${index + 1}`;
-  });
+  /**
+   * No nav match means the book never named this spine item. Returning '' instead
+   * of `Chapter N` keeps a fabricated number out of the UI: the caller substitutes
+   * the title resolved from the chapter document once it has been loaded, and only
+   * falls back to a positional label when even that is empty.
+   */
+  const chapterTitles = spine.map((_, index) => chapterTitleByIndex.get(index) || '');
 
   return {
     opfPath,

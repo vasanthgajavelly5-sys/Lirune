@@ -316,6 +316,11 @@ function readerCss(input: ReaderDocumentInput): string {
       border-bottom: 1px solid ${border};
       padding-bottom: 6px;
     }
+    /* The chapter already opens with its own heading, so the injected header
+       would print the same title twice. */
+    .chapter-section[data-has-heading="true"] > .chapter-header {
+      display: none;
+    }
     .chapter-marker {
       color: ${palette.text};
       font-size: 1.35em;
@@ -582,23 +587,44 @@ function continuousScript(input: ReaderDocumentInput): string {
   `;
 }
 
+export interface ContinuousShellOptions {
+  /**
+   * Whether the active chapter's own body opens with a heading. The active
+   * section is rendered from a document we already hold, so the answer is known
+   * before the WebView exists; every other section is corrected later by
+   * `__liruneChapterHeader` once its chapter is hydrated.
+   */
+  activeHasLeadingHeading?: boolean;
+}
+
 /**
  * Renders the continuous-mode chapter shell: one `<section>` per spine item, with
  * the active chapter's content already inlined so the first meaningful text paint
  * does not wait for a hydration round trip.
+ *
+ * A section with no navigation title gets no marker text at all: `Chapter 5` for a
+ * document that is really chapter three is worse than no header, and the real
+ * title is substituted as soon as the chapter has been loaded.
  */
 export function buildContinuousShell(
   chapterCount: number,
   chapterTitles: string[],
   activeIndex: number,
-  activeBodyHtml: string
+  activeBodyHtml: string,
+  options: ContinuousShellOptions = {}
 ): string {
   const sections: string[] = [];
   for (let index = 0; index < chapterCount; index++) {
     const isActive = index === activeIndex;
+    const title = chapterTitles[index] || '';
+    const hasHeading = isActive && options.activeHasLeadingHeading === true;
+    const header =
+      `<div class="chapter-header"${title ? '' : ' style="display:none"'}>${
+        title ? `<h2 class="chapter-marker">${escapeHtml(title)}</h2>` : ''
+      }</div>`;
     sections.push(
-      `<section id="chapter-${index}" data-chapter-index="${index}" class="chapter-section" data-loaded="${isActive ? 'true' : 'false'}">` +
-        `<div class="chapter-header"><h2 class="chapter-marker">${escapeHtml(chapterTitles[index] || `Chapter ${index + 1}`)}</h2></div>` +
+      `<section id="chapter-${index}" data-chapter-index="${index}" class="chapter-section" data-loaded="${isActive ? 'true' : 'false'}" data-has-heading="${hasHeading ? 'true' : 'false'}">` +
+        header +
         `<div class="chapter-body" id="chapter-body-${index}">${isActive ? activeBodyHtml : '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>'}</div>` +
         `</section>`
     );

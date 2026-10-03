@@ -713,6 +713,83 @@ function hasImageOnlyContent(fragment: string): boolean {
   return tokens.some((token) => token.lower === 'img' || token.lower === 'image' || token.lower === 'svg');
 }
 
+/**
+ * Elements that carry no text of their own, so the first *meaningful* element of
+ * a body can be past them. A publisher logo or a decorative rule before the
+ * chapter heading does not make the heading disappear.
+ */
+const TRANSPARENT_ELEMENTS = new Set([
+  'div',
+  'section',
+  'article',
+  'header',
+  'footer',
+  'main',
+  'body',
+  'span',
+  'center',
+  'img',
+  'image',
+  'svg',
+  'picture',
+  'figure',
+  'br',
+  'hr',
+]);
+
+/** Upper bound on how far into a body this look: a chapter heading is at the top. */
+const HEADING_SCAN_LIMIT = 40;
+
+/**
+ * True when the first meaningful element of a body is an `h1`–`h3` with text.
+ *
+ * Continuous mode injects its own chapter header. When the chapter document also
+ * opens with its own heading the reader showed the same title twice, so the shell
+ * asks this first and hides its header when the book already labels the chapter.
+ */
+export function startsWithHeading(bodyHtml: string): boolean {
+  if (!bodyHtml) return false;
+  const tokens = scanTokens(bodyHtml, { opaque: new Set() });
+  const limit = Math.min(tokens.length, HEADING_SCAN_LIMIT);
+
+  let cursor = 0;
+  let transparentDepth = 0;
+
+  for (let i = 0; i < limit; i++) {
+    const token = tokens[i];
+
+    // Any text ahead of the first element means the body does not open with one.
+    if (bodyHtml.slice(cursor, token.start).trim()) return false;
+    cursor = token.end;
+
+    if (token.closing) {
+      if (transparentDepth > 0) transparentDepth--;
+      continue;
+    }
+
+    if (/^h[1-3]$/.test(token.lower)) {
+      const inner = elementInner(bodyHtml, tokens, i);
+      const text = textOf(inner);
+      if (!text) return false;
+      // An image-only heading is a publisher logo, not a chapter title.
+      return !hasImageOnlyContent(inner);
+    }
+
+    // An anchor only wraps through when it holds no text of its own.
+    const transparent =
+      TRANSPARENT_ELEMENTS.has(token.lower) ||
+      (token.lower === 'a' && !textOf(elementInner(bodyHtml, tokens, i)));
+    if (transparent) {
+      if (!token.selfClosing) transparentDepth++;
+      continue;
+    }
+
+    return false;
+  }
+
+  return false;
+}
+
 /** Strips tags from a fragment for excerpt/plain-text use. */
 export function toPlainText(html: string): string {
   return textOf(html);

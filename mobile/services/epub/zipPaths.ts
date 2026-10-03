@@ -46,6 +46,22 @@ export function resolveZipPath(baseDir: string, href: string): string {
 }
 
 /**
+ * Resolves an EPUB-internal href and keeps its fragment.
+ *
+ * `resolveZipPath` deliberately drops `#…`, which is right for a resource lookup
+ * but wrong for a navigation target: an EPUB 3 `nav` link or an NCX `content src`
+ * of `Text/ch1.xhtml#s2` has to address the element `s2` inside that chapter.
+ */
+export function resolveZipHref(baseDir: string, href: string): { path: string; fragment?: string } {
+  const hash = href.indexOf('#');
+  const rawFragment = hash === -1 ? '' : href.slice(hash + 1);
+  return {
+    path: resolveZipPath(baseDir, href),
+    fragment: rawFragment ? safeDecode(rawFragment) : undefined,
+  };
+}
+
+/**
  * Canonical form of a ZIP entry name, used as the archive lookup key.
  *
  * Real-world EPUBs ship entries written as `.\OEBPS\Text\ch1.xhtml`,

@@ -18,6 +18,7 @@ import {
   normalizeSvgCovers,
   scanTokens,
   parseAttributes,
+  startsWithHeading,
 } from './markup.ts';
 import { archiveDirname, resolveZipPath } from './zipPaths.ts';
 
@@ -38,6 +39,13 @@ export interface ChapterDocument {
   imageCount: number;
   /** Number of @font-face declarations preserved (diagnostics / QA harness). */
   fontCount: number;
+  /**
+   * True when the sanitised body opens with the book's own chapter heading.
+   *
+   * Continuous mode injects a chapter header of its own; this flag tells it to
+   * stay out of the way instead of printing the same title twice.
+   */
+  hasLeadingHeading: boolean;
 }
 
 export interface ExtractChapterOptions {
@@ -145,6 +153,7 @@ export async function extractChapterDocument(
       css: '',
       imageCount: 0,
       fontCount: 0,
+      hasLeadingHeading: false,
     };
   }
 
@@ -180,5 +189,13 @@ export async function extractChapterDocument(
   const heading = extractChapterTitle(withImages);
   const title = resolveChapterTitle(options.navigationTitle, heading);
 
-  return { title, body: sanitized, stylesheets, css, imageCount, fontCount };
+  return {
+    title,
+    body: sanitized,
+    stylesheets,
+    css,
+    imageCount,
+    fontCount,
+    hasLeadingHeading: startsWithHeading(sanitized),
+  };
 }

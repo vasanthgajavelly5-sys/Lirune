@@ -175,10 +175,16 @@ for (const { file, corrupt } of CORPUS) {
       assert.ok(pkg.spine.length > 0, 'publication has at least one spine item');
       assert.ok(pkg.opfPath.length > 0);
       assert.equal(pkg.chapterTitles.length, pkg.spine.length);
+      // A spine item the publication's navigation never named carries an empty
+      // title on purpose — a fabricated "Chapter N" is what this replaced — and
+      // the chapter document resolves a real title when it loads (asserted below).
       for (const title of pkg.chapterTitles) {
         assert.equal(typeof title, 'string');
-        assert.ok(title.trim().length > 0, 'every chapter has a non-empty title');
       }
+      assert.ok(
+        pkg.chapterTitles.some((title) => title.trim().length > 0),
+        'navigation produced at least one chapter title'
+      );
       for (const item of pkg.spine) assert.ok(item.path.length > 0, 'spine item resolved to a path');
     });
 

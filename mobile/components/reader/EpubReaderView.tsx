@@ -68,6 +68,39 @@ const STYLE_INJECTOR_JS = `
     }
   };
   window.injectChapterStyles = window.__liruneInjectStyles;
+
+  /**
+   * Reconciles a hydrated chapter with the header the shell injected for it.
+   *
+   * The chapter may turn out to carry its own heading, in which case the injected
+   * header is hidden; otherwise the marker takes the title resolved from the
+   * chapter document, which is far better than a positional label.
+   */
+  window.__liruneChapterHeader = function (index, hasHeading, title) {
+    var section = document.getElementById('chapter-' + index);
+    if (!section) return;
+    section.setAttribute('data-has-heading', hasHeading ? 'true' : 'false');
+    if (hasHeading) return;
+
+    var header = section.querySelector('.chapter-header');
+    if (!title) {
+      if (header) header.style.display = 'none';
+      return;
+    }
+    if (!header) {
+      header = document.createElement('div');
+      header.className = 'chapter-header';
+      section.insertBefore(header, section.firstChild);
+    }
+    header.style.display = '';
+    var marker = header.querySelector('.chapter-marker');
+    if (!marker) {
+      marker = document.createElement('h2');
+      marker.className = 'chapter-marker';
+      header.appendChild(marker);
+    }
+    marker.textContent = title;
+  };
 })(); true;
 `;
 
@@ -89,8 +122,17 @@ interface EpubReaderViewProps {
 interface ChapterItem {
   id: string;
   href: string;
+  /** Title shown in UI lists; never an empty string. */
   title: string;
+  /**
+   * Title from the book's own navigation document, or '' when the publication
+   * never named this spine item. Continuous-mode headers use this so a chapter
+   * with no name shows nothing instead of a fabricated "Chapter N".
+   */
+  navTitle: string;
   itemPath: string;
+  /** `linear="no"` items stay reachable but are skipped by chapter turns. */
+  linear: boolean;
 }
 
 /** Insertion-ordered cache with a hard cap; the oldest entry is dropped first. */
@@ -137,6 +179,26 @@ class BoundedCache<T> {
  * a font-size change or a theme switch.
  */
 type AppliedGeometry = ReaderGeometry;
+
+/**
+ * Nearest spine index in `direction` that is part of the reading flow.
+ *
+ * `linear="no"` items (cover pages, "about the author" pop-ups, printable
+ * fragments) stay in the spine so every chapter id, CFI and TOC entry still
+ * addresses the same index, but a page turn must not stop on one.
+ */
+function findTurnTarget(
+  chapters: ChapterItem[],
+  from: number,
+  direction: 1 | -1,
+  requireLinear: boolean
+): number | null {
+  for (let index = from; index >= 0 && index < chapters.length; index += direction) {
+    if (requireLinear && !chapters[index].linear) continue;
+    return index;
+  }
+  return null;
+}
 
 export function EpubReaderView({
   book,
@@ -271,7 +333,7 @@ export function EpubReaderView({
     if (!archive || !item) return null;
     const cached = chapterCacheRef.current.get(index);
     if (cached) return cached;
-    const doc = await extractChapterDocument(archive, item.itemPath, { navigationTitle: item.title });
+    const doc = await extractChapterDocument(archive, item.itemPath, { navigationTitle: item.navTitle });
     // A book switch during extraction invalidates the result.
     if (archiveRef.current !== archive) return null;
     chapterCacheRef.current.set(index, doc);
@@ -324,12 +386,17 @@ export function EpubReaderView({
         const epubPackage = await readEpubPackage(archive);
         packageRef.current = epubPackage;
 
-        const loadedChapters: ChapterItem[] = epubPackage.spine.map((item, index) => ({
-          id: item.idref,
-          href: item.path,
-          title: epubPackage.chapterTitles[index] || `Chapter ${index + 1}`,
-          itemPath: item.path,
-        }));
+        const loadedChapters: ChapterItem[] = epubPackage.spine.map((item, index) => {
+          const navTitle = epubPackage.chapterTitles[index] || '';
+          return {
+            id: item.idref,
+            href: item.path,
+            navTitle,
+            title: navTitle || `Section ${index + 1}`,
+            itemPath: item.path,
+            linear: item.linear,
+          };
+        });
 
         const toc: TOCItem[] = epubPackage.toc.length
           ? epubPackage.toc
@@ -349,7 +416,7 @@ export function EpubReaderView({
         }
 
         const initialChapter = await extractChapterDocument(archive, loadedChapters[initialIdx].itemPath, {
-          navigationTitle: loadedChapters[initialIdx].title,
+          navigationTitle: loadedChapters[initialIdx].navTitle,
         });
         chapterCacheRef.current.set(initialIdx, initialChapter);
 
@@ -376,7 +443,7 @@ export function EpubReaderView({
             setTimeout(() => {
               if (chapterCacheRef.current.has(initialIdx + 1) || archiveRef.current !== archive) return;
               extractChapterDocument(archive, loadedChapters[initialIdx + 1].itemPath, {
-                navigationTitle: loadedChapters[initialIdx + 1].title,
+                navigationTitle: loadedChapters[initialIdx + 1].navTitle,
               })
                 .then((doc) => {
                   if (archiveRef.current === archive) chapterCacheRef.current.set(initialIdx + 1, doc);
@@ -516,6 +583,9 @@ if (!targetCfi || chapters.length === 0) return;
             window.__liruneInjectStyles(${idx}, ${JSON.stringify(doc.stylesheets)});
             body.innerHTML = ${JSON.stringify(doc.body)};
             section.setAttribute('data-loaded', 'true');
+            if (window.__liruneChapterHeader) {
+              window.__liruneChapterHeader(${idx}, ${doc.hasLeadingHeading ? 'true' : 'false'}, ${JSON.stringify(doc.title)});
+            }
           }
         })(); true;
       `);
@@ -556,16 +626,16 @@ if (!targetCfi || chapters.length === 0) return;
   }, [currentChapterIndex, currentPage, totalPages, isPaginated, chapters, onProgressChange]);
 
   const nextChapter = useCallback(() => {
-    const next = currentIndexRef.current + 1;
-    if (next >= chaptersRef.current.length) return;
+    const next = findTurnTarget(chaptersRef.current, currentIndexRef.current + 1, 1, true);
+    if (next === null) return;
     setStartAtEnd(false);
     setCurrentPage(0);
     setCurrentChapterIndex(next);
   }, []);
 
   const prevChapter = useCallback((fromEnd: boolean = false) => {
-    const previous = currentIndexRef.current - 1;
-    if (previous < 0) return;
+    const previous = findTurnTarget(chaptersRef.current, currentIndexRef.current - 1, -1, true);
+    if (previous === null) return;
     setStartAtEnd(fromEnd);
     setCurrentPage(0);
     setCurrentChapterIndex(previous);
@@ -636,12 +706,20 @@ const hydrateContinuousDocument = useCallback(async () => {
       if (archiveRef.current !== archive) return; // book switched mid-hydration
       const batch = order.slice(cursor, cursor + HYDRATE_BATCH_SIZE);
 
-      const payload: { index: number; body: string; sheets: { path: string; css: string }[] }[] = [];
+      const payload: { index: number; body: string; sheets: { path: string; css: string }[]; hasHeading: boolean; title: string }[] = [];
       await Promise.all(
         batch.map(async (index) => {
           try {
             const doc = await loadChapter(index);
-            if (doc) payload.push({ index, body: doc.body, sheets: doc.stylesheets });
+            if (doc) {
+              payload.push({
+                index,
+                body: doc.body,
+                sheets: doc.stylesheets,
+                hasHeading: doc.hasLeadingHeading,
+                title: doc.title,
+              });
+            }
           } catch (err) {
             logger.warn(TAG, `Failed loading continuous chapter ${index}`, err);
           }
@@ -661,6 +739,9 @@ const hydrateContinuousDocument = useCallback(async () => {
             window.__liruneInjectStyles(chapter.index, chapter.sheets);
             body.innerHTML = chapter.body;
             section.setAttribute('data-loaded', 'true');
+            if (window.__liruneChapterHeader) {
+              window.__liruneChapterHeader(chapter.index, chapter.hasHeading, chapter.title);
+            }
           }
         })(); true;
       `);
@@ -790,9 +871,10 @@ const overallPercent = Math.min(
       ? continuousSeed
         ? buildContinuousShell(
             chapters.length,
-            chapters.map((chapter) => chapter.title),
+            chapters.map((chapter) => chapter.navTitle),
             continuousSeed.index,
-            continuousSeed.body
+            continuousSeed.body,
+            { activeHasLeadingHeading: activeChapter?.hasLeadingHeading === true }
           )
         : '<p>Loading…</p>'
       : `<div class="epub-chapter-content">${activeChapter?.body ?? '<p>Loading…</p>'}</div>`;

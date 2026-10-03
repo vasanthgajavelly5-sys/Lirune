@@ -4,6 +4,7 @@
  */
 
 import JSZip from 'jszip';
+import * as FileSystem from 'expo-file-system/legacy';
 import { BookFormat } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { resolveZipPath } from '@/services/epub/zipPaths';
@@ -52,8 +53,63 @@ export function getCoverColorForTitle(title: string): string {
   return PALETTE_COLORS[index];
 }
 
-export function cleanTitleFromFilename(fileName: string): string {
-  const withoutExt = fileName.replace(/\.[^/.]+$/, '');
+/**
+ * Decodes a base64 range read back into text.
+ *
+ * A range read is a byte range, so it can start mid-character in a UTF-8
+ * sequence; the replacement character from that split byte is stripped so a
+ * `/Title (…)` value is not polluted by it.
+ */
+function base64ToText(base64: string): string {
+  try {
+    const raw = atob(base64);
+    let binary = '';
+    for (let i = 0; i < raw.length; i++) binary += raw.charCodeAt(i);
+    // A range read can start mid-character; drop the replacement character that
+    // the split byte decodes to.
+    const SPLIT_CHAR = String.fromCharCode(0xfffd);
+    return binary.split(SPLIT_CHAR).join('');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Reads a string out of the PDF Info dictionary.
+ *
+ * Handles both encodings a producer may use: PDFDocEncoding/PDF literal strings
+ * with escapes, and UTF-16BE with a byte-order mark.
+ */
+function readPdfInfoString(window: string, key: string): string | undefined {
+  const literal = new RegExp(`/${key}\\s*\\(((?:\\\\.|[^\\\\()])*)\\)`).exec(window);
+  const hex = new RegExp(`/${key}\\s*<([0-9A-Fa-f\\s]+)>`).exec(window);
+  let value: string | undefined;
+
+  if (hex && hex[1]) {
+    const bytes: number[] = [];
+    const digits = hex[1].replace(/\s+/g, '');
+    for (let i = 0; i + 1 < digits.length; i += 2) bytes.push(parseInt(digits.substr(i, 2), 16));
+    if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+      // UTF-16BE with a BOM.
+      let text = '';
+      for (let i = 2; i + 1 < bytes.length; i += 2) text += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]);
+      value = text;
+    } else {
+      value = String.fromCharCode(...bytes.slice(0, 512));
+    }
+  } else if (literal && literal[1] !== undefined) {
+    value = literal[1]
+      .replace(/\\([nrtbf()\\])/g, (_, c: string) =>
+        c === 'n' ? '\n' : c === 'r' ? '\r' : c === 't' ? '\t' : c === 'b' || c === 'f' ? '' : c
+      )
+      .replace(/\\([0-7]{1,3})/g, (_, oct: string) => String.fromCharCode(parseInt(oct, 8)));
+  }
+
+  const cleaned = (value || '').trim();
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+export function cleanTitleFromFilename(fileName: string): string {  const withoutExt = fileName.replace(/\.[^/.]+$/, '');
   // Replace underscores and extra dashes
   return withoutExt.replace(/[_-]+/g, ' ').trim() || 'Untitled Book';
 }
@@ -503,38 +559,62 @@ export class MetadataExtractor {
   ): Promise<ExtractedMetadata> {
     const title = cleanTitleFromFilename(originalName);
     let pageCount = 1;
+    let documentTitle: string | undefined;
+    let documentAuthor: string | undefined;
     try {
-      // Read binary sample from file to search for /Count and /Type /Pages
-      const raw = await fileStorage.readAsString(filePath);
-      // Search from both directions: trailer/catalog often contains the main /Pages /Count N
-      const countMatches = Array.from(raw.matchAll(/\/Type\s*\/Pages[\s\S]{0,100}?\/Count\s+(\d+)/gi));
-      if (countMatches.length > 0) {
-        // The root Pages node typically has the largest count
-        for (const m of countMatches) {
-          const val = parseInt(m[1], 10);
-          if (val > pageCount) pageCount = val;
-        }
-      } else {
-        const altMatches = Array.from(raw.matchAll(/\/Count\s+(\d+)[\s\S]{0,100}?\/Type\s*\/Pages/gi));
-        for (const m of altMatches) {
-          const val = parseInt(m[1], 10);
-          if (val > pageCount) pageCount = val;
+      // A PDF's page tree and Info dictionary live at the END of the file, and a
+      // linearised one also puts its first objects at the start. Reading the whole
+      // publication as text to regex them meant a 200MB scan could not even be
+      // imported; 64KB from each end covers every ordinary file, and pdf.js
+      // reports the real count on first open anyway.
+      const info = await FileSystem.getInfoAsync(filePath);
+      const size = info.exists && typeof info.size === 'number' ? info.size : 0;
+      if (size === 0) throw new Error('empty');
+
+      const tailLength = Math.min(64 * 1024, size);
+      const headLength = Math.min(4 * 1024, size);
+      const readText = async (position: number, length: number) => {
+        const base64 = await FileSystem.readAsStringAsync(filePath, {
+          encoding: FileSystem.EncodingType.Base64,
+          position,
+          length,
+        });
+        return base64ToText(base64);
+      };
+
+      const tail = await readText(Math.max(0, size - tailLength), tailLength);
+      const head = await readText(0, headLength);
+      // The page tree is usually in the tail; a linearised catalog is in the head.
+      const window = `${head}\n${tail}`;
+
+      const countMatches = Array.from(window.matchAll(/\/Type\s*\/Pages[\s\S]{0,100}?\/Count\s+(\d+)/gi));
+      for (const m of countMatches) {
+        const value = parseInt(m[1], 10);
+        if (value > pageCount) pageCount = value;
+      }
+      if (pageCount === 1) {
+        for (const m of Array.from(window.matchAll(/\/Count\s+(\d+)[\s\S]{0,100}?\/Type\s*\/Pages/gi))) {
+          const value = parseInt(m[1], 10);
+          if (value > pageCount) pageCount = value;
         }
       }
-
       if (pageCount === 1) {
-        // Fallback: match standalone /Type /Page
-        const pages = raw.match(/\/Type\s*\/Page\b/g);
+        const pages = window.match(/\/Type\s*\/Page\b/g);
         if (pages && pages.length > 0) pageCount = pages.length;
       }
-    } catch {
-      // Fallback to 1
+
+      documentTitle = readPdfInfoString(window, 'Title');
+      documentAuthor = readPdfInfoString(window, 'Author');
+    } catch (err) {
+      logger.warn(TAG, `Bounded PDF metadata read failed for ${originalName}`, err);
     }
 
     return {
-      title,
-      author: 'PDF Document',
-      coverColor: getCoverColorForTitle(title),
+      // The Info dictionary is the publisher's own title; the file name is the
+      // fallback for the many PDFs that carry no metadata at all.
+      title: documentTitle || title,
+      author: documentAuthor || 'Unknown Author',
+      coverColor: getCoverColorForTitle(documentTitle || title),
       chapterCount: pageCount,
     };
   }

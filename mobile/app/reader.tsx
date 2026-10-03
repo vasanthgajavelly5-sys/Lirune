@@ -521,6 +521,7 @@ export default function ReaderScreen() {
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             onTotalPagesLoaded={handleUpdateChapterCount}
+            onTOCLoaded={setTOC}
             targetCfi={currentCfi}
             onSearchResults={handleSearchResults}
             searchQuery={searchQuery}

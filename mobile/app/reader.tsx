@@ -147,13 +147,46 @@ export default function ReaderScreen() {
 
   // 1. Initialize book from ID if not already loaded in store
   useEffect(() => {
-    if (bookId && (!currentBook || currentBook.id !== bookId)) {
-      const bookToOpen = books.find((b) => b.id === bookId);
-      if (bookToOpen) {
-        openBook(bookToOpen);
+    let cancelled = false;
+    async function initBook() {
+      if (bookId && (!currentBook || currentBook.id !== bookId)) {
+        let bookToOpen = books.find((b) => b.id === bookId);
+        if (!bookToOpen) {
+          try {
+            const repo = getBookRepository();
+            const found = await repo.getBook(bookId);
+            if (found) bookToOpen = found;
+          } catch (err) {
+            logger.warn(TAG, `Failed to load book ${bookId} from repo`, err);
+          }
+        }
+        if (!cancelled && bookToOpen) {
+          openBook(bookToOpen);
+        } else if (!cancelled && !bookToOpen && books.length > 0) {
+          setResolutionStatus('failed');
+          setErrorMessage('Book not found in library.');
+        }
       }
     }
+    initBook();
+    return () => {
+      cancelled = true;
+    };
   }, [bookId, books, currentBook, openBook]);
+
+  // Safety net: ensure resolving never hangs indefinitely
+  useEffect(() => {
+    if (resolutionStatus === 'resolving') {
+      const timer = setTimeout(() => {
+        if (resolutionStatus === 'resolving') {
+          logger.warn(TAG, 'Document resolution timed out after 15s');
+          setResolutionStatus('failed');
+          setErrorMessage('Document took too long to prepare. Please tap Retry or return to Library.');
+        }
+      }, 15000);
+      return () => clearTimeout(timer);
+    }
+  }, [resolutionStatus]);
 
   // 2. Canonical Source Resolution
   const resolveCurrentBook = useCallback(async (book: Book) => {

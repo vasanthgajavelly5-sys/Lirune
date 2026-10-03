@@ -228,10 +228,10 @@ export function EpubReaderView({
   onContentTextChange,
 }: EpubReaderViewProps) {
   const insets = useStableInsets();
-  const { fontScale: osFontScale } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight, fontScale: osFontScale } = useWindowDimensions();
   const [containerDimensions, setContainerDimensions] = useState<{ width: number; height: number }>({
-    width: 0,
-    height: 0,
+    width: windowWidth > 0 ? Math.round(windowWidth) : 0,
+    height: windowHeight > 0 ? Math.round(windowHeight) : 0,
   });
   const [chapters, setChapters] = useState<ChapterItem[]>([]);
   const [activeChapter, setActiveChapter] = useState<ChapterDocument | null>(null);
@@ -357,6 +357,17 @@ export function EpubReaderView({
   useEffect(() => {
     onContentTextChange?.(activeChapter ? `<div class="epub-chapter-content">${activeChapter.body}</div>` : '');
   }, [activeChapter, onContentTextChange]);
+
+  useEffect(() => {
+    if (windowWidth > 0 && windowHeight > 0) {
+      setContainerDimensions((prev) => {
+        if (prev.width === 0 || prev.height === 0) {
+          return { width: Math.round(windowWidth), height: Math.round(windowHeight) };
+        }
+        return prev;
+      });
+    }
+  }, [windowWidth, windowHeight]);
 
   const handleContainerLayout = useCallback((e: any) => {
     const { width, height } = e.nativeEvent.layout;
@@ -976,7 +987,10 @@ const overallPercent = Math.min(
     // Nothing is painted until the container has been measured: a guessed 360x640
     // first frame is a visible reflow a few milliseconds later.
     return (
-      <View style={[styles.centered, { backgroundColor: palette.bg }]}>
+      <View
+        style={[styles.container, styles.centered, { backgroundColor: palette.bg }]}
+        onLayout={handleContainerLayout}
+      >
         <ActivityIndicator size="large" color={palette.link} />
         <Text style={[styles.loadingText, { color: palette.muted }]}>Opening book…</Text>
       </View>
@@ -986,7 +1000,10 @@ const overallPercent = Math.min(
   if (loadError || chapters.length === 0) {
     const canRetry = loadAttempt < 3;
     return (
-      <View style={[styles.centered, { backgroundColor: palette.bg, padding: 32 }]}>
+      <View
+        style={[styles.container, styles.centered, { backgroundColor: palette.bg, padding: 32 }]}
+        onLayout={handleContainerLayout}
+      >
         <Ionicons name="alert-circle-outline" size={48} color={palette.link} />
         <Text style={[styles.errorTitle, { color: palette.text }]}>Unable to Read Publication</Text>
         <Text style={[styles.errorMessage, { color: palette.muted }]}>

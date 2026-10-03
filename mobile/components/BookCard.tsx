@@ -11,7 +11,7 @@ import {
   Image,
   StyleSheet,
   TouchableOpacity,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Book, ViewMode } from '@/models/Book';
@@ -35,6 +35,11 @@ export function BookCard({
 }: BookCardProps) {
   const { colors, scheme } = useThemeContext();
   const isDark = scheme === 'dark';
+  // Measured, not module-level: a module-level `Dimensions.get('window')` is read
+  // once at import time, so the grid kept the launch orientation's card width
+  // after a rotation until the app was restarted.
+  const { width: windowWidth } = useWindowDimensions();
+  const gridCardWidth = (windowWidth - 44) / 2;
 
   const formatLabels: Record<string, string> = {
     epub: 'EPUB',
@@ -61,6 +66,7 @@ export function BookCard({
         style={[
           styles.gridCard,
           {
+            width: gridCardWidth,
             backgroundColor: isDark ? '#202026' : '#FFFFFF',
             borderColor: colors.borderSubtle,
           },
@@ -323,13 +329,9 @@ export function BookCard({
   );
 }
 
-const screenWidth = Dimensions.get('window').width;
-const gridCardWidth = (screenWidth - 44) / 2;
-
 const styles = StyleSheet.create({
   // Grid
   gridCard: {
-    width: gridCardWidth,
     borderRadius: 16,
     marginBottom: 16,
     borderWidth: 1,
@@ -342,7 +344,9 @@ const styles = StyleSheet.create({
   },
   gridCoverWrapper: {
     width: '100%',
-    height: gridCardWidth * 1.38,
+    // Was `gridCardWidth * 1.38`, which baked the launch-time screen width into
+    // the stylesheet. The ratio is what actually matters.
+    aspectRatio: 1 / 1.38,
     position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',

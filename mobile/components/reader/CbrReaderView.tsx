@@ -11,10 +11,10 @@ import {
   StyleSheet,
   ActivityIndicator,
   PanResponder,
-  Dimensions,
+  useWindowDimensions,
   Text,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useStableInsets } from '@/hooks/useStableInsets';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Book, ReaderSettings } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
@@ -40,7 +40,8 @@ export function CbrReaderView({
   onProgressChange,
   targetCfi,
 }: CbrReaderViewProps) {
-  const insets = useSafeAreaInsets();
+  const insets = useStableInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const [pageUris, setPageUris] = useState<string[]>([]);
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -172,10 +173,9 @@ export function CbrReaderView({
     onPanResponderRelease: (_, gestureState) => {
       const { dx, dy, x0 } = gestureState;
       if (Math.abs(dx) < TAP_SLOP && Math.abs(dy) < TAP_SLOP) {
-        const screenWidth = Dimensions.get('window').width;
-        if (x0 < screenWidth * 0.3) {
+        if (x0 < windowWidth * 0.3) {
           goToPrevPage();
-        } else if (x0 > screenWidth * 0.7) {
+        } else if (x0 > windowWidth * 0.7) {
           goToNextPage();
         } else {
           onToggleControls();

@@ -15,8 +15,8 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, PixelRatio } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { useStableInsets } from '@/hooks/useStableInsets';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
@@ -49,6 +49,19 @@ const CHAPTER_CACHE_LIMIT = 40;
 
 /** Longest the reader waits for the WebView to answer a position capture. */
 const POSITION_CAPTURE_TIMEOUT_MS = 400;
+
+/**
+ * How long a geometry change has to stay put before it is applied.
+ *
+ * A rotation fires `onLayout` several times while the window animates. Applying
+ * each one meant capturing the reading position, re-rendering the document and
+ * restoring it — three times for a single rotation, which reads as the reader
+ * "flinching". Only the settled size is worth a round trip.
+ */
+const GEOMETRY_SETTLE_MS = 200;
+
+/** Container size changes smaller than this are animation noise. */
+const LAYOUT_NOISE_DP = 4;
 
 /** Injected once so hydrated chapters can add their own stylesheets. */
 const STYLE_INJECTOR_JS = `
@@ -213,7 +226,8 @@ export function EpubReaderView({
   onSelectionChange,
   onContentTextChange,
 }: EpubReaderViewProps) {
-  const insets = useSafeAreaInsets();
+  const insets = useStableInsets();
+  const { fontScale: osFontScale } = useWindowDimensions();
   const [containerDimensions, setContainerDimensions] = useState<{ width: number; height: number }>({
     width: 0,
     height: 0,
@@ -255,21 +269,31 @@ export function EpubReaderView({
   /** The last `targetCfi` this reader acted on, so one request runs exactly once. */
   const lastAppliedCfiRef = useRef<string | null>(null);
   const geometryRequestRef = useRef<AppliedGeometry | null>(null);
+  /** Pending debounce for the next geometry application. */
+  const geometrySettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appliedGeometryRef = useRef<AppliedGeometry | null>(null);
   const liveGeometryRef = useRef<ReaderGeometry | null>(null);
+  /** Last rendered column count; the hysteresis input for the next decision. */
+  const [previousTwoColumn, setPreviousTwoColumn] = useState(false);
   const chaptersRef = useRef<ChapterItem[]>([]);
   const currentIndexRef = useRef(0);
   const currentPageRef = useRef(0);
 
   const isPaginated = settings.flow !== 'scrolled';
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
-  const osFontScale = PixelRatio.getFontScale();
+
+  /**
+   * Geometry is only meaningful once the container has been measured. A guessed
+   * 360x640 first paint is what produced one reflow on every open, so until the
+   * real size arrives the reader renders nothing but its loading state.
+   */
+  const isMeasured = containerDimensions.width > 0 && containerDimensions.height > 0;
 
   const liveLayout = useMemo(
     () =>
       computeReaderLayout({
-        containerWidth: containerDimensions.width || 360,
-        containerHeight: containerDimensions.height || 640,
+        containerWidth: containerDimensions.width,
+        containerHeight: containerDimensions.height,
         insets: { top: insets.top, bottom: insets.bottom, left: insets.left, right: insets.right },
         fontSize: settings.fontSize,
         userMargin: settings.margin,
@@ -291,8 +315,8 @@ export function EpubReaderView({
   );
 
   const liveGeometry = useMemo<ReaderGeometry>(
-    () => computeReaderGeometry(settings, liveLayout, containerDimensions.width || 360),
-    [settings, liveLayout, containerDimensions.width]
+    () => computeReaderGeometry(settings, liveLayout, previousTwoColumn),
+    [settings, liveLayout, previousTwoColumn]
   );
 
   const [appliedGeometry, setAppliedGeometry] = useState<AppliedGeometry>(liveGeometry);
@@ -301,6 +325,10 @@ export function EpubReaderView({
     appliedGeometryRef.current = appliedGeometry;
     liveGeometryRef.current = liveGeometry;
   }, [appliedGeometry, liveGeometry]);
+
+  useEffect(() => {
+    setPreviousTwoColumn(appliedGeometry.twoColumn);
+  }, [appliedGeometry.twoColumn]);
 
   useEffect(() => {
     chaptersRef.current = chapters;
@@ -316,7 +344,11 @@ export function EpubReaderView({
     const { width, height } = e.nativeEvent.layout;
     if (width > 0 && height > 0) {
       setContainerDimensions((prev) => {
-        if (Math.abs(prev.width - width) < 2 && Math.abs(prev.height - height) < 2) return prev;
+        // A rotation reports a stream of intermediate sizes; anything under this
+        // much is animation noise, not a new layout.
+        if (Math.abs(prev.width - width) < LAYOUT_NOISE_DP && Math.abs(prev.height - height) < LAYOUT_NOISE_DP) {
+          return prev;
+        }
         return { width: Math.round(width), height: Math.round(height) };
       });
     }
@@ -431,7 +463,7 @@ export function EpubReaderView({
           // Adopt the geometry that is current *now* (the container has been
           // measured by this point) so the first render is already correct and
           // the reader never paints once with fallback dimensions.
-          if (liveGeometryRef.current) setAppliedGeometry(liveGeometryRef.current);
+          if (liveGeometryRef.current && isMeasured) setAppliedGeometry(liveGeometryRef.current);
           if (settings.flow === 'scrolled') {
             setContinuousSeed({ body: initialChapter.body, css: initialChapter.css, index: initialIdx });
           }
@@ -493,8 +525,19 @@ export function EpubReaderView({
       return;
     }
     if (geometryRequestRef.current) return;
-    geometryRequestRef.current = liveGeometry;
-    webViewRef.current?.injectJavaScript(REQUEST_POSITION_JS);
+    // Debounced: a rotation reports several intermediate sizes in a row and only
+    // the last one describes the window the reader will keep.
+    geometrySettleRef.current = setTimeout(() => {
+      geometrySettleRef.current = null;
+      geometryRequestRef.current = liveGeometry;
+      webViewRef.current?.injectJavaScript(REQUEST_POSITION_JS);
+    }, GEOMETRY_SETTLE_MS);
+    return () => {
+      if (geometrySettleRef.current) {
+        clearTimeout(geometrySettleRef.current);
+        geometrySettleRef.current = null;
+      }
+    };
   }, [appliedGeometry.key, liveGeometry, isLoading]);
 
   // Safety net: apply the new geometry even if the WebView never answers.
@@ -903,7 +946,9 @@ const overallPercent = Math.min(
     initialScrollY,
   });
 
-  if (isLoading) {
+  if (isLoading || !isMeasured) {
+    // Nothing is painted until the container has been measured: a guessed 360x640
+    // first frame is a visible reflow a few milliseconds later.
     return (
       <View style={[styles.centered, { backgroundColor: palette.bg }]}>
         <ActivityIndicator size="large" color={palette.link} />

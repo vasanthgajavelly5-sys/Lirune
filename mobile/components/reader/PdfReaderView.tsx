@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Text,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useStableInsets } from '@/hooks/useStableInsets';
 import { WebView } from 'react-native-webview';
 import { Book, ReaderSettings, SearchResult } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
@@ -46,7 +46,7 @@ export function PdfReaderView({
   onTotalPagesLoaded,
   targetCfi,
 }: PdfReaderViewProps) {
-  const insets = useSafeAreaInsets();
+  const insets = useStableInsets();
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(0);

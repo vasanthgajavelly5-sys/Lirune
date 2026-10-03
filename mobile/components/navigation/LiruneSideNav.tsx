@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   Pressable,
   Animated,
-  Dimensions,
+  useWindowDimensions,
   BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -108,18 +108,26 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
+const WIDE_SCREEN_OFF_DP = 640;
+const WIDE_SCREEN_ON_DP = 680;
+
 export function LiruneNavigationProvider({ children }: { children: React.ReactNode }) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [dimensions, setDimensions] = useState(Dimensions.get('window'));
+  const { width } = useWindowDimensions();
+  const [isWideScreen, setIsWideScreen] = useState(width >= WIDE_SCREEN_ON_DP);
 
   useEffect(() => {
-    const subscription = Dimensions.addEventListener('change', ({ window }) => {
-      setDimensions(window);
-    });
-    return () => subscription?.remove();
-  }, []);
+    setIsDrawerOpen(false);
+  }, [width]);
 
-  const isWideScreen = dimensions.width >= 640;
+  // Hysteresis: a window sitting between the two thresholds must not flip the
+  // navigation between rail and drawer while a rotation animation reports a
+  // stream of intermediate widths.
+  useEffect(() => {
+    setIsWideScreen((previous) =>
+      previous ? width >= WIDE_SCREEN_OFF_DP : width >= WIDE_SCREEN_ON_DP
+    );
+  }, [width]);
 
   const openDrawer = useCallback(() => setIsDrawerOpen(true), []);
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), []);
@@ -189,6 +197,7 @@ function LiruneSlideDrawer({
   const { colors, scheme, toggleScheme } = useThemeContext();
   const isDark = scheme === 'dark';
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -212,7 +221,7 @@ function LiruneSlideDrawer({
 
   if (!isRendered && !isOpen) return null;
 
-  const drawerWidth = Math.min(320, Dimensions.get('window').width * 0.82);
+  const drawerWidth = Math.min(320, windowWidth * 0.82);
 
   const translateX = anim.interpolate({
     inputRange: [0, 1],

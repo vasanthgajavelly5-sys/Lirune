@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   Modal,
   FlatList,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,9 +28,6 @@ interface ThumbnailsSheetProps {
   onClose: () => void;
 }
 
-const screenWidth = Dimensions.get('window').width;
-const itemWidth = (screenWidth - 48) / 3;
-
 export function ThumbnailsSheet({
   visible,
   totalPages,
@@ -43,6 +40,11 @@ export function ThumbnailsSheet({
   const insets = useSafeAreaInsets();
   const palette = READER_THEMES[themeName] || READER_THEMES.neutral;
   const isDark = themeName === 'night' || themeName.startsWith('contrast');
+  // Measured per render: the sheet is opened from the reader, often after a
+  // rotation, and a module-level width would size the thumbnails for the
+  // orientation the app started in.
+  const { width: windowWidth } = useWindowDimensions();
+  const itemWidth = (windowWidth - 48) / 3;
 
   if (!visible) return null;
 

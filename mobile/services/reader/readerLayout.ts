@@ -40,6 +40,12 @@ export interface ReaderLayout {
   viewportHeight: number;
   /** Width of the reading column. Never wider than the space actually available. */
   contentWidth: number;
+  /**
+   * Width the reading column may occupy before it is capped: the safe width minus
+   * the reader margin on both sides. The column decision compares two minimum
+   * measures against this, so it needs the *available* width, not the capped one.
+   */
+  availableWidth: number;
   /** Distance from the WebView's left edge to the reading column. */
   sideOffset: number;
   padTop: number;
@@ -51,8 +57,6 @@ export interface ReaderLayout {
   bottomSafe: number;
   /** padTop + padBottom + contentWidth describe the whole reading viewport. */
   isReadingColumnCapped: boolean;
-  /** 1 on phones / portrait tablets; 2 when two reading columns fit side-by-side. */
-  columnCount: 1 | 2;
   /** True when the container is wider than it is tall (landscape orientation). */
   isLandscape: boolean;
 }
@@ -124,14 +128,12 @@ export function computeReaderLayout(input: ReaderLayoutInput): ReaderLayout {
   const colGap = Math.round(clamp(pageGap, 0, 72));
 
   const isLandscape = viewportWidth > viewportHeight;
-  // Two columns fit when the viewport is wide enough to show two full reading
-  // columns side by side (sw600dp Android tablet breakpoint).
-  const columnCount: 1 | 2 = viewportWidth >= 600 ? 2 : 1;
 
   return {
     viewportWidth,
     viewportHeight,
     contentWidth,
+    availableWidth,
     sideOffset,
     padTop,
     padBottom,
@@ -139,7 +141,6 @@ export function computeReaderLayout(input: ReaderLayoutInput): ReaderLayout {
     progressBarHeight,
     bottomSafe,
     isReadingColumnCapped,
-    columnCount,
     isLandscape,
   };
 }

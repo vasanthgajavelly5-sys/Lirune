@@ -14,7 +14,7 @@ import {
   Text,
   TouchableOpacity,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useStableInsets } from '@/hooks/useStableInsets';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
@@ -61,7 +61,7 @@ type ReaderResolutionStatus = 'resolving' | 'loading' | 'ready' | 'failed' | 'un
 export default function ReaderScreen() {
   const router = useRouter();
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
-  const insets = useSafeAreaInsets();
+  const insets = useStableInsets();
   const isExitingRef = useRef(false);
 
   const { books } = useLibraryStore();

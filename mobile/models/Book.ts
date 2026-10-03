@@ -298,6 +298,8 @@ export interface ReaderSettings {
   flow: 'paginated' | 'scrolled';
   alignment: 'left' | 'center' | 'right' | 'justify';
   pageGap: number; // 0 - 32, default 16 (px) - gap between pages in paginated mode
+  /** Reading columns: 'auto' follows the measured width, 1 or 2 force the layout. */
+  columns: 'auto' | 1 | 2;
 }
 
 export const DEFAULT_READER_SETTINGS: ReaderSettings = {
@@ -310,4 +312,5 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   flow: 'paginated',
   alignment: 'left',
   pageGap: 16,
+  columns: 'auto',
 };

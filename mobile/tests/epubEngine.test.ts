@@ -354,10 +354,10 @@ test('reader layout derives everything from the measured container', () => {
   const foldable = layoutFor(1024, 600);
 
   assert.equal(phone.viewportWidth, 360);
-  assert.equal(phone.columnCount, 1);
+  assert.equal(phone.availableWidth, 360 - 24);
   assert.equal(landscape.viewportWidth, 640);
   assert.equal(landscape.isLandscape, true);
-  assert.equal(tablet.columnCount, 2);
+  assert.equal(tablet.availableWidth, 800 - 24);
   assert.equal(foldable.isLandscape, true);
   assert.notEqual(phone.contentWidth, landscape.contentWidth);
 });
@@ -656,10 +656,15 @@ const BASE_SETTINGS = {
 function geometryFor(
   overrides: Partial<typeof BASE_SETTINGS> = {},
   width = 360,
-  height = 640
+  height = 640,
+  previousTwoColumn = false
 ) {
   const settings = { ...BASE_SETTINGS, ...overrides };
-  return computeReaderGeometry(settings, layoutFor(width, height, settings.fontSize, settings.margin), width);
+  return computeReaderGeometry(
+    settings,
+    layoutFor(width, height, settings.fontSize, settings.margin),
+    previousTwoColumn
+  );
 }
 
 test('every reflowing change produces a new document identity', () => {
@@ -692,10 +697,12 @@ test('an identical configuration keeps the same document identity', () => {
   assert.equal(sameGeometry(null, second), false);
 });
 
-test('the column count follows the measured width, not a device guess', () => {
+test('the column count follows the measured measure, not a device guess', () => {
   assert.equal(geometryFor({}, 360, 640).twoColumn, false);
   assert.equal(geometryFor({}, 599, 900).twoColumn, false);
-  assert.equal(geometryFor({}, 600, 900).twoColumn, true);
+  // 600dp used to be the switch point. A 640dp window cannot hold two 18em
+  // measures side by side, so it now stays single-column.
+  assert.equal(geometryFor({}, 640, 900).twoColumn, false);
   assert.equal(geometryFor({}, 1024, 768).twoColumn, true);
   // Continuous mode is always single-column, whatever the width.
   assert.equal(geometryFor({ flow: 'scrolled' }, 1024, 768).twoColumn, false);

@@ -13,10 +13,10 @@ import {
   ScrollView,
   Modal,
   Animated,
-  Dimensions,
+  useWindowDimensions,
   Pressable,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useStableInsets } from '@/hooks/useStableInsets';
 import { Ionicons } from '@expo/vector-icons';
 import { ReaderSettings, ReaderThemeName } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
@@ -37,8 +37,8 @@ export function SettingsSheet({
   onUpdateSettings,
   onResetSettings,
 }: SettingsSheetProps) {
-  const insets = useSafeAreaInsets();
-  const screenWidth = Dimensions.get('window').width;
+  const insets = useStableInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const panelWidth = Math.min(360, Math.floor(screenWidth * 0.88));
 
   // Dynamic theme matching reader's active theme
@@ -81,6 +81,12 @@ export function SettingsSheet({
     { label: 'Compact', value: 12 },
     { label: 'Standard', value: 20 },
     { label: 'Wide', value: 28 },
+  ];
+
+  const columnOptions: { label: string; value: ReaderSettings['columns'] }[] = [
+    { label: 'Auto', value: 'auto' },
+    { label: 'One', value: 1 },
+    { label: 'Two', value: 2 },
   ];
 
   const translateX = anim.interpolate({
@@ -206,6 +212,38 @@ export function SettingsSheet({
                         ]}
                       >
                         {mode === 'paginated' ? 'Page' : 'Scroll'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Columns — 'auto' follows the measured window, 1 and 2 force it */}
+            <View style={[styles.controlRow, { marginTop: 12 }]}>
+              <Text style={[styles.controlLabel, { color: textColor }]}>Columns</Text>
+              <View style={[styles.segmentedControl, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
+                {columnOptions.map((option) => {
+                  const isSelected = (settings.columns ?? 'auto') === option.value;
+                  return (
+                    <TouchableOpacity
+                      key={String(option.value)}
+                      style={[
+                        styles.segmentBtn,
+                        isSelected && { backgroundColor: activeAccent },
+                      ]}
+                      onPress={() => onUpdateSettings({ columns: option.value })}
+                    >
+                      <Text
+                        style={[
+                          styles.segmentText,
+                          {
+                            color: isSelected ? activeAccentFg : mutedColor,
+                            fontWeight: isSelected ? '700' : '500',
+                          },
+                        ]}
+                      >
+                        {option.label}
                       </Text>
                     </TouchableOpacity>
                   );

@@ -15,7 +15,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   PanResponder,
-  Dimensions,
+  useWindowDimensions,
   Text,
   GestureResponderEvent,
 } from 'react-native';
@@ -222,6 +222,8 @@ export function CbzReaderView({
   const onPrevRef = useRef<() => void>(() => {});
   const onNextRef = useRef<() => void>(() => {});
   const onToggleControlsRef = useRef<() => void>(() => {});
+  // Measured, so the tap zones follow a rotation instead of the launch width.
+  const { width: windowWidth } = useWindowDimensions();
 
   useEffect(() => {
     onPrevRef.current = () => goToPage(currentPageIndex - 1);
@@ -232,8 +234,8 @@ export function CbzReaderView({
   const handleRelease = useCallback(
     (e: GestureResponderEvent, g: TapGesture) => {
       if (Math.abs(g.dy) > TAP_SLOP || Math.abs(g.dx) > TAP_SLOP) return;
-      const width = Dimensions.get('window').width;
-      const ratio = e.nativeEvent.locationX / width;
+      const width = windowWidth;
+      const ratio = e.nativeEvent.locationX / Math.max(1, width);
       if (ratio < 0.25) {
         onPrevRef.current();
       } else if (ratio > 0.75) {
@@ -242,7 +244,7 @@ export function CbzReaderView({
         onToggleControlsRef.current();
       }
     },
-    []
+    [windowWidth]
   );
 
   /* eslint-disable react-hooks/refs --

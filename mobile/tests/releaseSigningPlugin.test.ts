@@ -14,6 +14,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { addReleaseSigning, SIGNING_MARKER } = require('../plugins/withReleaseSigning.js');
 
+/** The SDK 57 template as `expo prebuild` actually generates it. */
 const TEMPLATE = `apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 
@@ -30,7 +31,6 @@ android {
         versionCode 4
         versionName "4.0.6"
     }
-
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -38,23 +38,26 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        release {
-            // The template default: a debug key.
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
-        }
     }
-
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
+            // Caution! In production, you need to generate your own keystore file.
+            // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
         }
     }
 }
 `;
+
+/** A template that already declares a release signing config. */
+const TEMPLATE_WITH_RELEASE = TEMPLATE.replace(
+  /    signingConfigs \{\n/,
+  `    signingConfigs {\n        release {\n            storeFile file('debug.keystore')\n            storePassword 'android'\n            keyAlias 'androiddebugkey'\n            keyPassword 'android'\n        }\n`
+);
 
 test('the release signing config reads credentials from gradle.properties', () => {
   const patched = addReleaseSigning(TEMPLATE);
@@ -69,18 +72,37 @@ test('the release signing config reads credentials from gradle.properties', () =
 
 test('buildTypes.release uses the release signing config, not the debug key', () => {
   const patched = addReleaseSigning(TEMPLATE);
-  assert.match(
-    patched,
-    /buildTypes \{[\s\S]*release \{[\s\S]*signingConfig signingConfigs\.release/
+  const releaseBuildType = /release \{[\s\S]*?\n        \}/.exec(
+    patched.slice(patched.indexOf('buildTypes {'))
   );
-  assert.doesNotMatch(patched, /signingConfig signingConfigs\.debug/);
+  assert.ok(releaseBuildType, 'buildTypes.release must exist');
+  assert.match(releaseBuildType[0], /signingConfig signingConfigs\.release/);
+  // buildTypes.debug still points at the debug config, which is correct.
+  assert.match(patched, /debug \{[\s\S]*?signingConfig signingConfigs\.debug/);
 });
 
 test('the debug signing config is left alone', () => {
   const patched = addReleaseSigning(TEMPLATE);
   assert.match(patched, /debug \{\s*\n\s*storeFile file\('debug\.keystore'\)/);
-  // Only the release block is rewritten.
-  assert.equal((patched.match(/debug\.keystore/g) || []).length, 1);
+  // Only the release block is added.
+  assert.equal((patched.match(/androiddebugkey/g) || []).length, 1);
+});
+
+test('the release block lands inside signingConfigs, not after it', () => {
+  const patched = addReleaseSigning(TEMPLATE);
+  // A `release` block placed outside signingConfigs fails the build with
+  // "Could not find method release()".
+  assert.match(patched, /signingConfigs \{[\s\S]*\n        release \{[\s\S]*\n        \}\n    \}\n    buildTypes \{/);
+  assert.doesNotMatch(patched, /\n    \}\n {8}release \{/);
+});
+
+test('an existing release signing config is replaced, not duplicated', () => {
+  const patched = addReleaseSigning(TEMPLATE_WITH_RELEASE);
+  assert.equal((patched.match(/signingConfigs \{/g) || []).length, 1);
+  assert.equal((patched.match(new RegExp(SIGNING_MARKER, 'g')) || []).length, 1);
+  // The old debug-key release config is gone; buildTypes.release is switched over.
+  assert.match(patched, /signingConfig signingConfigs\.release/);
+  assert.equal((patched.match(/androiddebugkey/g) || []).length, 1);
 });
 
 test('the patch is idempotent across repeated prebuilds', () => {

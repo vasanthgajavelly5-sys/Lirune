@@ -1,6 +1,6 @@
-## Unreleased - Android reader hardening
+## 4.6.7 — Android hardening & stability (2026-10-03)
 
-Fixes and hardening across the Android edition; every phase is a separate commit.
+Comprehensive hardening pass across the Android edition: native module correctness, Kotlin type-safety, build pipeline fixes, reader robustness, and a slimmed 64-bit-only APK.
 
 ### Native module and app config
 - The `LiruneStorage` Kotlin module is now tracked in the repository and

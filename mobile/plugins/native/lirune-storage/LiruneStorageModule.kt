@@ -184,7 +184,7 @@ private fun getExtensionFromName(name: String): String {
                 val depthLimit = if (maxDepth in 1..16) maxDepth else 8
                 val maxResults = if (options.hasKey("maxResults")) options.getInt("maxResults") else 5000
                 val resultLimit = if (maxResults in 1..50000) maxResults else 5000
-                val budgetMs = if (options.hasKey("timeBudgetMs")) options.getInt("timeBudgetMs") else 45000L
+                val budgetMs = if (options.hasKey("timeBudgetMs")) options.getInt("timeBudgetMs").toLong() else 45000L
                 val minBytes = if (options.hasKey("minBytes")) options.getInt("minBytes").toLong() else 4096L
 
                 val extensions = HashSet<String>()

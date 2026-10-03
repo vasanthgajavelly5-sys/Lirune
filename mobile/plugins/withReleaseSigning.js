@@ -60,20 +60,24 @@ function addReleaseSigning(buildGradle) {
   let patched = buildGradle;
 
   if (!patched.includes(SIGNING_MARKER)) {
-    const releaseEntry = /release\s*\{[\s\S]*?\n        \}/.exec(
-      /(signingConfigs\s*\{[\s\S]*?\n    \})/.exec(patched)?.[0] ?? ''
-    );
     const block = releaseSigningBlock();
+    // The whole signingConfigs block, its body, and its closing brace.
+    const configs = /(signingConfigs\s*\{)([\s\S]*?)(\n    \})/.exec(patched);
 
-    if (releaseEntry) {
-      patched = patched.replace(releaseEntry[0], block);
+    if (configs) {
+      const releaseEntry = /\n        release\s*\{[\s\S]*?\n        \}/.exec(configs[2]);
+      patched = patched.replace(
+        configs[0],
+        releaseEntry
+          ? `${configs[1]}${configs[2].replace(releaseEntry[0], `\n${block}`)}${configs[3]}`
+          : `${configs[1]}\n${configs[2].replace(/\s*$/, '')}\n${block}${configs[3]}`
+      );
     } else {
-      const existing = /signingConfigs\s*\{[\s\S]*?\n    \}/.exec(patched);
-      if (existing) {
-        patched = patched.replace(existing[0], `${existing[0]}\n${block}`);
-      } else {
-        patched = patched.replace(/\nandroid\s*\{/, `\n    signingConfigs {\n${block}\n    }\n\nandroid {`);
-      }
+      // No signingConfigs block at all: add one before android { }.
+      patched = patched.replace(
+        /\nandroid\s*\{/,
+        `\n    signingConfigs {\n${block}\n    }\n\nandroid {`
+      );
     }
   }
 

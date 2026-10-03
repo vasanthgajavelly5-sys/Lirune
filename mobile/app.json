@@ -97,7 +97,8 @@
     "plugins": [
       "expo-router",
       "expo-document-picker",
-      "expo-sqlite"
+      "expo-sqlite",
+      "./plugins/withLiruneStorage"
     ],
     "experiments": {
       "typedRoutes": true

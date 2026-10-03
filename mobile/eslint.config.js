@@ -18,8 +18,8 @@ module.exports = defineConfig([
     }
   },
   {
-    // Build-time Node scripts, not application code.
-    files: ["scripts/**/*.js"],
+    // Build-time Node scripts and Expo config plugins, not application code.
+    files: ["scripts/**/*.js", "plugins/**/*.js"],
     languageOptions: {
       globals: {
         __dirname: "readonly",

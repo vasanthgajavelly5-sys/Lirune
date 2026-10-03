@@ -12,6 +12,16 @@ const TAG = 'NativeStorageBridge';
 
 const { LiruneStorage } = NativeModules;
 
+// A missing module is the single most common reason Scan Phone silently returns
+// nothing: `expo prebuild --clean` regenerates `android/` and drops the Kotlin
+// sources unless the config plugin re-installs them. Say so once, loudly.
+if (Platform.OS === 'android' && !LiruneStorage) {
+  logger.error(
+    TAG,
+    'LiruneStorage native module is missing from this build — run `npx expo prebuild` so plugins/withLiruneStorage.js can restore it'
+  );
+}
+
 export interface DiscoveredNativeFile {
   id: string;
   uri: string;

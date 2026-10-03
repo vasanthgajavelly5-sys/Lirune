@@ -38,6 +38,14 @@ interface SettingsState {
   readerSettings: ReaderSettings;
   accessibility: AccessibilitySettings;
   lastAuthorizedFolderUri: string | null;
+  /** Every folder the user authorised with Scan Folder; all are re-scanned. */
+  authorizedFolderUris: string[];
+  /**
+   * True once the user chose "Not now" on the All files access explanation, so
+   * the dialog is not shown on every tap of Scan Phone. The Settings screen's
+   * explicit "Enable full scan" row resets it.
+   */
+  scanAccessDismissed: boolean;
   hasCompletedWelcome: boolean;
   isLoaded: boolean;
 
@@ -49,6 +57,9 @@ interface SettingsState {
   resetReaderSettings: () => Promise<void>;
   updateAccessibility: (partial: Partial<AccessibilitySettings>) => Promise<void>;
   setLastAuthorizedFolderUri: (uri: string | null) => Promise<void>;
+  addAuthorizedFolderUri: (uri: string) => Promise<void>;
+  removeAuthorizedFolderUri: (uri: string) => Promise<void>;
+  setScanAccessDismissed: (dismissed: boolean) => Promise<void>;
   setHasCompletedWelcome: (completed: boolean) => Promise<void>;
 }
 
@@ -58,6 +69,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   readerSettings: DEFAULT_READER_SETTINGS,
   accessibility: DEFAULT_ACCESSIBILITY,
   lastAuthorizedFolderUri: null,
+  authorizedFolderUris: [],
+  scanAccessDismissed: false,
   hasCompletedWelcome: false,
   isLoaded: false,
 
@@ -70,6 +83,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         savedReaderSettings,
         savedAccessibility,
         savedFolderUri,
+        savedFolderUris,
+        savedScanAccessDismissed,
         savedWelcome,
       ] = await Promise.all([
         repo.getPreference?.('appTheme', 'light'),
@@ -77,15 +92,21 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         repo.getPreference?.('readerSettings', DEFAULT_READER_SETTINGS),
         repo.getPreference?.('accessibility', DEFAULT_ACCESSIBILITY),
         repo.getPreference?.('lastAuthorizedFolderUri', null),
+        repo.getPreference?.('authorizedFolderUris', [] as string[]),
+        repo.getPreference?.('scanAccessDismissed', false),
         repo.getPreference?.('hasCompletedWelcome', false),
       ]);
+
+      const folderUris: string[] = Array.isArray(savedFolderUris) ? savedFolderUris.filter(Boolean) : [];
 
       set({
         appTheme: savedAppTheme || 'light',
         accentColor: savedAccent || '#EEECF8',
         readerSettings: { ...DEFAULT_READER_SETTINGS, ...savedReaderSettings },
         accessibility: { ...DEFAULT_ACCESSIBILITY, ...savedAccessibility },
-        lastAuthorizedFolderUri: savedFolderUri || null,
+        lastAuthorizedFolderUri: savedFolderUri || folderUris[0] || null,
+        authorizedFolderUris: folderUris,
+        scanAccessDismissed: !!savedScanAccessDismissed,
         hasCompletedWelcome: !!savedWelcome,
         isLoaded: true,
       });
@@ -157,6 +178,47 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await repo.setPreference?.('lastAuthorizedFolderUri', uri);
     } catch (err) {
       logger.warn(TAG, 'Failed to persist lastAuthorizedFolderUri', err);
+    }
+  },
+
+  addAuthorizedFolderUri: async (uri: string) => {
+    if (!uri) return;
+    const existing = get().authorizedFolderUris;
+    // A user can pick the same folder twice; the re-scan would then list every
+    // book in it twice.
+    const next = existing.includes(uri) ? existing : [...existing, uri];
+    set({ authorizedFolderUris: next, lastAuthorizedFolderUri: uri });
+    const repo = getBookRepository() as any;
+    try {
+      await repo.setPreference?.('authorizedFolderUris', next);
+      await repo.setPreference?.('lastAuthorizedFolderUri', uri);
+    } catch (err) {
+      logger.warn(TAG, 'Failed to persist authorizedFolderUris', err);
+    }
+  },
+
+  removeAuthorizedFolderUri: async (uri: string) => {
+    const next = get().authorizedFolderUris.filter((candidate) => candidate !== uri);
+    set({
+      authorizedFolderUris: next,
+      lastAuthorizedFolderUri: next[next.length - 1] ?? null,
+    });
+    const repo = getBookRepository() as any;
+    try {
+      await repo.setPreference?.('authorizedFolderUris', next);
+      await repo.setPreference?.('lastAuthorizedFolderUri', next[next.length - 1] ?? null);
+    } catch (err) {
+      logger.warn(TAG, 'Failed to persist authorizedFolderUris', err);
+    }
+  },
+
+  setScanAccessDismissed: async (dismissed: boolean) => {
+    set({ scanAccessDismissed: dismissed });
+    const repo = getBookRepository() as any;
+    try {
+      await repo.setPreference?.('scanAccessDismissed', dismissed);
+    } catch (err) {
+      logger.warn(TAG, 'Failed to persist scanAccessDismissed', err);
     }
   },
 

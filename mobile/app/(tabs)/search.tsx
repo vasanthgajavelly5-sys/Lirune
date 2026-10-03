@@ -9,7 +9,7 @@
  * - Batch selection and progress reporting
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -43,10 +43,75 @@ import { ZipInspectionModal } from '@/components/ZipInspectionModal';
 import { getFormatFromExtension, BookFormat } from '@/models/Book';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
 import { LiruneToast } from '@/components/LiruneToast';
+import { LiruneDialog } from '@/components/LiruneDialog';
 import { logger } from '@/utils/logger';
 import { nativeStorage, type DiscoveredNativeFile } from '@/services/storage/NativeStorageBridge';
+import {
+  describeScanAccess,
+  openAllFilesAccessSettings,
+  resolveScanAccess,
+  type ScanAccess,
+} from '@/services/storage/ScanAccess';
+import { findDuplicate } from '@/services/import/duplicateCheck';
+import { peekMany } from '@/services/discovery/DiscoveryMetadata';
 
 const TAG = 'FilesDiscovery';
+
+/** Upper bound on what one scan returns; a phone can hold hundreds of thousands of files. */
+const SCAN_RESULT_CAP = 5000;
+
+/** Extensions the full-storage walk looks for when "Include archives" is on. */
+const SCAN_EXTENSIONS = [
+  '.epub',
+  '.pdf',
+  '.txt',
+  '.html',
+  '.htm',
+  '.fb2',
+  '.cbz',
+  '.mobi',
+  '.azw',
+  '.azw3',
+  '.djvu',
+  '.doc',
+  '.docx',
+  '.rtf',
+  '.odt',
+  '.chm',
+  '.cbr',
+  '.zip',
+  '.rar',
+];
+
+/**
+ * Paths owned by this app.
+ *
+ * Scanning them listed the app's own imported copies under their UUID file names,
+ * which is how "Scan Phone" filled up with `0f8a….epub` rows that then imported a
+ * second copy of books already in the library.
+ */
+function isAppOwnedPath(path: string): boolean {
+  if (!path) return false;
+  const documents = FileSystem.documentDirectory;
+  const cache = FileSystem.cacheDirectory;
+  if (documents && path.startsWith(documents)) return true;
+  if (cache && path.startsWith(cache)) return true;
+  return false;
+}
+
+/** The explanation is shown once per decision, not on every tap. */
+function shouldExplainScanAccess(dismissed: boolean): boolean {
+  return !dismissed;
+}
+
+/**
+ * Where the folder picker should open.
+ *
+ * Books almost always land in Download, and the picker defaults to the last used
+ * location; hinting at Download saves most users a level of navigation. Android
+ * 11+ still refuses to hand out Download itself, which the hint tells them.
+ */
+const DOWNLOAD_TREE_HINT = 'content://com.android.externalstorage.documents/tree/primary%3ADownload';
 
 interface DiscoveredFile {
   id: string;
@@ -57,6 +122,13 @@ interface DiscoveredFile {
   folderName: string;
   inLibrary: boolean;
   selected: boolean;
+  /** Real publication title once it has been read; undefined until then. */
+  title?: string;
+  author?: string;
+  /** True when `title` came from the book rather than from the file name. */
+  titleIsMetadata?: boolean;
+  /** Filesystem path, when the native scan produced one (needed for metadata). */
+  path?: string;
 }
 
 const SUPPORTED_EXTENSIONS = [
@@ -102,7 +174,13 @@ export default function FilesScreen() {
 
   const { books, loadLibrary } = useLibraryStore();
   const { openBook } = useReaderStore();
-  const { lastAuthorizedFolderUri, setLastAuthorizedFolderUri } = useSettingsStore();
+  const {
+    authorizedFolderUris,
+    setLastAuthorizedFolderUri,
+    addAuthorizedFolderUri,
+    scanAccessDismissed,
+    setScanAccessDismissed,
+  } = useSettingsStore();
 
   const [discoveredFiles, setDiscoveredFiles] = useState<DiscoveredFile[]>([]);
   const [selectedFormat, setSelectedFormat] = useState<string>('all');
@@ -110,6 +188,9 @@ export default function FilesScreen() {
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [hasScanned, setHasScanned] = useState<boolean>(false);
   const [scanStatus, setScanStatus] = useState<string>('');
+  const [scanNotice, setScanNotice] = useState<string>('');
+  const [includeArchives, setIncludeArchives] = useState(false);
+  const [pendingScanAccessPrompt, setPendingScanAccessPrompt] = useState(false);
   const [importProgress, setImportProgress] = useState<{
     total: number;
     current: number;
@@ -130,16 +211,17 @@ export default function FilesScreen() {
     fileName: string;
   } | null>(null);
 
-  // Check if a file is already in library by clean title and format
+  // Check whether a discovered file is already in the library. Uses the same rule
+  // as the import path (same format, same size, and the same file name or the
+  // same title+author) so a row never disagrees with what import would decide.
   const isFileInLibrary = useCallback(
-    (fileName: string, format: BookFormat) => {
-      const cleanName = fileName.replace(/\.[^/.]+$/, '').toLowerCase().trim();
+    (fileName: string, format: BookFormat, size?: number) => {
       return books.some(
         (b) =>
           b.format === format &&
-          (b.title.toLowerCase().trim() === cleanName ||
-            (b.filePath && b.filePath.toLowerCase().endsWith(fileName.toLowerCase())) ||
-            b.uri.toLowerCase().endsWith(fileName.toLowerCase()))
+          (b.filePath?.toLowerCase().endsWith(fileName.toLowerCase()) ||
+            b.uri.toLowerCase().endsWith(fileName.toLowerCase()) ||
+            findDuplicate({ format, fileName, size, title: fileName }, [b]) !== undefined)
       );
     },
     [books]
@@ -150,7 +232,7 @@ export default function FilesScreen() {
     setDiscoveredFiles((prev) =>
       prev.map((f) => ({
         ...f,
-        inLibrary: isFileInLibrary(f.name, f.format),
+        inLibrary: isFileInLibrary(f.name, f.format, f.size),
       }))
     );
   }, [books, isFileInLibrary]);
@@ -279,27 +361,90 @@ export default function FilesScreen() {
   };
 
   /**
-   * Action 1: Scan Phone
-   * Uses the native LiruneStorage bridge for robust MediaStore-based discovery
-   * that works on Android 10+ without MANAGE_EXTERNAL_STORAGE.
-   * Also scans well-known paths via native filesystem traversal when accessible.
+   * Action 1: Scan Phone.
+   *
+   * Three sources, in order of coverage:
+   *   1. All files access -> a native walk of every volume (the only way to see
+   *      an EPUB or PDF in Download or at the storage root, because MediaStore
+   *      does not index them and SAF will not hand out those locations);
+   *   2. MediaStore, which needs no permission at all;
+   *   3. the folders the user has explicitly authorised.
+   *
+   * The app's own `books/` directory is never scanned: it holds the copies Lirune
+   * already imported under UUID names, which is why the list used to fill up with
+   * `0f8a….epub` rows.
    */
   const handleScanPhone = async () => {
     setIsScanning(true);
-    setScanStatus('Scanning device storage and downloads...');
+    setScanStatus('Checking storage access…');
 
     try {
       setHasScanned(true);
       const allFound: DiscoveredFile[] = [];
       const seenIds = new Set(discoveredFiles.map((f) => f.id));
 
-      // 1. Native MediaStore scan (works on Android 10+ without special permissions)
+      if (!nativeStorage.isAvailable()) {
+        setScanNotice(
+          'LiruneStorage is missing from this build, so device scanning is unavailable. Re-run "npx expo prebuild" and rebuild. Use Scan Folder in the meantime.'
+        );
+      }
+
+      let access: ScanAccess = 'limited';
       if (nativeStorage.isAvailable()) {
-        setScanStatus('Querying MediaStore...');
+        access = await resolveScanAccess();
+
+        if (access === 'limited' && shouldExplainScanAccess(scanAccessDismissed)) {
+          setPendingScanAccessPrompt(true);
+          setIsScanning(false);
+          setScanStatus('');
+          return;
+        }
+
+        if (access === 'full') {
+          setScanStatus('Scanning your device…');
+          const stopProgress = nativeStorage.onScanProgress((progress) => {
+            setScanStatus(`Scanning… ${progress.found} books found`);
+          });
+          try {
+            const fullFiles = await nativeStorage.scanAllStorage(
+              includeArchives ? { extensions: SCAN_EXTENSIONS } : {}
+            );
+            for (const nf of fullFiles) {
+              if (seenIds.has(nf.id) || isAppOwnedPath(nf.path || nf.uri)) continue;
+              seenIds.add(nf.id);
+              const formatInfo = getFormatFromExtension(nf.name);
+              if (!formatInfo.supported) continue;
+              const format = formatInfo.id as BookFormat;
+              allFound.push({
+                id: nf.id,
+                uri: nf.uri,
+                path: nf.path,
+                name: nf.name,
+                format,
+                size: nf.size,
+                folderName: nf.folderName || 'Device Storage',
+                inLibrary: isFileInLibrary(nf.name, format, nf.size),
+                selected: !isFileInLibrary(nf.name, format, nf.size),
+              });
+            }
+            logger.info(TAG, `Full storage scan found ${fullFiles.length} files`);
+          } catch (fullErr) {
+            logger.warn(TAG, 'Full storage scan failed', fullErr);
+          } finally {
+            stopProgress();
+          }
+        }
+      }
+
+      // MediaStore always runs: it covers the case where all-files access is
+      // partial and costs nothing without it.
+      if (nativeStorage.isAvailable()) {
+        setScanStatus('Querying MediaStore…');
         try {
           const nativeFiles: DiscoveredNativeFile[] = await nativeStorage.scanMediaStore();
           for (const nf of nativeFiles) {
-            if (seenIds.has(nf.id)) continue;
+            if (seenIds.has(nf.id) || isAppOwnedPath(nf.path || nf.uri)) continue;
+            if (!nf.format) continue;
             seenIds.add(nf.id);
             allFound.push({
               id: nf.id,
@@ -308,74 +453,25 @@ export default function FilesScreen() {
               format: nf.format,
               size: nf.size,
               folderName: nf.folderName || 'Device Storage',
-              inLibrary: isFileInLibrary(nf.name, nf.format),
-              selected: !isFileInLibrary(nf.name, nf.format),
+              inLibrary: isFileInLibrary(nf.name, nf.format, nf.size),
+              selected: !isFileInLibrary(nf.name, nf.format, nf.size),
             });
           }
           logger.info(TAG, `MediaStore scan found ${nativeFiles.length} files`);
         } catch (msErr) {
           logger.warn(TAG, 'MediaStore scan failed', msErr);
         }
-
-        // 2. Native filesystem scan for common well-known directories
-        // (works when MANAGE_EXTERNAL_STORAGE is granted or on Android <= 9)
-        try {
-          const knownPaths = [
-            '/storage/emulated/0/Download',
-            '/storage/emulated/0/Downloads',
-            '/storage/emulated/0/Documents',
-            '/storage/emulated/0/Books',
-            '/storage/emulated/0/Ebooks',
-            '/storage/emulated/0/EPUB',
-          ];
-          setScanStatus('Scanning Downloads & Documents...');
-          const nativeDirFiles: DiscoveredNativeFile[] = await nativeStorage.scanDirectories(knownPaths, 4);
-          for (const nf of nativeDirFiles) {
-            if (seenIds.has(nf.id)) continue;
-            seenIds.add(nf.id);
-            allFound.push({
-              id: nf.id,
-              uri: nf.uri,
-              name: nf.name,
-              format: nf.format,
-              size: nf.size,
-              folderName: nf.folderName || 'Storage',
-              inLibrary: isFileInLibrary(nf.name, nf.format),
-              selected: !isFileInLibrary(nf.name, nf.format),
-            });
-          }
-          logger.info(TAG, `Native dir scan found ${nativeDirFiles.length} additional files`);
-        } catch (dirErr) {
-          logger.warn(TAG, 'Native directory scan failed', dirErr);
-        }
       }
 
-      // 3. Fallback: scan app documentDirectory for locally stored books
-      if (FileSystem.documentDirectory) {
+      // Folders the user authorised with Scan Folder.
+      for (const folderUri of authorizedFolderUris) {
         try {
-          const docResults = await scanDirectoryRecursive(
-            FileSystem.documentDirectory,
-            'Lirune Documents',
-            0,
-            3
-          );
-          for (const f of docResults) {
-            if (seenIds.has(f.id)) continue;
-            seenIds.add(f.id);
-            allFound.push(f);
-          }
-        } catch {}
-      }
-
-      // 4. Scan previously authorized SAF folder
-      if (lastAuthorizedFolderUri) {
-        try {
-          const folderName = decodeURIComponent(lastAuthorizedFolderUri.split('%3A').pop() || 'Authorized Folder');
-          setScanStatus(`Scanning ${folderName}...`);
-          if (nativeStorage.isAvailable() && lastAuthorizedFolderUri.startsWith('content://')) {
-            const nativeSafFiles = await nativeStorage.scanSafTree(lastAuthorizedFolderUri, 5);
+          const folderName = decodeURIComponent(folderUri.split('%3A').pop() || 'Authorized Folder');
+          setScanStatus(`Scanning ${folderName}…`);
+          if (nativeStorage.isAvailable() && folderUri.startsWith('content://')) {
+            const nativeSafFiles = await nativeStorage.scanSafTree(folderUri, 5);
             for (const nf of nativeSafFiles) {
-              if (seenIds.has(nf.id)) continue;
+              if (seenIds.has(nf.id) || !nf.format) continue;
               seenIds.add(nf.id);
               allFound.push({
                 id: nf.id,
@@ -384,12 +480,12 @@ export default function FilesScreen() {
                 format: nf.format,
                 size: nf.size,
                 folderName: nf.folderName || folderName,
-                inLibrary: isFileInLibrary(nf.name, nf.format),
-                selected: !isFileInLibrary(nf.name, nf.format),
+                inLibrary: isFileInLibrary(nf.name, nf.format, nf.size),
+                selected: !isFileInLibrary(nf.name, nf.format, nf.size),
               });
             }
           } else {
-            const authResults = await scanDirectoryRecursive(lastAuthorizedFolderUri, folderName, 0, 4);
+            const authResults = await scanDirectoryRecursive(folderUri, folderName, 0, 4);
             for (const f of authResults) {
               if (seenIds.has(f.id)) continue;
               seenIds.add(f.id);
@@ -397,7 +493,7 @@ export default function FilesScreen() {
             }
           }
         } catch (authErr) {
-          logger.warn(TAG, 'Error scanning last authorized folder', authErr);
+          logger.warn(TAG, `Error scanning authorized folder ${folderUri}`, authErr);
         }
       }
 
@@ -407,13 +503,14 @@ export default function FilesScreen() {
         return [...prev, ...newItems];
       });
 
-      if (allFound.length > 0) {
-        setToastMessage(
-          `Discovered ${allFound.length} document${allFound.length === 1 ? '' : 's'}`
-        );
-      } else {
-        setToastMessage('Scan complete: no supported books found. Use "Scan Folder" to pick a specific folder, or place books in your Downloads folder.');
-      }
+      const limited = access !== 'full';
+      setScanNotice(limited ? describeScanAccess(access) : '');
+      const capNote = allFound.length >= SCAN_RESULT_CAP ? ' (first 5000 shown)' : '';
+      setToastMessage(
+        allFound.length > 0
+          ? `Discovered ${allFound.length} document${allFound.length === 1 ? '' : 's'}${capNote}`
+          : 'Scan complete: no supported books found. Use "Scan Folder" to pick a specific folder, or place books in your Downloads folder.'
+      );
     } catch (err) {
       logger.error(TAG, 'Error during phone scan', err);
       setToastMessage('Failed to scan device storage.');
@@ -422,6 +519,28 @@ export default function FilesScreen() {
       setScanStatus('');
     }
   };
+
+  const handleCancelScan = useCallback(() => {
+    void nativeStorage.cancelScan();
+    setScanNotice('Scan cancelled.');
+  }, []);
+
+  /** Called from the All files access dialog. */
+  const handleScanAccessResponse = useCallback(
+    async (allow: boolean) => {
+      setPendingScanAccessPrompt(false);
+      if (allow) {
+        setScanAccessDismissed(false);
+        const access = await openAllFilesAccessSettings();
+        setScanNotice(access === 'full' ? '' : describeScanAccess(access));
+        void handleScanPhone();
+      } else {
+        setScanAccessDismissed(true);
+        setScanNotice(describeScanAccess('limited'));
+      }
+    },
+    [handleScanPhone, scanAccessDismissed]
+  );
 
   /**
    * Action 2: Scan Folder via SAF folder authorization (Download, nested folders, SD cards)
@@ -438,7 +557,15 @@ export default function FilesScreen() {
         return;
       }
 
-      const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+      // Open on Download: it is where books actually live. Some OEM pickers
+      // ignore the hint, which is harmless.
+      let permissions;
+      try {
+        permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync(DOWNLOAD_TREE_HINT);
+      } catch (hintErr) {
+        logger.warn(TAG, 'Folder picker rejected the Download hint', hintErr);
+        permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+      }
       if (!permissions.granted) {
         setToastMessage('Folder access was not granted. Please try again and select a folder (e.g. Download, Documents, or a subfolder).');
         return;
@@ -446,7 +573,9 @@ export default function FilesScreen() {
 
       setHasScanned(true);
       const targetUri = permissions.directoryUri;
-      await setLastAuthorizedFolderUri(targetUri);
+      // Remember every authorised folder, not just the newest: a user with a
+      // library in two places expects one Scan Phone to cover both.
+      await addAuthorizedFolderUri(targetUri);
 
       const folderName = decodeURIComponent(
         targetUri.split('%3A').pop()?.split('%2F').join('/') || 'Storage Folder'
@@ -460,16 +589,21 @@ export default function FilesScreen() {
       if (nativeStorage.isAvailable() && targetUri.startsWith('content://')) {
         try {
           const nativeFiles = await nativeStorage.scanSafTree(targetUri, 6);
-          files = nativeFiles.map((nf) => ({
-            id: nf.id,
-            uri: nf.uri,
-            name: nf.name,
-            format: nf.format,
-            size: nf.size,
-            folderName: nf.folderName || folderName,
-            inLibrary: isFileInLibrary(nf.name, nf.format),
-            selected: !isFileInLibrary(nf.name, nf.format),
-          }));
+          files = nativeFiles
+            .filter((nf) => nf.format)
+            .map((nf) => {
+              const format = nf.format as BookFormat;
+              return {
+                id: nf.id,
+                uri: nf.uri,
+                name: nf.name,
+                format,
+                size: nf.size,
+                folderName: nf.folderName || folderName,
+                inLibrary: isFileInLibrary(nf.name, format, nf.size),
+                selected: !isFileInLibrary(nf.name, format, nf.size),
+              };
+            });
           logger.info(TAG, `Native SAF scan found ${files.length} files in ${folderName}`);
         } catch (nativeErr) {
           logger.warn(TAG, 'Native SAF scan failed, falling back to JS traversal', nativeErr);
@@ -826,12 +960,41 @@ export default function FilesScreen() {
       q &&
       !f.name.toLowerCase().includes(q) &&
       !f.folderName.toLowerCase().includes(q) &&
-      !f.format.toLowerCase().includes(q)
+      !f.format.toLowerCase().includes(q) &&
+      // A search for an author should find their books even when every file is
+      // named after a download artefact.
+      !(f.title || '').toLowerCase().includes(q) &&
+      !(f.author || '').toLowerCase().includes(q)
     ) {
       return false;
     }
     return true;
   });
+
+  /**
+   * Fills in real titles and authors for the rows the user can actually see.
+   *
+   * Only EPUB on a local path can be inspected cheaply; everything else keeps its
+   * cleaned file name, which is what `DiscoveryMetadata` decides.
+   */
+  const handleViewableFilesChanged = useCallback(
+    ({ viewableItems }: { viewableItems: Array<{ item: DiscoveredFile }> }) => {
+      const targets = viewableItems
+        .map(({ item }) => item)
+        .filter((item) => !item.title && !item.author && item.format !== 'zip' && item.format !== 'rar');
+      if (targets.length === 0) return;
+      void peekMany(targets, (target, info) => {
+        setDiscoveredFiles((prev) =>
+          prev.map((file) =>
+            file.id === target.id
+              ? { ...file, title: info.title, author: info.author, titleIsMetadata: info.fromMetadata }
+              : file
+          )
+        );
+      });
+    },
+    []
+  );
 
   const selectedCount = discoveredFiles.filter((f) => f.selected && !f.inLibrary).length;
   const newCount = discoveredFiles.filter((f) => !f.inLibrary).length;
@@ -899,13 +1062,53 @@ export default function FilesScreen() {
           <Ionicons name="document-text-outline" size={17} color={colors.text} style={{ marginRight: 6 }} />
           <Text style={[styles.actionBtnText, { color: colors.text }]}>Scan File</Text>
         </TouchableOpacity>
+
+        {/* A long full-storage walk needs an escape hatch. */}
+        {isScanning && (
+          <TouchableOpacity
+            style={[
+              styles.actionBtn,
+              { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle, borderWidth: 1 },
+            ]}
+            onPress={handleCancelScan}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close-circle-outline" size={17} color={colors.text} style={{ marginRight: 6 }} />
+            <Text style={[styles.actionBtnText, { color: colors.text }]}>Cancel scan</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* Archives outnumber books on a typical phone, so they are opt-in. */}
+      <TouchableOpacity
+        style={styles.toggleRow}
+        onPress={() => setIncludeArchives((value) => !value)}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name={includeArchives ? 'checkbox' : 'square-outline'}
+          size={18}
+          color={colors.accent}
+          style={{ marginRight: 8 }}
+        />
+        <Text style={[styles.toggleLabel, { color: colors.textSecondary }]}>
+          Include ZIP and RAR archives in Scan Phone
+        </Text>
+      </TouchableOpacity>
+
+      {/* Why the result list is shorter than the phone, or longer. */}
+      {scanNotice.length > 0 && (
+        <View style={[styles.guidanceBox, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]}>
+          <Ionicons name="information-circle-outline" size={16} color={colors.accent} style={{ marginRight: 8, marginTop: 1 }} />
+          <Text style={[styles.guidanceText, { color: colors.textSecondary }]}>{scanNotice}</Text>
+        </View>
+      )}
 
       {/* Storage Guidance Note */}
       <View style={[styles.guidanceBox, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]}>
         <Ionicons name="shield-checkmark-outline" size={16} color={colors.accent} style={{ marginRight: 8, marginTop: 1 }} />
         <Text style={[styles.guidanceText, { color: colors.textSecondary }]}>
-          Android Storage: &ldquo;Scan Phone&rdquo; automatically checks accessible storage and saved folders. Use &ldquo;Scan Folder&rdquo; to choose a specific directory (note: Android blocks selecting storage root or entire Download folder), or &ldquo;Scan File&rdquo; to pick any file directly.
+          Android Storage: &ldquo;Scan Phone&rdquo; walks the whole device when you allow &ldquo;All files access&rdquo;, and otherwise falls back to downloaded files and the folders you have opened. Android blocks picking the storage root or the whole Download folder, so use Scan Phone for those. &ldquo;Scan File&rdquo; picks any single file.
         </Text>
       </View>
 
@@ -1042,6 +1245,8 @@ export default function FilesScreen() {
       <FlatList
         data={displayedFiles}
         keyExtractor={(item) => item.id}
+        onViewableItemsChanged={handleViewableFilesChanged}
+        viewabilityConfig={{ itemVisiblePercentThreshold: 60, minimumViewTime: 80 }}
         contentContainerStyle={[
           styles.listContent,
           displayedFiles.length === 0 && styles.listContentEmpty,
@@ -1085,9 +1290,16 @@ export default function FilesScreen() {
                   </TouchableOpacity>
                 )}
                 <View style={{ flex: 1 }}>
+                  {/* Real publication title first; the file name is the fallback
+                      and the smaller line once the book has answered. */}
                   <Text style={[styles.fileName, { color: colors.text }]} numberOfLines={2}>
-                    {item.name}
+                    {item.title || item.name}
                   </Text>
+                  {item.titleIsMetadata && (
+                    <Text style={[styles.fileAuthorText, { color: colors.textSecondary }]} numberOfLines={1}>
+                      {item.author || item.name}
+                    </Text>
+                  )}
                   <View style={styles.fileMetaRow}>
                     <View style={[styles.formatTag, { backgroundColor: colors.accentSoft }]}>
                       <Text style={[styles.formatTagText, { color: colors.accent }]}>
@@ -1097,6 +1309,11 @@ export default function FilesScreen() {
                     <Text style={[styles.fileSizeText, { color: colors.textMuted }]}>
                       {formatBytes(item.size)}
                     </Text>
+                    {item.titleIsMetadata && (
+                      <Text style={[styles.folderNameText, { color: colors.textMuted }]} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                    )}
                     <Text style={[styles.folderNameText, { color: colors.textSecondary }]} numberOfLines={1}>
                       📁 {item.folderName}
                     </Text>
@@ -1190,6 +1407,35 @@ export default function FilesScreen() {
           onDismiss={() => setToastMessage(null)}
         />
       )}
+
+      {/* All files access is a scary permission to hand out without an
+          explanation; nothing is ever uploaded, only read. */}
+      <LiruneDialog
+        visible={pendingScanAccessPrompt}
+        title={'Allow "All files access"?'}
+        message={
+          'Lirune needs "All files access" to find books in your Downloads folder and at the root of your storage — Android hides EPUBs and PDFs from everything else. ' +
+          'Lirune only reads file names and paths that are already on this device. Nothing is uploaded and nothing is changed.\n\n' +
+          'You can skip this: scanning will still show downloaded files and the folders you have opened.'
+        }
+        icon="folder-open-outline"
+        actions={[
+          {
+            label: 'Allow in Settings',
+            onPress: () => {
+              void handleScanAccessResponse(true);
+            },
+            variant: 'primary',
+          },
+          {
+            label: 'Not now',
+            onPress: () => {
+              void handleScanAccessResponse(false);
+            },
+            variant: 'secondary',
+          },
+        ]}
+      />
     </SafeAreaView>
   );
 }
@@ -1281,6 +1527,17 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 10,
     borderWidth: 1,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 10,
+  },
+  toggleLabel: {
+    flex: 1,
+    fontSize: 12.5,
+    lineHeight: 17,
   },
   guidanceText: {
     flex: 1,
@@ -1412,6 +1669,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     lineHeight: 18,
+  },
+  fileAuthorText: {
+    fontSize: 12.5,
+    lineHeight: 16,
+    marginTop: 1,
   },
   fileMetaRow: {
     flexDirection: 'row',

@@ -4,7 +4,7 @@
  * high-performance filesystem traversals, and SAF tree scanning.
  */
 
-import { NativeModules, Platform } from 'react-native';
+import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import { BookFormat } from '@/models/Book';
 import { logger } from '@/utils/logger';
 
@@ -28,10 +28,27 @@ export interface DiscoveredNativeFile {
   path?: string;
   name: string;
   size: number;
-  format: BookFormat;
+  /** Null when the source does not resolve the format (native full-storage scan). */
+  format: BookFormat | null;
   folderName: string;
   mimeType?: string;
 }
+
+export interface FullScanOptions {
+  /** Extension allow-list. Omit for the default book formats. */
+  extensions?: string[];
+  maxDepth?: number;
+  maxResults?: number;
+  timeBudgetMs?: number;
+  minBytes?: number;
+}
+
+export interface ScanProgress {
+  found: number;
+  currentDir: string;
+}
+
+export const LIRUNE_SCAN_PROGRESS_EVENT = 'LiruneScanProgress';
 
 export const nativeStorage = {
   isAvailable(): boolean {
@@ -98,6 +115,59 @@ export const nativeStorage = {
     } catch (err) {
       logger.warn(TAG, 'scanSafTree failed', err);
       return [];
+    }
+  },
+
+  /**
+   * Walks every readable volume for book files.
+   *
+   * Requires All files access: MediaStore does not index EPUBs or PDFs, and the
+   * SAF picker cannot hand out the storage root or the Download folder, so this
+   * is the only way to see a library the user keeps there.
+   */
+  async scanAllStorage(options: FullScanOptions = {}): Promise<DiscoveredNativeFile[]> {
+    if (!this.isAvailable()) return [];
+    try {
+      const items = await LiruneStorage.scanAllStorage(options);
+      return Array.isArray(items) ? items : [];
+    } catch (err) {
+      logger.warn(TAG, 'scanAllStorage failed', err);
+      return [];
+    }
+  },
+
+  /** Stops an in-flight `scanAllStorage`. */
+  async cancelScan(): Promise<boolean> {
+    if (!this.isAvailable()) return false;
+    try {
+      return await LiruneStorage.cancelScan();
+    } catch (err) {
+      logger.warn(TAG, 'cancelScan failed', err);
+      return false;
+    }
+  },
+
+  /** Subscribes to native scan progress; returns an unsubscribe function. */
+  onScanProgress(listener: (progress: ScanProgress) => void): () => void {
+    if (!this.isAvailable()) return () => undefined;
+    const emitter = new NativeEventEmitter(LiruneStorage);
+    const subscription = emitter.addListener(LIRUNE_SCAN_PROGRESS_EVENT, listener);
+    return () => subscription.remove();
+  },
+
+  /**
+   * Reads one entry of a ZIP container as text, streaming from disk.
+   *
+   * Used to read an EPUB's `META-INF/container.xml` and its OPF for discovery
+   * without loading the whole publication into JS. `file://` paths only.
+   */
+  async readZipEntryText(path: string, entryPath: string, maxBytes = 1024 * 1024): Promise<string | null> {
+    if (!this.isAvailable()) return null;
+    try {
+      return await LiruneStorage.readZipEntryText(path, entryPath, maxBytes);
+    } catch (err) {
+      logger.warn(TAG, `readZipEntryText failed for ${entryPath}`, err);
+      return null;
     }
   },
 

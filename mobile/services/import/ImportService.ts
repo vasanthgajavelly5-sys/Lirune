@@ -15,6 +15,7 @@ import { getBookRepository } from '@/repositories';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { MetadataExtractor } from '@/services/metadata/MetadataExtractor';
 import { FormatDetector } from '@/services/discovery/FormatDetector';
+import { findDuplicate } from './duplicateCheck';
 import {
   AppError,
   UnsupportedFormatError,
@@ -153,19 +154,18 @@ export class ImportService {
         );
       }
 
-      // 2. Check for duplicate by filename and size if already in library
+      // 2. Duplicate check: same format, same size, and the same file name or the
+      // same title+author. A name-only comparison let renamed copies in and
+      // skipped unrelated books that shared a file name.
       const existingBooks = await repo.getBooks();
-      const cleanFileName = fileName.replace(/\.[^/.]+$/, '').toLowerCase();
-      const normFileName = cleanFileName.normalize('NFKC').replace(/[^a-z0-9]/g, '');
-      const duplicate = existingBooks.find(
-        (b) => {
-          if (preliminaryFormat && b.format !== preliminaryFormat) return false;
-          const normTitle = b.title.toLowerCase().normalize('NFKC').replace(/[^a-z0-9]/g, '');
-          // Size alone and substring matches can suppress importing a different
-          // book (or “Book 10” when “Book 1” exists). Without hashing the content,
-          // an exact normalized name is the safe duplicate signal.
-          return normFileName.length > 0 && normTitle === normFileName;
-        }
+      const duplicate = findDuplicate(
+        {
+          format: preliminaryFormat || '',
+          fileName,
+          size: fileSizeHint,
+          title: fileName,
+        },
+        existingBooks
       );
       if (duplicate) {
         logger.info(TAG, `Book already exists in library: ${duplicate.title}`);
@@ -249,7 +249,13 @@ export class ImportService {
           dateAdded: now,
           lastReadDate: undefined,
           availability: 'available',
-          metadata: metadata.metadata,
+          metadata: {
+            ...(metadata.metadata || {}),
+            // Kept so a later scan can recognise this exact file even when the
+            // file name or the metadata title changes.
+            sourceFileName: fileName,
+            sourceFileSize: fileSize || fileSizeHint || 0,
+          },
         };
 
         // 6. Persist to SQLite

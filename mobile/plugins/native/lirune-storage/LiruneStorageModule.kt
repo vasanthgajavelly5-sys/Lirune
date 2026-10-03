@@ -11,13 +11,16 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.Settings
+import android.webkit.MimeTypeMap
 import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.*
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.ArrayDeque
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -38,12 +41,258 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
             }
         }
 
-        private fun getExtensionFromName(name: String): String {
+        /**
+ * Reads one text entry out of a ZIP container without copying the archive.
+ *
+ * Discovery needs the OPF of an EPUB to show a real title and author in the file
+ * list. Reading the whole book (base64 in JS) to get 2KB of metadata is what made
+ * the Files screen slow, and `content://` sources cannot be streamed at all, so
+ * discovery only uses this for `file://` paths — the ones the full-storage scan
+ * produces — and falls back to the file name everywhere else.
+ *
+ * Returns null when the archive cannot be opened or the entry does not exist.
+ */
+@ReactMethod
+fun readZipEntryText(path: String, entryPath: String, maxBytes: Double, promise: Promise) {
+    Thread {
+        try {
+            val file = File(path)
+            if (!file.isFile) {
+                promise.resolve(null)
+                return@Thread
+            }
+            val limit = if (maxBytes > 0 && maxBytes < Int.MAX_VALUE) maxBytes.toInt() else 1024 * 1024
+            java.util.zip.ZipFile(file).use { zip ->
+                val entry = zip.getEntry(entryPath)
+                    ?: zip.getEntry(entryPath.removePrefix("/"))
+                    ?: return@use promise.resolve(null)
+                if (entry.size > Int.MAX_VALUE) {
+                    promise.resolve(null)
+                    return@use
+                }
+                zip.getInputStream(entry).use { stream ->
+                    val buffer = ByteArray(minOf(limit.coerceAtLeast(1), 1024 * 1024))
+                    var read = 0
+                    while (read < buffer.size) {
+                        val count = stream.read(buffer, read, buffer.size - read)
+                        if (count <= 0) break
+                        read += count
+                    }
+                    promise.resolve(String(buffer, 0, read, Charsets.UTF_8))
+                }
+            }
+        } catch (e: Exception) {
+            // A corrupt or unsupported archive is not an error the Files screen
+            // should surface; it falls back to the file name.
+            promise.resolve(null)
+        }
+    }.start()
+}
+
+private fun getExtensionFromName(name: String): String {
             val idx = name.lastIndexOf('.')
             return if (idx >= 0 && idx < name.length - 1) {
                 name.substring(idx + 1).lowercase(Locale.ROOT)
             } else ""
         }
+
+        /** Folders a book collection is actually kept in; scanned before the rest of root. */
+        private val PRIORITY_FOLDERS = listOf("Download", "Downloads", "Documents", "Books", "Ebooks", "EPUB")
+
+        /**
+         * Directories that never contain user books and are expensive or huge to walk.
+         * `Android` holds the app's own data and is unreadable without all-files access.
+         */
+        private val SKIPPED_DIRECTORIES = setOf(
+            "android", "node_modules", ".thumbnails", "cache", "lost.dir", "dcim"
+        )
+    }
+
+    /** Set by `cancelScan()`; checked by the iterative walk. */
+    private val scanCancelled = AtomicBoolean(false)
+
+    private fun emitScanProgress(found: Int, currentDir: String) {
+        try {
+            val payload = Arguments.createMap().apply {
+                putInt("found", found)
+                putString("currentDir", currentDir)
+            }
+            reactContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("LiruneScanProgress", payload)
+        } catch (_: Exception) {
+            // Progress is cosmetic; never fail the scan over it.
+        }
+    }
+
+    /**
+     * Stops an in-flight `scanAllStorage`.
+     *
+     * A full-storage walk of a phone with a few hundred thousand files can take
+     * tens of seconds; the Scan screen exposes this as a Cancel button.
+     */
+    @ReactMethod
+    fun cancelScan(promise: Promise) {
+        scanCancelled.set(true)
+        promise.resolve(true)
+    }
+
+    /**
+     * Every volume the app can see: the primary external storage plus every
+     * secondary volume (SD cards), derived from the app's external files dirs.
+     */
+    private fun storageRoots(): List<File> {
+        val roots = ArrayList<File>()
+        val seen = HashSet<String>()
+
+        fun add(path: String?) {
+            if (path.isNullOrBlank()) return
+            val normalized = path.trimEnd('/')
+            if (seen.add(normalized)) roots.add(File(normalized))
+        }
+
+        add(Environment.getExternalStorageDirectory()?.absolutePath)
+        add("/storage/emulated/0")
+        try {
+            reactContext.getExternalFilesDirs(null)?.forEach { dir ->
+                // /storage/XXXX-XXXX/Android/data/<pkg>/files -> /storage/XXXX-XXXX
+                val marker = dir.absolutePath.indexOf("/Android/")
+                if (marker > 0) add(dir.absolutePath.substring(0, marker))
+            }
+        } catch (_: Exception) {
+            // No secondary storage on this device.
+        }
+        return roots
+    }
+
+    /**
+     * Full-storage discovery with all-files access.
+     *
+     * MediaStore cannot list EPUBs or PDFs (they are not media), and the SAF
+     * picker cannot hand out the storage root or the Download folder itself, so
+     * neither can find a book library stored there. This walks the volumes
+     * directly instead: priority folders first, bounded by depth, result count and
+     * a wall-clock budget, and cancellable from JS.
+     */
+    @ReactMethod
+    fun scanAllStorage(options: ReadableMap, promise: Promise) {
+        Thread {
+            try {
+                scanCancelled.set(false)
+
+                val maxDepth = if (options.hasKey("maxDepth")) options.getInt("maxDepth") else 8
+                val depthLimit = if (maxDepth in 1..16) maxDepth else 8
+                val maxResults = if (options.hasKey("maxResults")) options.getInt("maxResults") else 5000
+                val resultLimit = if (maxResults in 1..50000) maxResults else 5000
+                val budgetMs = if (options.hasKey("timeBudgetMs")) options.getInt("timeBudgetMs") else 45000L
+                val minBytes = if (options.hasKey("minBytes")) options.getInt("minBytes").toLong() else 4096L
+
+                val extensions = HashSet<String>()
+                if (options.hasKey("extensions")) {
+                    val array = options.getArray("extensions")
+                    if (array != null) {
+                        for (i in 0 until array.size()) {
+                            val raw = array.getString(i) ?: continue
+                            extensions.add(getExtensionFromName(raw))
+                        }
+                    }
+                }
+                // Archives are opt-in: a phone's .zip files outnumber its books.
+                val effectiveExtensions = if (extensions.isEmpty()) {
+                    SUPPORTED_EXTENSIONS.filter { it != "zip" && it != "rar" }.toSet()
+                } else {
+                    extensions
+                }
+
+                val packageDir = "/Android/data/${reactContext.packageName}"
+                val results = Arguments.createArray()
+                val seenPaths = HashSet<String>()
+                val startedAt = System.currentTimeMillis()
+                var lastProgressAt = 0L
+
+                for (root in storageRoots()) {
+                    if (scanCancelled.get()) break
+                    if (!root.exists() || !root.isDirectory) continue
+
+                    // Priority folders first so the books a user just downloaded
+                    // appear at the top of the list instead of after a full walk.
+                    val queue = ArrayDeque<Pair<File, Int>>()
+                    for (name in PRIORITY_FOLDERS) {
+                        val candidate = File(root, name)
+                        if (candidate.isDirectory) queue.add(Pair(candidate, 1))
+                    }
+                    queue.add(Pair(root, 0))
+
+                    while (queue.isNotEmpty()) {
+                        if (scanCancelled.get()) break
+                        if (results.size() >= resultLimit) break
+                        if (System.currentTimeMillis() - startedAt > budgetMs) break
+
+                        val (currentDir, currentDepth) = queue.poll() ?: break
+                        val now = System.currentTimeMillis()
+                        if (now - lastProgressAt > 250) {
+                            lastProgressAt = now
+                            emitScanProgress(results.size(), currentDir.absolutePath)
+                        }
+
+                        val children = try {
+                            currentDir.listFiles()
+                        } catch (_: Exception) {
+                            null
+                        } ?: continue
+
+                        for (child in children) {
+                            if (scanCancelled.get()) break
+                            if (results.size() >= resultLimit) break
+
+                            try {
+                                if (child.isDirectory) {
+                                    if (currentDepth + 1 > depthLimit) continue
+                                    val name = child.name
+                                    if (name.startsWith(".") || SKIPPED_DIRECTORIES.contains(name.lowercase(Locale.ROOT))) continue
+                                    if (child.absolutePath.contains(packageDir)) continue
+                                    queue.add(Pair(child, currentDepth + 1))
+                                    continue
+                                }
+                                if (!child.isFile) continue
+                                val length = child.length()
+                                if (length < minBytes) continue
+
+                                val effectiveName = child.name
+                                val ext = getExtensionFromName(effectiveName)
+                                if (!effectiveExtensions.contains(ext)) continue
+
+                                val absPath = child.absolutePath
+                                if (!seenPaths.add(absPath)) continue
+
+                                val fileUri = "file://$absPath"
+                                val mimeType = MimeTypeMap.getSingleton()
+                                    .getMimeTypeFromExtension(ext)
+                                    ?: "application/octet-stream"
+                                val item = Arguments.createMap().apply {
+                                    putString("id", fileUri)
+                                    putString("uri", fileUri)
+                                    putString("path", absPath)
+                                    putString("name", effectiveName)
+                                    putDouble("size", length.toDouble())
+                                    putString("mimeType", mimeType)
+                                    putString("folderName", child.parentFile?.name ?: root.name)
+                                    // Format is resolved in JS, where the extension table lives.
+                                    putNull("format")
+                                }
+                                results.pushMap(item)
+                            } catch (_: Exception) {
+                                // Ignore an individual unreadable entry.
+                            }
+                        }
+                    }
+                }
+
+                promise.resolve(results)
+            } catch (e: Exception) {
+                promise.reject("FULL_SCAN_ERROR", e.message, e)
+            }
+        }.start()
     }
 
     /**

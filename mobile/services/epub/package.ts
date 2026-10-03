@@ -42,6 +42,104 @@ export interface EpubPackage {
   chapterTitles: string[];
   publicationTitle: string;
   coverPath: string | null;
+  /** Full Dublin Core metadata, shared with import and with the Files screen. */
+  metadata: OpfMetadata;
+}
+
+export interface OpfMetadata {
+  title: string;
+  /** Every `dc:creator`, in document order, already decoded. */
+  authors: string[];
+  description?: string;
+  language?: string;
+  publisher?: string;
+  identifier?: string;
+  date?: string;
+  /** `calibre:series` / `belongs-to-collection` series name. */
+  series?: string;
+  /** Href of the manifest item marked as the cover, already archive-relative. */
+  coverHref?: string;
+}
+
+/** Decodes CDATA wrappers and the XML entities a publisher can legally use. */
+export function decodeXmlText(raw: string): string {
+  // CDATA first: `toPlainText` sees `<![CDATA[…]]>` as a tag and would drop it.
+  return toPlainText(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/&amp;/g, '&');
+}
+
+function firstTagText(xml: string, tag: string): string {
+  const pattern = new RegExp(`<(?:(?:\\w+):)?${tag}\\b[^>]*>([\\s\\S]*?)<\\/(?:(?:\\w+):)?${tag}\\s*>`, 'i');
+  const match = pattern.exec(xml);
+  if (!match) return '';
+  return decodeXmlText(match[1]).trim();
+}
+
+function allTagTexts(xml: string, tag: string): string[] {
+  const pattern = new RegExp(`<(?:(?:\\w+):)?${tag}\\b[^>]*>([\\s\\S]*?)<\\/(?:(?:\\w+):)?${tag}\\s*>`, 'gi');
+  const results: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(xml)) !== null) {
+    const value = decodeXmlText(match[1]).trim();
+    if (value) results.push(value);
+  }
+  return results;
+}
+
+/**
+ * Reads the Dublin Core metadata out of an OPF document.
+ *
+ * Shared by the reader (which has the archive open), by import and by discovery
+ * (which has two ZIP entries to hand), so the file list and the imported book can
+ * never disagree about a title or an author.
+ */
+export function parseOpfMetadata(opfXml: string, opfPath?: string): OpfMetadata {
+  const metadataBlock = /<metadata\b[^>]*>([\s\S]*?)<\/metadata\s*>/i.exec(opfXml);
+  const metadataXml = metadataBlock ? metadataBlock[1] : opfXml;
+  const manifestBlock = /<manifest\b[^>]*>([\s\S]*?)<\/manifest\s*>/i.exec(opfXml);
+  const manifestXml = manifestBlock ? manifestBlock[1] : '';
+  const baseDir = opfPath && opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+
+  // EPUB 2 names the cover with <meta name="cover" content="id">; EPUB 3 marks the
+  // manifest item with properties="cover-image".
+  let coverHref: string | undefined;
+  const coverMeta = /<meta\b[^>]*\bname\s*=\s*["']cover["'][^>]*\bcontent\s*=\s*["']([^"']+)["']/i.exec(metadataXml);
+  if (coverMeta) {
+    const itemPattern = new RegExp(
+      `<item\\b[^>]*\\bid\\s*=\\s*["']${coverMeta[1].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>`,
+      'i'
+    );
+    const item = itemPattern.exec(manifestXml);
+    const href = item ? parseAttributes(item[0]).find((a) => a.name === 'href')?.value : undefined;
+    if (href) coverHref = resolveZipPath(baseDir, href);
+  }
+  if (!coverHref) {
+    const propsItem = /<item\b[^>]*\bproperties\s*=\s*["'][^"']*cover-image[^"']*["'][^>]*>/i.exec(manifestXml);
+    const href = propsItem ? parseAttributes(propsItem[0]).find((a) => a.name === 'href')?.value : undefined;
+    if (href) coverHref = resolveZipPath(baseDir, href);
+  }
+
+  const calibreSeries = firstTagText(metadataXml, 'calibre:series');
+  const belongsTo = /<belongs-to-collection\b[^>]*>([\s\S]*?)<\/belongs-to-collection\s*>/i.exec(metadataXml);
+  const collectionName = belongsTo ? firstTagText(belongsTo[1], 'collection-name') : '';
+
+  return {
+    title: firstTagText(metadataXml, 'title'),
+    authors: allTagTexts(metadataXml, 'creator'),
+    description: firstTagText(metadataXml, 'description') || undefined,
+    language: firstTagText(metadataXml, 'language') || undefined,
+    publisher: firstTagText(metadataXml, 'publisher') || undefined,
+    identifier: firstTagText(metadataXml, 'identifier') || undefined,
+    date: firstTagText(metadataXml, 'date') || undefined,
+    series: calibreSeries || collectionName || undefined,
+    coverHref,
+  };
 }
 
 /** Attribute-order agnostic attribute reader for XML start tags. */
@@ -353,5 +451,6 @@ export async function readEpubPackage(archive: EpubArchive): Promise<EpubPackage
     chapterTitles,
     publicationTitle: parseMetadataTitle(opfXml),
     coverPath: resolveCover(opfXml, opfDir, manifest),
+    metadata: parseOpfMetadata(opfXml, opfPath),
   };
 }

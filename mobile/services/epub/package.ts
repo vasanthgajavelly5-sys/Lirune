@@ -1,0 +1,310 @@
+/**
+ * Lirune Reader Mobile — EPUB package document parsing
+ *
+ * Reads `META-INF/container.xml`, the OPF manifest, the spine, and the table of
+ * contents (EPUB 3 `nav` first, EPUB 2 NCX second).
+ *
+ * This lives outside the React component for two reasons: the parsing is the part
+ * that has to be exercised by the automated EPUB corpus harness, and the reader
+ * needs spine-index → chapter-title resolution in more than one place.
+ */
+
+import type { EpubArchive } from './archive.ts';
+import { resolveZipPath } from './zipPaths.ts';
+import { createSpineTarget } from './navigation.ts';
+import { scanTokens, parseAttributes, toPlainText, elementInner, findElementEnd } from './markup.ts';
+import type { TOCItem } from '../../models/Book.ts';
+
+export interface EpubManifestItem {
+  id: string;
+  href: string;
+  mediaType: string;
+  properties?: string;
+  /** Archive path of the item. */
+  path: string;
+}
+
+export interface EpubSpineItem {
+  idref: string;
+  /** Archive path of the content document. */
+  path: string;
+  linear: boolean;
+}
+
+export interface EpubPackage {
+  opfPath: string;
+  opfDir: string;
+  manifest: Map<string, EpubManifestItem>;
+  spine: EpubSpineItem[];
+  /** Table of contents with hrefs rewritten to `spine:N[:anchor:x]` targets. */
+  toc: TOCItem[];
+  /** Chapter title per spine index, already resolved from nav/NCX/headings. */
+  chapterTitles: string[];
+  publicationTitle: string;
+  coverPath: string | null;
+}
+
+/** Attribute-order agnostic attribute reader for XML start tags. */
+function attribute(raw: string, name: string): string | null {
+  const match = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i').exec(raw);
+  if (!match) return null;
+  return match[1] ?? match[2] ?? '';
+}
+
+function parseFullPath(containerXml: string): string | null {
+  const rootFile = /<rootfile\b([^>]*)>/i.exec(containerXml);
+  if (rootFile) {
+    const fullPath = attribute(rootFile[1], 'full-path');
+    if (fullPath) return fullPath;
+  }
+  const legacy = /full-path\s*=\s*["']([^"']+)["']/i.exec(containerXml);
+  return legacy ? legacy[1] : null;
+}
+
+function parseMetadataTitle(opfXml: string): string {
+  const dcTitle = /<dc:title\b[^>]*>([\s\S]{0,300}?)<\/dc:title\s*>/i.exec(opfXml);
+  if (dcTitle) {
+    const text = toPlainText(dcTitle[1]);
+    if (text) return text;
+  }
+  const legacy = /<title\b[^>]*>([\s\S]{0,300}?)<\/title\s*>/i.exec(opfXml);
+  return legacy ? toPlainText(legacy[1]) : '';
+}
+
+/**
+ * Resolves the cover image declared by `meta name="cover"` or the EPUB 3
+ * `properties="cover-image"` manifest item.
+ */
+function resolveCover(
+  opfXml: string,
+  opfDir: string,
+  manifest: Map<string, EpubManifestItem>
+): string | null {
+  const metaCover = /<meta\b([^>]*)>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = metaCover.exec(opfXml)) !== null) {
+    const name = attribute(match[1], 'name');
+    if (name?.toLowerCase() !== 'cover') continue;
+    const content = attribute(match[1], 'content');
+    const item = content ? manifest.get(content) : undefined;
+    if (item) return item.path;
+    if (content) {
+      const candidate = resolveZipPath(opfDir, content);
+      if (candidate) return candidate;
+    }
+  }
+  for (const item of manifest.values()) {
+    if (item.properties?.split(/\s+/).includes('cover-image')) return item.path;
+  }
+  return null;
+}
+
+interface NavEntry {
+  label: string;
+  href: string;
+  depth: number;
+}
+
+/**
+ * EPUB 3 navigation document.
+ *
+ * Prefers the `epub:type="toc"` nav; falls back to the whole document, which is
+ * what most EPUB 3 files use anyway.
+ */
+function parseNavDocument(navXhtml: string, navDir: string): NavEntry[] {
+  const tokens = scanTokens(navXhtml);
+  const tocNavs: number[] = [];
+  const navs: number[] = [];
+  tokens.forEach((token, index) => {
+    if (token.lower !== 'nav' || token.closing) return;
+    if (
+      token.attrs.match(/\bepub:type\s*=\s*["']toc["']/i) ||
+      token.attrs.match(/\brole\s*=\s*["']doc-toc["']/i)
+    ) {
+      tocNavs.push(index);
+    } else {
+      navs.push(index);
+    }
+  });
+
+  const scopeIndexes = tocNavs.length > 0 ? tocNavs : navs;
+  const entries: NavEntry[] = [];
+
+  for (const scopeIndex of scopeIndexes) {
+    const end = findElementEnd(tokens, scopeIndex);
+    for (let i = scopeIndex + 1; i < (end === -1 ? tokens.length : end); i++) {
+      const token = tokens[i];
+      if (token.lower !== 'a' || token.closing) continue;
+      const href = parseAttributes(token.attrs).find((a) => a.name === 'href')?.value;
+      if (!href) continue;
+      const label = toPlainText(elementInner(navXhtml, tokens, i));
+      if (!label) continue;
+      entries.push({ label, href: resolveZipPath(navDir, href), depth: 0 });
+    }
+    if (entries.length > 0) break;
+  }
+
+  return entries;
+}
+
+/** EPUB 2 NCX: nested navPoint elements, flattened in document order. */
+function parseNcxDocument(ncxXml: string): NavEntry[] {
+  const tokens = scanTokens(ncxXml);
+  const entries: NavEntry[] = [];
+
+  tokens.forEach((token, index) => {
+    if (token.lower !== 'navpoint' || token.closing) return;
+    const close = findElementEnd(tokens, index);
+    const block = ncxXml.slice(token.end, close === -1 ? ncxXml.length : tokens[close].start);
+
+    const textMatch = /<text\b[^>]*>([\s\S]{0,300}?)<\/text\s*>/i.exec(block);
+    const contentMatch = /<content\b([^>]*)\/?>/i.exec(block);
+    if (!textMatch || !contentMatch) return;
+    const label = toPlainText(textMatch[1]);
+    const src = attribute(contentMatch[1], 'src');
+    if (!label || !src) return;
+    entries.push({ label, href: src, depth: 0 });
+  });
+
+  return entries;
+}
+
+/**
+ * Reads the whole package structure for one archive.
+ *
+ * Every lookup goes through the archive's normalized index, so manifest hrefs
+ * that disagree with the archive's own file names still resolve.
+ */
+export async function readEpubPackage(archive: EpubArchive): Promise<EpubPackage> {
+  const containerXml = await archive.readText('META-INF/container.xml');
+  if (!containerXml) throw new Error('Missing META-INF/container.xml in EPUB archive.');
+
+  const opfPath = parseFullPath(containerXml) || 'OEBPS/content.opf';
+  const opfXml = await archive.readText(opfPath);
+  if (!opfXml) throw new Error(`Missing OPF manifest at ${opfPath}`);
+
+  const opfDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+
+  // Manifest
+  const manifest = new Map<string, EpubManifestItem>();
+  const itemTag = /<item\b([^>]*?)\/?>/gi;
+  let itemMatch: RegExpExecArray | null;
+  while ((itemMatch = itemTag.exec(opfXml)) !== null) {
+    const raw = itemMatch[1];
+    const id = attribute(raw, 'id');
+    const href = attribute(raw, 'href');
+    if (!id || !href) continue;
+    manifest.set(id, {
+      id,
+      href,
+      mediaType: (attribute(raw, 'media-type') || 'application/xhtml+xml').toLowerCase(),
+      properties: attribute(raw, 'properties') || undefined,
+      path: resolveZipPath(opfDir, href),
+    });
+  }
+
+  // Spine
+  const spine: EpubSpineItem[] = [];
+  const itemref = /<itemref\b([^>]*?)\/?>/gi;
+  let itemrefMatch: RegExpExecArray | null;
+  while ((itemrefMatch = itemref.exec(opfXml)) !== null) {
+    const raw = itemrefMatch[1];
+    const idref = attribute(raw, 'idref');
+    if (!idref) continue;
+    const item = manifest.get(idref);
+    if (!item) continue;
+    spine.push({
+      idref,
+      path: item.path,
+      linear: (attribute(raw, 'linear') || 'yes').toLowerCase() !== 'no',
+    });
+  }
+
+  // Fallback for malformed packages: every XHTML manifest item, in document order.
+  if (spine.length === 0) {
+    for (const item of manifest.values()) {
+      if (
+        item.mediaType.includes('xhtml') ||
+        item.mediaType.includes('html') ||
+        /\.(?:xhtml|html|htm)$/i.test(item.href)
+      ) {
+        spine.push({ idref: item.id, path: item.path, linear: true });
+      }
+    }
+  }
+
+  if (spine.length === 0) {
+    throw new Error('This EPUB publication contains no readable chapter items.');
+  }
+
+  // Spine index lookup, tolerant of case differences in publisher manifests.
+  const spineIndexByPath = new Map<string, number>();
+  spine.forEach((item, index) => {
+    const key = item.path.toLowerCase();
+    if (item.path && !spineIndexByPath.has(key)) spineIndexByPath.set(key, index);
+  });
+  const spineIndexFor = (archivePath: string): number | null => {
+    if (!archivePath) return null;
+    const direct = spineIndexByPath.get(archivePath.toLowerCase());
+    return direct === undefined ? null : direct;
+  };
+
+  // Table of contents
+  let entries: NavEntry[] = [];
+  const navItem = [...manifest.values()].find(
+    (item) =>
+      item.properties?.split(/\s+/).includes('nav') ||
+      /nav\.xhtml$/i.test(item.href) ||
+      /toc\.xhtml$/i.test(item.href)
+  );
+  if (navItem) {
+    const navXhtml = await archive.readText(navItem.path);
+    if (navXhtml) {
+      const navDir = navItem.path.includes('/')
+        ? navItem.path.slice(0, navItem.path.lastIndexOf('/') + 1)
+        : '';
+      entries = parseNavDocument(navXhtml, navDir);
+    }
+  }
+  if (entries.length === 0) {
+    const ncxItem = [...manifest.values()].find(
+      (item) => item.mediaType === 'application/x-dtbncx+xml' || /\.ncx$/i.test(item.href)
+    );
+    if (ncxItem) {
+      const ncxXml = await archive.readText(ncxItem.path);
+      if (ncxXml) entries = parseNcxDocument(ncxXml);
+    }
+  }
+
+  const toc: TOCItem[] = [];
+  const chapterTitleByIndex = new Map<number, string>();
+  entries.forEach((entry, order) => {
+    // `entry.href` is already an archive path (resolved against the navigation
+    // document for nav, against the OPF for NCX), so it must not be resolved again.
+    const [pathPart, fragment] = entry.href.split('#', 2);
+    const index = spineIndexFor(pathPart);
+    const id = `toc_${order}`;
+    let href: string | undefined;
+    if (index !== null) {
+      href = createSpineTarget(index, fragment);
+      // The book's own navigation metadata is the best chapter title there is.
+      if (!chapterTitleByIndex.has(index)) chapterTitleByIndex.set(index, entry.label);
+    }
+    toc.push({ id, label: entry.label, href });
+  });
+
+  const chapterTitles = spine.map((_, index) => {
+    return chapterTitleByIndex.get(index) || `Chapter ${index + 1}`;
+  });
+
+  return {
+    opfPath,
+    opfDir,
+    manifest,
+    spine,
+    toc,
+    chapterTitles,
+    publicationTitle: parseMetadataTitle(opfXml),
+    coverPath: resolveCover(opfXml, opfDir, manifest),
+  };
+}

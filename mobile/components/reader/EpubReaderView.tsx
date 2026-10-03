@@ -2,28 +2,74 @@
  * Lirune Reader Mobile — Modern Reflowable EPUB Reader Engine
  * Supports BOTH Discrete Page Mode (horizontal column pagination with swipe & tap turn)
  * and Continuous Scroll Mode (vertical scrolling), with persistent paragraph spacing.
+ *
+ * All parsing lives in `services/epub/*`. This component owns presentation,
+ * session state, and the bridge to the reader WebView.
+ *
+ * Two invariants drive the design:
+ *  - Multi-book isolation: exactly one `EpubArchive` is alive per reader session
+ *    and it is disposed before another book is opened.
+ *  - Stable reading position: the rendered document lags the live settings by one
+ *    position-capture round trip, and the continuous-mode document is frozen at
+ *    load time so scrolling never triggers a reload.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, PixelRatio } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
-import { sanitizeHtml } from '@/services/security/sanitizeHtml';
-import { SELECTION_WATCHER_JS, parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
-import { resolveZipPath } from '@/services/epub/zipPaths';
-import { inlineEpubCss } from '@/services/epub/inlineCss';
+import { parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
+import {
+  REQUEST_POSITION_JS,
+  isReadingPosition,
+  restorePositionScript,
+  type ReadingPosition,
+} from '@/services/reader/readingPosition';
+import { EpubArchive } from '@/services/epub/archive';
+import { readEpubPackage, type EpubPackage } from '@/services/epub/package';
+import { extractChapterDocument, type ChapterDocument } from '@/services/epub/chapter';
+import { buildContinuousShell, buildReaderDocument } from '@/services/epub/readerDocument';
 import { createSpineTarget, parseSpineTarget } from '@/services/epub/navigation';
-import JSZip from 'jszip';
-import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
+import { toPlainText } from '@/services/epub/markup';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { READER_THEMES } from '@/theme/Colors';
 import { getCssFontFamily } from '@/theme/Typography';
 import { logger } from '@/utils/logger';
-import { validateArchiveBudget, type ArchiveEntryBudget } from '@/services/security/archiveBudget';
+import { validateArchiveBudget } from '@/services/security/archiveBudget';
+import { computeReaderLayout } from '@/services/reader/readerLayout';
+import { computeReaderGeometry, decideNavigation, type ReaderGeometry } from '@/services/epub/readerGeometry';
+import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 
 const TAG = 'EpubReaderView';
+
+/** Chapters kept in memory; a 500-chapter book must not hold 500 rendered strings. */
+const CHAPTER_CACHE_LIMIT = 40;
+
+/** Longest the reader waits for the WebView to answer a position capture. */
+const POSITION_CAPTURE_TIMEOUT_MS = 400;
+
+/** Injected once so hydrated chapters can add their own stylesheets. */
+const STYLE_INJECTOR_JS = `
+(function () {
+  window.__liruneInjectStyles = function (index, sheets) {
+    if (!sheets) return;
+    for (var i = 0; i < sheets.length; i++) {
+      var sheet = sheets[i];
+      if (!sheet || !sheet.css) continue;
+      var key = sheet.path.replace(/[^a-zA-Z0-9._-]/g, '_');
+      if (document.querySelector('style[data-lirune-sheet="' + key + '"]')) continue;
+      var element = document.createElement('style');
+      element.setAttribute('data-lirune-sheet', key);
+      element.setAttribute('data-lirune-chapter', String(index));
+      element.textContent = sheet.css;
+      (document.head || document.getElementsByTagName('head')[0]).appendChild(element);
+    }
+  };
+  window.injectChapterStyles = window.__liruneInjectStyles;
+})(); true;
+`;
 
 interface EpubReaderViewProps {
   book: Book;
@@ -37,6 +83,7 @@ interface EpubReaderViewProps {
   onSearchResults?: (results: SearchResult[]) => void;
   onSelectionChange?: (selection: SelectionPayload) => void;
   onContentTextChange?: (html: string) => void;
+  isControlsVisible?: boolean;
 }
 
 interface ChapterItem {
@@ -46,102 +93,50 @@ interface ChapterItem {
   itemPath: string;
 }
 
-async function extractChapterHtml(
-  zip: JSZip,
-  itemPath: string,
-  opfDir: string
-): Promise<{ title: string; html: string }> {
-  const file =
-    zip.file(itemPath) ||
-    Object.values(zip.files).find((f) => f.name.toLowerCase() === itemPath.toLowerCase());
-  if (!file) return { title: 'Chapter', html: '<p>Content not found.</p>' };
+/** Insertion-ordered cache with a hard cap; the oldest entry is dropped first. */
+class BoundedCache<T> {
+  private readonly map = new Map<number, T>();
 
-  let rawHtml = await file.async('text');
+  constructor(private readonly limit: number) {}
 
-  const titleMatch =
-    rawHtml.match(/<title[^>]*>([^<]+)<\/title>/i) ||
-    rawHtml.match(/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i);
-  const title = titleMatch ? titleMatch[1].trim() : '';
-
-  // Image resolution relative to the CHAPTER directory
-  const chapterDir = itemPath.includes('/') ? itemPath.substring(0, itemPath.lastIndexOf('/') + 1) : '';
-
-  // EPUB stylesheets live in the archive; WebView cannot resolve their relative
-  // URLs from an in-memory HTML document. Inline local CSS/assets into this
-  // chapter while dropping remote imports/resources.
-  const cssChunks: { css: string; path: string }[] = [];
-  const inlineStyleRegex = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
-  let styleMatch: RegExpExecArray | null;
-  while ((styleMatch = inlineStyleRegex.exec(rawHtml)) !== null) cssChunks.push({ css: styleMatch[1], path: itemPath });
-  const linkRegex = /<link\b([^>]*)>/gi;
-  let linkMatch: RegExpExecArray | null;
-  while ((linkMatch = linkRegex.exec(rawHtml)) !== null) {
-    const attrs = linkMatch[1];
-    const rel = attrs.match(/\brel=["']([^"']+)["']/i)?.[1] || '';
-    const href = attrs.match(/\bhref=["']([^"']+)["']/i)?.[1];
-    if (!href || /^(?:https?:|\/\/|data:)/i.test(href) || !rel.toLowerCase().split(/\s+/).includes('stylesheet')) continue;
-    const stylesheetPath = resolveZipPath(chapterDir, href);
-    const stylesheet = zip.file(stylesheetPath) || Object.values(zip.files).find((entry) => entry.name.toLowerCase() === stylesheetPath.toLowerCase());
-    if (stylesheet) cssChunks.push({ css: await stylesheet.async('text'), path: stylesheetPath });
-  }
-  const safeCss = (await Promise.all(cssChunks.map(({ css, path }) => inlineEpubCss(css, path, zip))))
-    .filter(Boolean)
-    .join('\n');
-
-  const imgRegex = /<(?:img|image)\b[^>]*\b(?:src|xlink:href|href)=["']([^"']+)["'][^>]*\/?>/gi;
-  let imgMatch;
-  const foundImages: string[] = [];
-  while ((imgMatch = imgRegex.exec(rawHtml)) !== null) {
-    foundImages.push(imgMatch[1]);
+  get(key: number): T | undefined {
+    const value = this.map.get(key);
+    if (value !== undefined) {
+      this.map.delete(key);
+      this.map.set(key, value);
+    }
+    return value;
   }
 
-  for (const imgSrc of foundImages) {
-    if (imgSrc.startsWith('data:') || imgSrc.startsWith('http')) continue;
-    const fullImgPath = resolveZipPath(chapterDir, imgSrc);
-    const imgEntry =
-      zip.file(fullImgPath) ||
-      Object.values(zip.files).find((f) => f.name.toLowerCase() === fullImgPath.toLowerCase());
-    if (imgEntry) {
-      const b64 = await imgEntry.async('base64');
-      const ext = imgSrc.split('.').pop()?.toLowerCase() || 'jpeg';
-      let mime = 'image/jpeg';
-      if (ext === 'png') mime = 'image/png';
-      else if (ext === 'svg') mime = 'image/svg+xml';
-      else if (ext === 'webp') mime = 'image/webp';
-      else if (ext === 'gif') mime = 'image/gif';
-      const dataUri = `data:${mime};base64,${b64}`;
-      rawHtml = rawHtml.split(imgSrc).join(dataUri);
+  has(key: number): boolean {
+    return this.map.has(key);
+  }
+
+  set(key: number, value: T): void {
+    this.map.delete(key);
+    this.map.set(key, value);
+    while (this.map.size > this.limit) {
+      const oldest = this.map.keys().next();
+      if (oldest.done) break;
+      this.map.delete(oldest.value);
     }
   }
 
-  // Transform SVG cover wrappers and SVG image elements to standard <img> tags for reader WebView compatibility
-  rawHtml = rawHtml.replace(
-    /<svg\b[^>]*>[\s\S]*?<image\b[^>]*\b(?:xlink:href|href)=["']([^"']+)["'][^>]*\/?>[\s\S]*?<\/svg>/gi,
-    '<div class="epub-cover-container" style="display:flex;justify-content:center;align-items:center;min-height:75vh;"><img src="$1" style="max-width:100%;max-height:80vh;object-fit:contain;margin:auto;display:block;" /></div>'
-  );
-  rawHtml = rawHtml.replace(
-    /<image\b[^>]*\b(?:xlink:href|href)=["']([^"']+)["'][^>]*\/?>/gi,
-    '<img src="$1" style="max-width:100%;height:auto;display:block;margin:12px auto;" />'
-  );
+  clear(): void {
+    this.map.clear();
+  }
 
-  const bodyMatch = rawHtml.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
-  const chapterHtmlContent = bodyMatch ? bodyMatch[1] : rawHtml;
-
-  return { title, html: `${safeCss ? `<style>${safeCss}</style>` : ''}${sanitizeHtml(chapterHtmlContent)}` };
+  get size(): number {
+    return this.map.size;
+  }
 }
 
-function escapeHtmlText(value: string): string {
-  return value.replace(/[&<>'"]/g, (character) => {
-    const entities: Record<string, string> = {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      "'": '&#39;',
-      '"': '&quot;',
-    };
-    return entities[character];
-  });
-}
+/**
+ * The geometry actually rendered into the WebView. It lags the live settings by
+ * one position-capture round trip so the reading position survives a rotation,
+ * a font-size change or a theme switch.
+ */
+type AppliedGeometry = ReaderGeometry;
 
 export function EpubReaderView({
   book,
@@ -157,309 +152,241 @@ export function EpubReaderView({
   onContentTextChange,
 }: EpubReaderViewProps) {
   const insets = useSafeAreaInsets();
+  const [containerDimensions, setContainerDimensions] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
   const [chapters, setChapters] = useState<ChapterItem[]>([]);
-  const [activeChapterHtml, setActiveChapterHtml] = useState<string>('');
-  const [currentChapterIndex, setCurrentChapterIndex] = useState<number>(0);
-  const [currentPage, setCurrentPage] = useState<number>(0);
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [startAtEnd, setStartAtEnd] = useState<boolean>(false);
-  const [initialScrollY, setInitialScrollY] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [activeChapter, setActiveChapter] = useState<ChapterDocument | null>(null);
+  const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [startAtEnd, setStartAtEnd] = useState(false);
+  const [initialScrollY, setInitialScrollY] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  /**
+   * Continuous mode never re-renders its document while reading: the shell is
+   * built once and every later chapter is injected into the live DOM.
+   */
+  const [continuousSeed, setContinuousSeed] = useState<{ body: string; css: string; index: number } | null>(null);
+
   const webViewRef = useRef<WebView>(null);
-  const zipRef = useRef<JSZip | null>(null);
-  const chapterCacheRef = useRef<Map<number, string>>(new Map());
-  const opfDirRef = useRef<string>('');
+  const archiveRef = useRef<EpubArchive | null>(null);
+  const packageRef = useRef<EpubPackage | null>(null);
+  const chapterCacheRef = useRef<BoundedCache<ChapterDocument>>(new BoundedCache(CHAPTER_CACHE_LIMIT));
   const restorePendingRef = useRef(true);
   const continuousDocumentRef = useRef(false);
   const pendingChapterNavigationRef = useRef<number | null>(null);
-  const targetCfiRef = useRef(targetCfi);
-
-  useEffect(() => {
-    targetCfiRef.current = targetCfi;
-  }, [targetCfi]);
+  const webViewReadyRef = useRef(false);
+  const positionToRestoreRef = useRef<ReadingPosition | null>(null);
+  /**
+   * The last CFI this reader published through `onProgressChange`.
+   *
+   * `reader.tsx` feeds that value straight back in as `targetCfi`, so treating it
+   * as a navigation request would make the reader fight its own page turns: the
+   * reader moves to chapter N+1, publishes `spine:N+1`, and the echo is then
+   * mistaken for a jump back to N. That feedback loop is an infinite render.
+   */
+  const lastPublishedCfiRef = useRef<string | null>(null);
+  /** The last `targetCfi` this reader acted on, so one request runs exactly once. */
+  const lastAppliedCfiRef = useRef<string | null>(null);
+  const geometryRequestRef = useRef<AppliedGeometry | null>(null);
+  const appliedGeometryRef = useRef<AppliedGeometry | null>(null);
+  const liveGeometryRef = useRef<ReaderGeometry | null>(null);
+  const chaptersRef = useRef<ChapterItem[]>([]);
+  const currentIndexRef = useRef(0);
+  const currentPageRef = useRef(0);
 
   const isPaginated = settings.flow !== 'scrolled';
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
-  const paragraphSpacing = settings.paragraphSpacing || 1.0;
-  const pageGap = settings.pageGap ?? 16;
+  const osFontScale = PixelRatio.getFontScale();
+
+  const liveLayout = useMemo(
+    () =>
+      computeReaderLayout({
+        containerWidth: containerDimensions.width || 360,
+        containerHeight: containerDimensions.height || 640,
+        insets: { top: insets.top, bottom: insets.bottom, left: insets.left, right: insets.right },
+        fontSize: settings.fontSize,
+        userMargin: settings.margin,
+        pageGap: settings.pageGap ?? 16,
+        fontScale: osFontScale,
+      }),
+    [
+      containerDimensions.width,
+      containerDimensions.height,
+      insets.top,
+      insets.bottom,
+      insets.left,
+      insets.right,
+      settings.fontSize,
+      settings.margin,
+      settings.pageGap,
+      osFontScale,
+    ]
+  );
+
+  const liveGeometry = useMemo<ReaderGeometry>(
+    () => computeReaderGeometry(settings, liveLayout, containerDimensions.width || 360),
+    [settings, liveLayout, containerDimensions.width]
+  );
+
+  const [appliedGeometry, setAppliedGeometry] = useState<AppliedGeometry>(liveGeometry);
 
   useEffect(() => {
-    onContentTextChange?.(activeChapterHtml);
-  }, [activeChapterHtml, onContentTextChange]);
+    appliedGeometryRef.current = appliedGeometry;
+    liveGeometryRef.current = liveGeometry;
+  }, [appliedGeometry, liveGeometry]);
 
-  // 1. Load and parse EPUB package
+  useEffect(() => {
+    chaptersRef.current = chapters;
+    currentIndexRef.current = currentChapterIndex;
+    currentPageRef.current = currentPage;
+  }, [chapters, currentChapterIndex, currentPage]);
+
+  useEffect(() => {
+    onContentTextChange?.(activeChapter ? `<div class="epub-chapter-content">${activeChapter.body}</div>` : '');
+  }, [activeChapter, onContentTextChange]);
+
+  const handleContainerLayout = useCallback((e: any) => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width > 0 && height > 0) {
+      setContainerDimensions((prev) => {
+        if (Math.abs(prev.width - width) < 2 && Math.abs(prev.height - height) < 2) return prev;
+        return { width: Math.round(width), height: Math.round(height) };
+      });
+    }
+  }, []);
+
+  /* ---------------------------------------------------------------------- */
+  /* Chapter loading                                                          */
+  /* ---------------------------------------------------------------------- */
+
+  const loadChapter = useCallback(async (index: number): Promise<ChapterDocument | null> => {
+    const archive = archiveRef.current;
+    const list = chaptersRef.current;
+    const item = list[index];
+    if (!archive || !item) return null;
+    const cached = chapterCacheRef.current.get(index);
+    if (cached) return cached;
+    const doc = await extractChapterDocument(archive, item.itemPath, { navigationTitle: item.title });
+    // A book switch during extraction invalidates the result.
+    if (archiveRef.current !== archive) return null;
+    chapterCacheRef.current.set(index, doc);
+    return doc;
+  }, []);
+
+  /* ---------------------------------------------------------------------- */
+  /* Open the publication                                                     */
+  /* ---------------------------------------------------------------------- */
+
   useEffect(() => {
     let isMounted = true;
     const bookPath = book.filePath || book.uri || '';
+
     async function loadEpub() {
       setIsLoading(true);
       setLoadError(null);
       restorePendingRef.current = true;
-      zipRef.current = null;
+      webViewReadyRef.current = false;
+      // A new book starts at the beginning: stale scroll/paging state from the
+      // previous publication must never carry over.
+      setInitialScrollY(0);
+      setStartAtEnd(false);
+      setCurrentPage(0);
+      setContinuousSeed(null);
+
+      // Multi-book isolation: the previous archive (index, image cache, font
+      // cache, chapter cache) is dropped before the next book is touched.
+      if (archiveRef.current) {
+        archiveRef.current.dispose();
+        archiveRef.current = null;
+      }
+      packageRef.current = null;
       chapterCacheRef.current.clear();
+      positionToRestoreRef.current = null;
+      geometryRequestRef.current = null;
+      lastPublishedCfiRef.current = null;
+      lastAppliedCfiRef.current = null;
+      setContinuousSeed(null);
+
       try {
-        const archive = await fileStorage.readAsArrayBuffer(bookPath);
-        if (archive.byteLength === 0) {
+        const buffer = await fileStorage.readAsArrayBuffer(bookPath);
+        if (!buffer || buffer.byteLength === 0) {
           throw new Error('EPUB file is empty or missing from storage.');
         }
-        const zip = await JSZip.loadAsync(archive);
-        validateArchiveBudget(
-          Object.values(zip.files).map((entry) => {
-            const data = (entry as unknown as { _data?: { compressedSize?: number; uncompressedSize?: number } })._data;
-            return {
-              name: entry.name,
-              compressedSize: data?.compressedSize,
-              uncompressedSize: data?.uncompressedSize,
-            } satisfies ArchiveEntryBudget;
-          })
-        );
+        const archive = await EpubArchive.open(buffer);
+        archiveRef.current = archive;
+        validateArchiveBudget(archive.budgetEntries());
 
-        // A. Find OPF path via META-INF/container.xml
-        const containerFile = zip.file('META-INF/container.xml');
-        if (!containerFile) throw new Error('Missing META-INF/container.xml in EPUB archive.');
+        const epubPackage = await readEpubPackage(archive);
+        packageRef.current = epubPackage;
 
-        const containerXml = await containerFile.async('text');
-        const opfMatch = containerXml.match(/full-path=["']([^"']+)["']/i);
-        const opfPath = opfMatch ? opfMatch[1] : 'OEBPS/content.opf';
-        const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
+        const loadedChapters: ChapterItem[] = epubPackage.spine.map((item, index) => ({
+          id: item.idref,
+          href: item.path,
+          title: epubPackage.chapterTitles[index] || `Chapter ${index + 1}`,
+          itemPath: item.path,
+        }));
 
-        const opfFile = zip.file(opfPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === opfPath.toLowerCase());
-        if (!opfFile) throw new Error(`Missing OPF manifest at ${opfPath}`);
+        const toc: TOCItem[] = epubPackage.toc.length
+          ? epubPackage.toc
+          : loadedChapters.map((chapter, index) => ({
+              id: chapter.id,
+              label: chapter.title,
+              href: createSpineTarget(index),
+            }));
 
-        const opfXml = await opfFile.async('text');
-
-        // B. Robust Manifest Parsing (attribute order agnostic)
-        const manifest: Record<string, { href: string; mediaType: string; properties?: string }> = {};
-        const itemTagRegex = /<item\b([^>]+)\/?>/gi;
-        let itemTagMatch;
-        while ((itemTagMatch = itemTagRegex.exec(opfXml)) !== null) {
-          const rawAttrs = itemTagMatch[1];
-          const idMatch = rawAttrs.match(/\bid=["']([^"']+)["']/i);
-          const hrefMatch = rawAttrs.match(/\bhref=["']([^"']+)["']/i);
-          const mediaTypeMatch = rawAttrs.match(/\bmedia-type=["']([^"']+)["']/i);
-          const propMatch = rawAttrs.match(/\bproperties=["']([^"']+)["']/i);
-          if (idMatch && hrefMatch) {
-            manifest[idMatch[1]] = {
-              href: hrefMatch[1],
-              mediaType: mediaTypeMatch ? mediaTypeMatch[1] : 'application/xhtml+xml',
-              properties: propMatch ? propMatch[1] : undefined,
-            };
-          }
-        }
-
-        // C. Robust Spine Parsing
-        const spineIdrefs: string[] = [];
-        const spineTagRegex = /<itemref\b([^>]+)\/?>/gi;
-        let spineTagMatch;
-        while ((spineTagMatch = spineTagRegex.exec(opfXml)) !== null) {
-          const rawAttrs = spineTagMatch[1];
-          const idrefMatch = rawAttrs.match(/\bidref=["']([^"']+)["']/i);
-          if (idrefMatch) {
-            spineIdrefs.push(idrefMatch[1]);
-          }
-        }
-
-        // Fallback: If spine is empty, pick manifest items by mediaType
-        if (spineIdrefs.length === 0) {
-          for (const [id, item] of Object.entries(manifest)) {
-            const mt = (item.mediaType || '').toLowerCase();
-            const href = (item.href || '').toLowerCase();
-            if (mt.includes('xhtml') || mt.includes('html') || href.endsWith('.xhtml') || href.endsWith('.html')) {
-              spineIdrefs.push(id);
-            }
-          }
-        }
-
-        // D. Extract TOC from EPUB 3 Navigation Document or EPUB 2 NCX
-        const tocItems: TOCItem[] = [];
-
-        // 1. Try EPUB 3 Nav first
-        const navItem = Object.values(manifest).find(
-          (m) => (m.properties && m.properties.includes('nav')) || m.href.toLowerCase().includes('nav.xhtml') || m.href.toLowerCase().includes('toc.xhtml')
-        );
-        if (navItem) {
-          const navPath = resolveZipPath(opfDir, navItem.href);
-          const navFile = zip.file(navPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === navPath.toLowerCase());
-          if (navFile) {
-            try {
-              const navXhtml = await navFile.async('text');
-              const navLinkRegex = /<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-              let linkMatch;
-              let navIdx = 0;
-              const navDir = navPath.includes('/') ? navPath.substring(0, navPath.lastIndexOf('/') + 1) : '';
-              while ((linkMatch = navLinkRegex.exec(navXhtml)) !== null) {
-                const href = resolveZipPath(navDir, linkMatch[1]);
-                const label = linkMatch[2].replace(/<[^>]+>/g, '').trim();
-                if (label) {
-                  tocItems.push({
-                    id: `nav_${navIdx++}`,
-                    label,
-                    href,
-                  });
-                }
-              }
-            } catch (navErr) {
-              logger.warn(TAG, 'Failed to parse EPUB 3 nav TOC', navErr);
-            }
-          }
-        }
-
-        // 2. If no TOC found, try EPUB 2 NCX
-        if (tocItems.length === 0) {
-          const ncxItem = Object.values(manifest).find(
-            (m) => m.mediaType === 'application/x-dtbncx+xml' || m.href.endsWith('.ncx')
-          );
-          if (ncxItem) {
-            const ncxPath = resolveZipPath(opfDir, ncxItem.href);
-            const ncxFile = zip.file(ncxPath) || Object.values(zip.files).find((f) => f.name.toLowerCase() === ncxPath.toLowerCase());
-            if (ncxFile) {
-              const ncxXml = await ncxFile.async('text');
-              const navPointRegex = /<navPoint\b[^>]*>[\s\S]*?<text>([^<]+)<\/text>[\s\S]*?<content[^>]+src=["']([^"']+)["'][\s\S]*?<\/navPoint>/gi;
-              let navMatch;
-              let navIdx = 0;
-              while ((navMatch = navPointRegex.exec(ncxXml)) !== null) {
-                tocItems.push({
-                  id: `toc_${navIdx++}`,
-                  label: navMatch[1].trim(),
-                  href: navMatch[2],
-                });
-              }
-            }
-          }
-        }
-
-        // Map every spine item to its resolved zip path
-        const spinePaths: string[] = [];
-        for (const idref of spineIdrefs) {
-          const manItem = manifest[idref];
-          spinePaths.push(manItem ? resolveZipPath(opfDir, manItem.href) : '');
-        }
-        const spineIndexByPath = new Map<string, number>();
-        spinePaths.forEach((p, i) => {
-          if (p && !spineIndexByPath.has(p)) spineIndexByPath.set(p, i);
-        });
-        const spineIndexFor = (href: string): number | null => {
-          const p = resolveZipPath(opfDir, href);
-          const direct = spineIndexByPath.get(p);
-          if (direct !== undefined) return direct;
-          const lower = p.toLowerCase();
-          for (const [key, idx] of spineIndexByPath) {
-            if (key.toLowerCase() === lower) return idx;
-          }
-          return null;
-        };
-
-        // Rewrite TOC hrefs to spine:N
-        for (const item of tocItems) {
-          if (!item.href) continue;
-          const [hrefPath, fragment] = item.href.split('#', 2);
-          const idx = spineIndexFor(hrefPath);
-          if (idx !== null) {
-            item.href = createSpineTarget(idx, fragment);
-          }
-        }
-
-        // Store zip and opfDir for on-demand chapter loading
-        zipRef.current = zip;
-        opfDirRef.current = opfDir;
-        chapterCacheRef.current.clear();
-
-        // E. Build lightweight chapter metadata list from spine items
-        const loadedChapters: ChapterItem[] = [];
-        for (let i = 0; i < spineIdrefs.length; i++) {
-          const idref = spineIdrefs[i];
-          const manItem = manifest[idref];
-          if (!manItem) continue;
-
-          const itemPath = resolveZipPath(opfDir, manItem.href);
-          const matchingToc = tocItems.find((t) => t.href === `spine:${loadedChapters.length}`);
-          const title = matchingToc?.label || `Chapter ${loadedChapters.length + 1}`;
-
-          loadedChapters.push({
-            id: idref,
-            href: manItem.href,
-            title,
-            itemPath,
-          });
-
-          if (tocItems.length === 0) {
-            tocItems.push({
-              id: idref,
-              label: title,
-              href: `spine:${loadedChapters.length - 1}`,
-            });
-          }
-        }
-
-        if (loadedChapters.length === 0) {
-          throw new Error('This EPUB publication contains no readable chapter items.');
-        }
-
-        // Determine starting chapter index
         let initialIdx = 0;
         const savedTarget = targetCfi ? parseSpineTarget(targetCfi) : null;
         if (savedTarget && savedTarget.spineIndex < loadedChapters.length) {
           initialIdx = savedTarget.spineIndex;
           setInitialScrollY(savedTarget.scrollY || 0);
-        } else if (book.progress && book.progress > 0 && loadedChapters.length > 0) {
-          initialIdx = Math.min(
-            loadedChapters.length - 1,
-            Math.floor((book.progress / 100) * loadedChapters.length)
-          );
+        } else if (book.progress && book.progress > 0) {
+          initialIdx = Math.min(loadedChapters.length - 1, Math.floor((book.progress / 100) * loadedChapters.length));
         }
 
-        // Load ONLY the initial chapter for immediate startup
-        const initialChapterData = await extractChapterHtml(
-          zip,
-          loadedChapters[initialIdx].itemPath,
-          opfDir
-        );
-        chapterCacheRef.current.set(initialIdx, initialChapterData.html);
+        const initialChapter = await extractChapterDocument(archive, loadedChapters[initialIdx].itemPath, {
+          navigationTitle: loadedChapters[initialIdx].title,
+        });
+        chapterCacheRef.current.set(initialIdx, initialChapter);
 
-        let initialDocument = initialChapterData.html;
         continuousDocumentRef.current = settings.flow === 'scrolled';
-        if (continuousDocumentRef.current) {
-          const chapterSections: string[] = [];
-          for (let chapterIndex = 0; chapterIndex < loadedChapters.length; chapterIndex++) {
-            const isInitial = chapterIndex === initialIdx;
-            const content = isInitial ? initialChapterData.html : '';
-            chapterSections.push(
-              `<section id="chapter-${chapterIndex}" data-chapter-index="${chapterIndex}" class="chapter-section" data-loaded="${isInitial ? 'true' : 'false'}">` +
-                `<div class="chapter-header"><h2 class="chapter-marker">${escapeHtmlText(loadedChapters[chapterIndex].title)}</h2></div>` +
-                `<div class="chapter-body" id="chapter-body-${chapterIndex}">${content || '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>'}</div>` +
-              `</section>`
-            );
-          }
-          initialDocument = `<div id="continuous-container">${chapterSections.join('<hr class="chapter-divider" />')}</div>`;
-        }
 
         if (isMounted) {
+          chaptersRef.current = loadedChapters;
+          currentIndexRef.current = initialIdx;
           setChapters(loadedChapters);
-          setActiveChapterHtml(initialDocument);
+          setActiveChapter(initialChapter);
           setCurrentChapterIndex(initialIdx);
-          if (onTOCLoaded) onTOCLoaded(tocItems);
-          if (onChapterCountLoaded && loadedChapters.length > 0) {
-            onChapterCountLoaded(loadedChapters.length);
+          // Adopt the geometry that is current *now* (the container has been
+          // measured by this point) so the first render is already correct and
+          // the reader never paints once with fallback dimensions.
+          if (liveGeometryRef.current) setAppliedGeometry(liveGeometryRef.current);
+          if (settings.flow === 'scrolled') {
+            setContinuousSeed({ body: initialChapter.body, css: initialChapter.css, index: initialIdx });
           }
+          if (onTOCLoaded) onTOCLoaded(toc);
+          onChapterCountLoaded?.(loadedChapters.length);
           setIsLoading(false);
+
           if (!continuousDocumentRef.current && initialIdx + 1 < loadedChapters.length) {
-            // Paginated prefetch next chapter
-            setTimeout(async () => {
-              if (!chapterCacheRef.current.has(initialIdx + 1) && zipRef.current) {
-                const nextData = await extractChapterHtml(
-                  zipRef.current,
-                  loadedChapters[initialIdx + 1].itemPath,
-                  opfDir
-                );
-                chapterCacheRef.current.set(initialIdx + 1, nextData.html);
-              }
+            setTimeout(() => {
+              if (chapterCacheRef.current.has(initialIdx + 1) || archiveRef.current !== archive) return;
+              extractChapterDocument(archive, loadedChapters[initialIdx + 1].itemPath, {
+                navigationTitle: loadedChapters[initialIdx + 1].title,
+              })
+                .then((doc) => {
+                  if (archiveRef.current === archive) chapterCacheRef.current.set(initialIdx + 1, doc);
+                })
+                .catch((err) => logger.warn(TAG, 'Chapter prefetch failed', err));
             }, 300);
           }
         }
       } catch (err: any) {
-        logger.error(TAG, `Failed to load EPUB: ${book.filePath}`, err);
+        logger.error(TAG, `Failed to load EPUB: ${bookPath}`, err);
         if (isMounted) {
           setLoadError(err?.message || 'Unable to open EPUB publication.');
           setIsLoading(false);
@@ -471,165 +398,210 @@ export function EpubReaderView({
     return () => {
       isMounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Reader reload is controlled by loadAttempt and flow setting.
-  }, [book.filePath, loadAttempt, onTOCLoaded, settings.flow]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a reload is keyed on the book path, attempt counter and flow mode
+  }, [book.filePath, book.uri, loadAttempt, settings.flow]);
 
-  // Jump to target chapter if targetCfi changes
-  useEffect(() => {
-    const target = targetCfi ? parseSpineTarget(targetCfi) : null;
-    if (target && chapters.length > 0) {
-      const { spineIndex: idx } = target;
-      if (idx < 0 || idx >= chapters.length) return;
-      if (continuousDocumentRef.current) {
-        pendingChapterNavigationRef.current = idx;
-        setCurrentChapterIndex(idx);
-        // If chapter isn't in cache yet, extract it on-demand immediately
-        if (zipRef.current && !chapterCacheRef.current.has(idx) && idx < chapters.length) {
-          extractChapterHtml(zipRef.current, chapters[idx].itemPath, opfDirRef.current).then((res) => {
-            chapterCacheRef.current.set(idx, res.html);
-            const safeHtml = JSON.stringify(res.html);
-            webViewRef.current?.injectJavaScript(`
-              (function() {
-                var body = document.getElementById('chapter-body-${idx}');
-                var sec = document.getElementById('chapter-${idx}');
-                if (body && sec) {
-                  body.innerHTML = ${safeHtml};
-                  sec.setAttribute('data-loaded', 'true');
-                }
-              })();
-              true;
-            `);
-          });
-        }
-        webViewRef.current?.injectJavaScript(`
-          (function() {
-            var target = document.getElementById('chapter-${idx}');
-            if (target) {
-              ${target.anchor
-                ? `var anchor = document.getElementById(${JSON.stringify(target.anchor)}); (anchor && target.contains(anchor) ? anchor : target).scrollIntoView({ behavior: 'smooth' });`
-                : target.scrollY !== undefined
-                  ? `window.scrollTo(0, ${target.scrollY});`
-                  : `target.scrollIntoView({ behavior: 'smooth' });`}
-            }
-          })();
-          true;
-        `);
-        return;
+  // Release the archive on unmount and on every book switch.
+  useEffect(
+    () => () => {
+      if (archiveRef.current) {
+        archiveRef.current.dispose();
+        archiveRef.current = null;
       }
-      setCurrentChapterIndex(idx);
+      chapterCacheRef.current.clear();
+      packageRef.current = null;
+    },
+    [book.filePath, book.uri]
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* Layout-affecting changes: capture → re-render → restore                   */
+  /* ---------------------------------------------------------------------- */
+
+  useEffect(() => {
+    if (appliedGeometry.key === liveGeometry.key) return;
+    if (!webViewReadyRef.current || isLoading) {
+      // Nothing meaningful on screen yet — adopt the new geometry immediately.
+      setAppliedGeometry(liveGeometry);
+      return;
+    }
+    if (geometryRequestRef.current) return;
+    geometryRequestRef.current = liveGeometry;
+    webViewRef.current?.injectJavaScript(REQUEST_POSITION_JS);
+  }, [appliedGeometry.key, liveGeometry, isLoading]);
+
+  // Safety net: apply the new geometry even if the WebView never answers.
+  useEffect(() => {
+    if (appliedGeometry.key === liveGeometry.key) return;
+    if (!geometryRequestRef.current) return;
+    const timer = setTimeout(() => {
+      const pending = geometryRequestRef.current;
+      if (!pending) return;
+      geometryRequestRef.current = null;
+      positionToRestoreRef.current = null;
+      setAppliedGeometry(pending);
+    }, POSITION_CAPTURE_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [appliedGeometry.key, liveGeometry.key]);
+
+  /* ---------------------------------------------------------------------- */
+  /* Keep the active chapter loaded                                           */
+  /* ---------------------------------------------------------------------- */
+
+  useEffect(() => {
+    if (chapters.length === 0) return;
+    let cancelled = false;
+    loadChapter(currentChapterIndex).then((doc) => {
+      if (cancelled || !doc) return;
+      setActiveChapter((previous) => (previous === doc ? previous : doc));
+      if (!continuousDocumentRef.current) {
+        setCurrentPage(0);
+      }
+    });
+    // Warm the neighbours so page turns and fast scrolling do not wait on I/O.
+    [currentChapterIndex + 1, currentChapterIndex - 1].forEach((index) => {
+      if (index >= 0 && index < chapters.length && !chapterCacheRef.current.has(index)) {
+        loadChapter(index).catch(() => undefined);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentChapterIndex, chapters, loadChapter]);
+
+  // Jump to the requested target chapter.
+  useEffect(() => {
+if (!targetCfi || chapters.length === 0) return;
+
+    const target = parseSpineTarget(targetCfi);
+    if (!target) return;
+    const decision = decideNavigation({
+      targetCfi,
+      lastPublishedCfi: lastPublishedCfiRef.current,
+      lastAppliedCfi: lastAppliedCfiRef.current,
+      spineIndex: target.spineIndex,
+      chapterCount: chapters.length,
+      currentChapterIndex,
+      anchor: target.anchor,
+    });
+
+    if (decision === 'anchor-only' && !continuousDocumentRef.current && target.anchor) {
+      // Same chapter, but the host asked for a specific element.
+      webViewRef.current?.injectJavaScript(
+        restorePositionScript('paginated', { anchorId: target.anchor, page: currentPageRef.current }, 0)
+      );
+      return;
+    }
+    if (decision !== 'navigate') return;
+
+    lastAppliedCfiRef.current = targetCfi;
+    const idx = target.spineIndex;
+
+    setCurrentChapterIndex(idx);
+    if (!continuousDocumentRef.current) {
       setCurrentPage(0);
       setInitialScrollY(target.scrollY || 0);
+      return;
     }
-  }, [targetCfi, chapters]);
 
-  // Asynchronously load chapter content when currentChapterIndex changes
-  useEffect(() => {
-    if (chapters.length === 0 || !zipRef.current) return;
-    if (continuousDocumentRef.current) return;
-    const currentItem = chapters[currentChapterIndex];
-    if (!currentItem) return;
-
-    if (chapterCacheRef.current.has(currentChapterIndex)) {
-      setActiveChapterHtml(chapterCacheRef.current.get(currentChapterIndex)!);
-    } else {
-      let isCurrent = true;
-      extractChapterHtml(zipRef.current, currentItem.itemPath, opfDirRef.current).then((res) => {
-        chapterCacheRef.current.set(currentChapterIndex, res.html);
-        if (isCurrent) {
-          setActiveChapterHtml(res.html);
+    pendingChapterNavigationRef.current = idx;
+    loadChapter(idx).then((doc) => {
+      if (!doc) return;
+      webViewRef.current?.injectJavaScript(`
+        (function () {
+          var body = document.getElementById('chapter-body-${idx}');
+          var section = document.getElementById('chapter-${idx}');
+          if (!body || !section) return;
+          if (section.getAttribute('data-loaded') !== 'true') {
+            window.__liruneInjectStyles(${idx}, ${JSON.stringify(doc.stylesheets)});
+            body.innerHTML = ${JSON.stringify(doc.body)};
+            section.setAttribute('data-loaded', 'true');
+          }
+        })(); true;
+      `);
+    });
+    webViewRef.current?.injectJavaScript(`
+      (function () {
+        var section = document.getElementById('chapter-${idx}');
+        if (!section) return;
+        ${
+          target.anchor
+            ? `var anchor = document.getElementById(${JSON.stringify(target.anchor)});
+               (anchor && section.contains(anchor) ? anchor : section).scrollIntoView({ behavior: 'smooth' });`
+            : typeof target.scrollY === 'number'
+              ? `window.scrollTo(0, ${target.scrollY});`
+              : `section.scrollIntoView({ behavior: 'smooth' });`
         }
-      });
-      return () => {
-        isCurrent = false;
-      };
-    }
+      })(); true;
+    `);
+  }, [targetCfi, chapters, currentChapterIndex, loadChapter]);
 
-    // Prefetch next and previous chapter in background
-    const prefetchTargets = [currentChapterIndex + 1, currentChapterIndex - 1];
-    for (const pIdx of prefetchTargets) {
-      if (pIdx >= 0 && pIdx < chapters.length && !chapterCacheRef.current.has(pIdx) && zipRef.current) {
-        const item = chapters[pIdx];
-        extractChapterHtml(zipRef.current, item.itemPath, opfDirRef.current).then((res) => {
-          chapterCacheRef.current.set(pIdx, res.html);
-        });
-      }
-    }
-  }, [currentChapterIndex, chapters]);
+  /* ---------------------------------------------------------------------- */
+  /* Progress                                                                 */
+  /* ---------------------------------------------------------------------- */
 
-  // Update progress whenever chapter or page changes
   useEffect(() => {
     if (chapters.length === 0) return;
     if (restorePendingRef.current) return;
     if (!isPaginated) return;
     const currentChapter = chapters[currentChapterIndex];
     let percent = Math.round(((currentChapterIndex + 1) / chapters.length) * 100);
-
-    if (isPaginated && totalPages > 1) {
+    if (totalPages > 1) {
       const chapterFraction = currentPage / Math.max(1, totalPages);
       percent = Math.min(100, Math.round(((currentChapterIndex + chapterFraction) / chapters.length) * 100));
     }
-
     const cfi = `spine:${currentChapterIndex}`;
+    lastPublishedCfiRef.current = cfi;
     onProgressChange(percent, cfi, currentChapter?.title || `Chapter ${currentChapterIndex + 1}`);
   }, [currentChapterIndex, currentPage, totalPages, isPaginated, chapters, onProgressChange]);
 
-  // Chapter navigation
   const nextChapter = useCallback(() => {
-    if (currentChapterIndex < chapters.length - 1) {
-      setStartAtEnd(false);
-      setCurrentChapterIndex((prev) => prev + 1);
-      setCurrentPage(0);
-    }
-  }, [currentChapterIndex, chapters.length]);
+    const next = currentIndexRef.current + 1;
+    if (next >= chaptersRef.current.length) return;
+    setStartAtEnd(false);
+    setCurrentPage(0);
+    setCurrentChapterIndex(next);
+  }, []);
 
   const prevChapter = useCallback((fromEnd: boolean = false) => {
-    if (currentChapterIndex > 0) {
-      setStartAtEnd(fromEnd);
-      setCurrentChapterIndex((prev) => prev - 1);
-      setCurrentPage(0);
-    }
-  }, [currentChapterIndex]);
+    const previous = currentIndexRef.current - 1;
+    if (previous < 0) return;
+    setStartAtEnd(fromEnd);
+    setCurrentPage(0);
+    setCurrentChapterIndex(previous);
+  }, []);
 
-  // Search
+  /* ---------------------------------------------------------------------- */
+  /* Search                                                                   */
+  /* ---------------------------------------------------------------------- */
+
   useEffect(() => {
-    if (!searchQuery || chapters.length === 0 || !onSearchResults || !zipRef.current) return;
-    const q = searchQuery.toLowerCase();
+    if (!searchQuery || chapters.length === 0 || !onSearchResults || !archiveRef.current) return;
+    const needle = searchQuery.toLowerCase();
     const results: SearchResult[] = [];
-    const zip = zipRef.current;
-    const opfDir = opfDirRef.current;
-
     let cancelled = false;
-    async function runSearch() {
-      for (let cIdx = 0; cIdx < chapters.length && results.length < 50; cIdx++) {
-        if (cancelled) return;
-        let html = chapterCacheRef.current.get(cIdx);
-        if (!html && zip) {
-          const res = await extractChapterHtml(zip, chapters[cIdx].itemPath, opfDir);
-          html = res.html;
-          chapterCacheRef.current.set(cIdx, html);
-        }
-        if (!html) continue;
 
-        const plainText = html.replace(/<[^>]+>/g, ' ');
+    async function runSearch() {
+      for (let index = 0; index < chaptersRef.current.length && results.length < 50; index++) {
+        if (cancelled) return;
+        const doc = await loadChapter(index);
+        if (!doc) continue;
+        const plainText = toPlainText(doc.body);
         let pos = 0;
         while (pos < plainText.length && results.length < 50) {
-          const index = plainText.toLowerCase().indexOf(q, pos);
-          if (index === -1) break;
-
-          const startExcerpt = Math.max(0, index - 30);
-          const endExcerpt = Math.min(plainText.length, index + q.length + 50);
-          const excerpt =
-            (startExcerpt > 0 ? '...' : '') +
-            plainText.substring(startExcerpt, endExcerpt).replace(/\s+/g, ' ') +
-            (endExcerpt < plainText.length ? '...' : '');
-
+          const at = plainText.toLowerCase().indexOf(needle, pos);
+          if (at === -1) break;
+          const start = Math.max(0, at - 30);
+          const end = Math.min(plainText.length, at + needle.length + 50);
           results.push({
-            cfi: `spine:${cIdx}`,
-            excerpt,
-            label: chapters[cIdx].title || `Chapter ${cIdx + 1}`,
+            cfi: `spine:${index}`,
+            excerpt:
+              (start > 0 ? '...' : '') +
+              plainText.substring(start, end).replace(/\s+/g, ' ') +
+              (end < plainText.length ? '...' : ''),
+            label: chaptersRef.current[index]?.title || `Chapter ${index + 1}`,
           });
-
-          pos = index + Math.max(1, q.length);
+          pos = at + Math.max(1, needle.length);
         }
       }
       if (!cancelled && onSearchResults) onSearchResults(results);
@@ -639,15 +611,221 @@ export function EpubReaderView({
     return () => {
       cancelled = true;
     };
-  }, [searchQuery, chapters, onSearchResults]);
+  }, [searchQuery, chapters, onSearchResults, loadChapter]);
+
+  /* ---------------------------------------------------------------------- */
+  /* WebView hydration                                                        */
+  /* ---------------------------------------------------------------------- */
+
+  /** Chapters hydrated per WebView round trip during continuous-mode hydration. */
+const HYDRATE_BATCH_SIZE = 8;
+
+const hydrateContinuousDocument = useCallback(async () => {
+    if (!continuousDocumentRef.current) return;
+    const archive = archiveRef.current;
+    const total = chaptersRef.current.length;
+    if (!archive || total === 0) return;
+
+    const center = currentIndexRef.current;
+    const order = chaptersRef.current.map((_, index) => index);
+    // Hydrate outward from the chapter the reader is looking at so the visible
+    // section is complete first.
+    order.sort((a, b) => Math.abs(a - center) - Math.abs(b - center));
+
+    for (let cursor = 0; cursor < order.length; cursor += HYDRATE_BATCH_SIZE) {
+      if (archiveRef.current !== archive) return; // book switched mid-hydration
+      const batch = order.slice(cursor, cursor + HYDRATE_BATCH_SIZE);
+
+      const payload: { index: number; body: string; sheets: { path: string; css: string }[] }[] = [];
+      await Promise.all(
+        batch.map(async (index) => {
+          try {
+            const doc = await loadChapter(index);
+            if (doc) payload.push({ index, body: doc.body, sheets: doc.stylesheets });
+          } catch (err) {
+            logger.warn(TAG, `Failed loading continuous chapter ${index}`, err);
+          }
+        })
+      );
+      if (payload.length === 0) continue;
+      payload.sort((a, b) => a.index - b.index);
+
+      webViewRef.current?.injectJavaScript(`
+        (function () {
+          var chapters = ${JSON.stringify(payload)};
+          for (var i = 0; i < chapters.length; i++) {
+            var chapter = chapters[i];
+            var body = document.getElementById('chapter-body-' + chapter.index);
+            var section = document.getElementById('chapter-' + chapter.index);
+            if (!body || !section || section.getAttribute('data-loaded') === 'true') continue;
+            window.__liruneInjectStyles(chapter.index, chapter.sheets);
+            body.innerHTML = chapter.body;
+            section.setAttribute('data-loaded', 'true');
+          }
+        })(); true;
+      `);
+    }
+
+    webViewRef.current?.injectJavaScript('window.__epubHydrating = false; true;');
+
+    const position = positionToRestoreRef.current;
+    if (position) {
+      positionToRestoreRef.current = null;
+      webViewRef.current?.injectJavaScript(restorePositionScript('continuous', position, 80));
+    } else {
+      webViewRef.current?.injectJavaScript(
+        `window.scrollTo(0, ${Math.max(0, initialScrollY)}); window.dispatchEvent(new Event('scroll')); true;`
+      );
+    }
+  }, [initialScrollY, loadChapter]);
+
+  const handleLoadEnd = useCallback(() => {
+    webViewReadyRef.current = true;
+    if (geometryRequestRef.current) {
+      // The document reloaded before the capture round trip finished.
+      geometryRequestRef.current = null;
+    }
+    webViewRef.current?.injectJavaScript(STYLE_INJECTOR_JS);
+
+    if (continuousDocumentRef.current) {
+      void hydrateContinuousDocument();
+      return;
+    }
+    const position = positionToRestoreRef.current;
+    if (position) {
+      positionToRestoreRef.current = null;
+      webViewRef.current?.injectJavaScript(restorePositionScript('paginated', position, 140));
+    }
+  }, [hydrateContinuousDocument]);
+
+  /* ---------------------------------------------------------------------- */
+  /* Messages                                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  const handleMessage = useCallback(
+    (event: any) => {
+      const selection = parseSelectionMessage(event?.nativeEvent?.data);
+      if (selection) {
+        onSelectionChange?.(selection);
+        return;
+      }
+      let data: any;
+      try {
+        data = JSON.parse(event.nativeEvent.data);
+      } catch {
+        return;
+      }
+
+      switch (data.type) {
+        case 'pageTurn':
+          setCurrentPage(data.currentPage);
+          setTotalPages(data.totalPages);
+          restorePendingRef.current = false;
+          break;
+
+        case 'scrollProgress': {
+          restorePendingRef.current = false;
+          const chapterIndex = Math.min(
+            Math.max(0, Number.isFinite(data.chapterIndex) ? data.chapterIndex : currentIndexRef.current),
+            Math.max(0, chaptersRef.current.length - 1)
+          );
+          const pendingChapter = pendingChapterNavigationRef.current;
+          if (pendingChapter !== null && chapterIndex !== pendingChapter) break;
+          if (pendingChapter !== null) pendingChapterNavigationRef.current = null;
+          if (continuousDocumentRef.current && chapterIndex !== currentIndexRef.current) {
+            setCurrentChapterIndex(chapterIndex);
+          }
+const overallPercent = Math.min(
+          100,
+          Math.round(((chapterIndex + data.percent / 100) / Math.max(1, chaptersRef.current.length)) * 100)
+        );
+        const scrollCfi = `spine:${chapterIndex}:scroll:${Math.max(0, Math.round(data.scrollY || 0))}`;
+        lastPublishedCfiRef.current = scrollCfi;
+        onProgressChange(overallPercent, scrollCfi, chaptersRef.current[chapterIndex]?.title || `Chapter ${chapterIndex + 1}`);
+        break;
+        }
+
+        case 'pageBoundary':
+          if (data.boundary === 'prev') prevChapter(true);
+          else nextChapter();
+          break;
+
+        case 'toggleControls':
+          onToggleControls();
+          break;
+
+        case 'prevChapter':
+          prevChapter(false);
+          break;
+
+        case 'nextChapter':
+          nextChapter();
+          break;
+
+        case 'readingPosition': {
+          const pending = geometryRequestRef.current;
+          if (!pending) break;
+          geometryRequestRef.current = null;
+          positionToRestoreRef.current = isReadingPosition(data.position) ? data.position : null;
+          setAppliedGeometry(pending);
+          break;
+        }
+
+        default:
+          break;
+      }
+    },
+    [nextChapter, onProgressChange, onSelectionChange, onToggleControls, prevChapter]
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* Render                                                                   */
+  /* ---------------------------------------------------------------------- */
+
+  const geometry = appliedGeometry;
+  const renderSettings = geometry.settings;
+
+  const bodyHtml =
+    geometry.mode === 'continuous'
+      ? continuousSeed
+        ? buildContinuousShell(
+            chapters.length,
+            chapters.map((chapter) => chapter.title),
+            continuousSeed.index,
+            continuousSeed.body
+          )
+        : '<p>Loading…</p>'
+      : `<div class="epub-chapter-content">${activeChapter?.body ?? '<p>Loading…</p>'}</div>`;
+
+  const bookCss =
+    geometry.mode === 'continuous' ? (continuousSeed?.css ?? '') : (activeChapter?.css ?? '');
+
+  const renderedHtml = buildReaderDocument({
+    mode: geometry.mode,
+    bookCss,
+    body: bodyHtml,
+    palette: {
+      bg: palette.bg,
+      text: palette.text,
+      muted: palette.muted,
+      link: palette.link,
+    },
+    fontFamily: getCssFontFamily(renderSettings.fontFamily),
+    fontSize: renderSettings.fontSize,
+    lineHeight: renderSettings.lineHeight,
+    alignment: renderSettings.alignment,
+    paragraphSpacing: renderSettings.paragraphSpacing || 1.0,
+    layout: geometry.layout,
+    twoColumn: geometry.twoColumn,
+    startAtEnd,
+    initialScrollY,
+  });
 
   if (isLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: palette.bg }]}>
         <ActivityIndicator size="large" color={palette.link} />
-        <Text style={[styles.loadingText, { color: palette.muted }]}>
-          Opening book…
-        </Text>
+        <Text style={[styles.loadingText, { color: palette.muted }]}>Opening book…</Text>
       </View>
     );
   }
@@ -677,519 +855,28 @@ export function EpubReaderView({
     );
   }
 
-  const topPadding = Math.max(28, insets.top + 16);
-  const bottomPaddingPaginated = Math.max(48, settings.margin + 24) + insets.bottom + 28;
-  const bottomPaddingContinuous = Math.max(54, settings.margin + 28) + insets.bottom + 48;
-
-  const chapterHtml = activeChapterHtml || '<p>Loading chapter…</p>';
-
-  const renderedHtml = isPaginated
-    ? `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes, viewport-fit=cover">
-      <style>
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        html, body {
-          height: 100%;
-          margin: 0;
-          padding: 0;
-          overflow: hidden;
-          background-color: ${palette.bg};
-          color: ${palette.text};
-          font-family: ${getCssFontFamily(settings.fontFamily)};
-          font-size: ${settings.fontSize}px;
-          line-height: ${settings.lineHeight};
-          text-align: ${settings.alignment};
-          user-select: none;
-          -webkit-user-select: none;
-        }
-        #viewport {
-          width: 100vw;
-          height: 100%;
-          overflow: hidden;
-          position: relative;
-        }
-        #book-content {
-          width: 100vw;
-          height: 100%;
-          margin: 0;
-          box-sizing: border-box;
-          column-width: calc(100vw - ${settings.margin * 2}px);
-          column-gap: ${pageGap}px;
-          column-fill: auto;
-          padding: ${topPadding}px ${settings.margin}px ${bottomPaddingPaginated}px ${settings.margin}px;
-          overflow: visible;
-          transition: transform 0.22s cubic-bezier(0.25, 1, 0.5, 1);
-          word-wrap: break-word;
-        }
-        img {
-          max-width: 100%;
-          max-height: 75vh;
-          object-fit: contain;
-          display: block;
-          margin: 12px auto;
-          border-radius: 4px;
-        }
-        h1, h2, h3, h4, h5, h6 {
-          color: ${palette.text};
-          line-height: 1.25;
-          margin-top: 1.2em;
-          margin-bottom: 0.5em;
-          break-after: avoid;
-        }
-        p {
-          margin-top: 0;
-          margin-bottom: ${paragraphSpacing}em;
-          text-indent: 1em;
-        }
-        a {
-          color: ${palette.link};
-          text-decoration: none;
-          pointer-events: none;
-        }
-      </style>
-    </head>
-    <body>
-      <div id="viewport">
-        <div id="book-content">${chapterHtml}</div>
-      </div>
-      <script>
-        var currentPage = 0;
-        var totalPages = 1;
-        var startAtEnd = ${startAtEnd ? 'true' : 'false'};
-        var initialScrollY = ${initialScrollY};
-        var currentZoom = 1.0;
-        var baseFontSize = ${settings.fontSize};
-        var initialPinchDist = 0;
-        var initialZoom = 1.0;
-        var lastTapTime = 0;
-
-        function measurePages() {
-          var content = document.getElementById('book-content');
-          if (!content) return 1;
-          var scrollW = content.scrollWidth;
-          var viewW = window.innerWidth;
-          totalPages = Math.max(1, Math.round(scrollW / viewW));
-          return totalPages;
-        }
-
-        function updateTransform() {
-          var content = document.getElementById('book-content');
-          if (content) {
-            content.style.transform = 'translateX(-' + (currentPage * 100) + 'vw)';
-          }
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'pageTurn',
-            currentPage: currentPage,
-            totalPages: totalPages
-          }));
-        }
-
-        function applyZoom() {
-          var content = document.getElementById('book-content');
-          if (content) {
-            content.style.fontSize = Math.round(baseFontSize * currentZoom) + 'px';
-            measurePages();
-            updateTransform();
-          }
-        }
-
-        function goToPage(p) {
-          measurePages();
-          if (p < 0) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'pageBoundary', boundary: 'prev' }));
-            return;
-          }
-          if (p >= totalPages) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'pageBoundary', boundary: 'next' }));
-            return;
-          }
-          currentPage = p;
-          updateTransform();
-        }
-
-        window.addEventListener('load', function() {
-          setTimeout(function() {
-            if (!${isPaginated ? 'false' : 'true'} && initialScrollY > 0) {
-              window.scrollTo(0, initialScrollY);
-            }
-            measurePages();
-            if (startAtEnd) {
-              currentPage = Math.max(0, totalPages - 1);
-            } else {
-              currentPage = 0;
-            }
-            updateTransform();
-          }, 60);
-        });
-
-        var touchStartX = 0;
-        var touchStartY = 0;
-        var touchStartTime = 0;
-
-        document.addEventListener('touchstart', function(e) {
-          if (e.touches.length === 2) {
-            initialPinchDist = Math.hypot(
-              e.touches[0].clientX - e.touches[1].clientX,
-              e.touches[0].clientY - e.touches[1].clientY
-            );
-            initialZoom = currentZoom;
-          } else if (e.touches.length === 1) {
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-            touchStartTime = Date.now();
-          }
-        }, { passive: true });
-
-        document.addEventListener('touchmove', function(e) {
-          if (e.touches.length === 2 && initialPinchDist > 10) {
-            var currentDist = Math.hypot(
-              e.touches[0].clientX - e.touches[1].clientX,
-              e.touches[0].clientY - e.touches[1].clientY
-            );
-            var scale = currentDist / initialPinchDist;
-            var newZoom = Math.max(0.8, Math.min(2.5, initialZoom * scale));
-            if (Math.abs(newZoom - currentZoom) > 0.04) {
-              currentZoom = newZoom;
-              applyZoom();
-            }
-          }
-        }, { passive: true });
-
-        document.addEventListener('touchend', function(e) {
-          if (e.changedTouches.length === 1) {
-            var deltaX = e.changedTouches[0].clientX - touchStartX;
-            var deltaY = e.changedTouches[0].clientY - touchStartY;
-            var elapsed = Date.now() - touchStartTime;
-
-            // Horizontal Swipe
-            if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5 && elapsed < 600) {
-              if (deltaX < 0) {
-                goToPage(currentPage + 1);
-              } else {
-                goToPage(currentPage - 1);
-              }
-              return;
-            }
-
-            // Discreet Tap Turn & Double Tap Zoom Reset
-            if (Math.abs(deltaX) < 15 && Math.abs(deltaY) < 15 && elapsed < 400) {
-              var now = Date.now();
-              if (now - lastTapTime < 320) {
-                // Double tap: reset zoom
-                if (currentZoom !== 1.0) {
-                  currentZoom = 1.0;
-                  applyZoom();
-                  lastTapTime = 0;
-                  return;
-                }
-              }
-              lastTapTime = now;
-
-              var x = e.changedTouches[0].clientX;
-              var w = window.innerWidth;
-              var ratio = x / w;
-              if (ratio < 0.28) {
-                goToPage(currentPage - 1);
-              } else if (ratio > 0.72) {
-                goToPage(currentPage + 1);
-              } else {
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'toggleControls' }));
-              }
-            }
-          }
-        }, { passive: true });
-
-        ${SELECTION_WATCHER_JS}
-      </script>
-    </body>
-    </html>
-  `
-    : `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
-      <style>
-        * { box-sizing: border-box; }
-        body {
-          background-color: ${palette.bg};
-          color: ${palette.text};
-          font-family: ${getCssFontFamily(settings.fontFamily)};
-          font-size: ${settings.fontSize}px;
-          line-height: ${settings.lineHeight};
-          padding: ${topPadding}px ${settings.margin + 4}px ${bottomPaddingContinuous}px ${settings.margin + 4}px;
-          margin: 0;
-          text-align: ${settings.alignment};
-          word-wrap: break-word;
-        }
-        #continuous-container {
-          width: 100%;
-        }
-        .chapter-section {
-          margin-bottom: 32px;
-        }
-        .chapter-header {
-          margin-top: 1.8em;
-          margin-bottom: 0.8em;
-          border-bottom: 1px solid ${palette.border || 'rgba(128,128,128,0.2)'};
-          padding-bottom: 6px;
-        }
-        .chapter-marker {
-          color: ${palette.text};
-          font-size: 1.35em;
-          margin: 0;
-        }
-        .chapter-placeholder {
-          padding: 32px 0;
-          text-align: center;
-          color: ${palette.muted};
-          font-style: italic;
-        }
-        .chapter-divider {
-          border: none;
-          height: 1px;
-          background-color: ${palette.border || 'rgba(128,128,128,0.2)'};
-          margin: 40px 0 20px 0;
-        }
-        img {
-          max-width: 100%;
-          height: auto;
-          display: block;
-          margin: 16px auto;
-          border-radius: 4px;
-        }
-        h1, h2, h3, h4, h5, h6 {
-          color: ${palette.text};
-          line-height: 1.3;
-          margin-top: 1.5em;
-          margin-bottom: 0.6em;
-        }
-        p {
-          margin-top: 0;
-          margin-bottom: ${paragraphSpacing}em;
-          text-indent: 1em;
-        }
-        a {
-          color: ${palette.link};
-          text-decoration: none;
-          pointer-events: none;
-        }
-      </style>
-    </head>
-    <body>
-      ${chapterHtml}
-      <script>
-        window.__epubHydrating = true;
-        var currentZoom = 1.0;
-        var baseFontSize = ${settings.fontSize};
-        var initialPinchDist = 0;
-        var initialZoom = 1.0;
-        var lastTapTime = 0;
-
-        function applyContinuousZoom() {
-          var container = document.getElementById('continuous-container') || document.body;
-          container.style.fontSize = Math.round(baseFontSize * currentZoom) + 'px';
-        }
-
-        document.addEventListener('touchstart', function(e) {
-          if (e.touches.length === 2) {
-            initialPinchDist = Math.hypot(
-              e.touches[0].clientX - e.touches[1].clientX,
-              e.touches[0].clientY - e.touches[1].clientY
-            );
-            initialZoom = currentZoom;
-          }
-        }, { passive: true });
-
-        document.addEventListener('touchmove', function(e) {
-          if (e.touches.length === 2 && initialPinchDist > 10) {
-            var currentDist = Math.hypot(
-              e.touches[0].clientX - e.touches[1].clientX,
-              e.touches[0].clientY - e.touches[1].clientY
-            );
-            var scale = currentDist / initialPinchDist;
-            var newZoom = Math.max(0.8, Math.min(2.5, initialZoom * scale));
-            if (Math.abs(newZoom - currentZoom) > 0.04) {
-              currentZoom = newZoom;
-              applyContinuousZoom();
-            }
-          }
-        }, { passive: true });
-
-        document.body.addEventListener('click', function(e) {
-          var now = Date.now();
-          if (now - lastTapTime < 320) {
-            if (currentZoom !== 1.0) {
-              currentZoom = 1.0;
-              applyContinuousZoom();
-              lastTapTime = 0;
-              return;
-            }
-          }
-          lastTapTime = now;
-
-          var x = e.clientX;
-          var width = window.innerWidth;
-          var ratio = x / width;
-          if (ratio < 0.22) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prevChapter' }));
-          } else if (ratio > 0.78) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'nextChapter' }));
-          } else {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'toggleControls' }));
-          }
-        });
-
-        window.addEventListener('scroll', function() {
-          if (window.__epubHydrating) return;
-          var total = document.documentElement.scrollHeight - window.innerHeight;
-          var percent = total > 0 ? Math.min(100, Math.round((window.scrollY / total) * 100)) : 0;
-          var markers = Array.prototype.slice.call(document.querySelectorAll('[data-chapter-index]'));
-          var chapterIndex = 0;
-          markers.forEach(function(marker) {
-            if (marker.getBoundingClientRect().top <= window.innerHeight * 0.4) {
-              chapterIndex = Number(marker.getAttribute('data-chapter-index')) || 0;
-            }
-          });
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'scrollProgress',
-            percent: percent,
-            scrollY: window.scrollY,
-            chapterIndex: chapterIndex
-          }));
-        }, { passive: true });
-
-        ${SELECTION_WATCHER_JS}
-      </script>
-    </body>
-    </html>
-  `;
-
-  const handleMessage = (event: any) => {
-    const sel = parseSelectionMessage(event?.nativeEvent?.data);
-    if (sel) {
-      onSelectionChange?.(sel);
-      return;
-    }
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'pageTurn') {
-        setCurrentPage(data.currentPage);
-        setTotalPages(data.totalPages);
-        restorePendingRef.current = false;
-      } else if (data.type === 'scrollProgress') {
-        restorePendingRef.current = false;
-        const chapterIndex = Math.min(
-          Math.max(0, Number.isFinite(data.chapterIndex) ? data.chapterIndex : currentChapterIndex),
-          Math.max(0, chapters.length - 1)
-        );
-        const pendingChapter = pendingChapterNavigationRef.current;
-        if (pendingChapter !== null && chapterIndex !== pendingChapter) return;
-        if (pendingChapter !== null) pendingChapterNavigationRef.current = null;
-        if (continuousDocumentRef.current && chapterIndex !== currentChapterIndex) {
-          setCurrentChapterIndex(chapterIndex);
-        }
-        const overallPercent = Math.min(
-          100,
-          Math.round(((chapterIndex + data.percent / 100) / Math.max(1, chapters.length)) * 100)
-        );
-        onProgressChange(
-          overallPercent,
-          `spine:${chapterIndex}:scroll:${Math.max(0, Math.round(data.scrollY || 0))}`,
-          chapters[chapterIndex]?.title || `Chapter ${chapterIndex + 1}`
-        );
-      } else if (data.type === 'pageBoundary') {
-        if (data.boundary === 'prev') {
-          prevChapter(true);
-        } else if (data.boundary === 'next') {
-          nextChapter();
-        }
-      } else if (data.type === 'toggleControls') {
-        onToggleControls();
-      } else if (data.type === 'prevChapter') {
-        prevChapter(false);
-      } else if (data.type === 'nextChapter') {
-        nextChapter();
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  const hydrateContinuousDocument = async () => {
-    if (!continuousDocumentRef.current) return;
-    const zip = zipRef.current;
-    if (!zip) return;
-
-    // The shell is rendered before the WebView exists. Hydrate only after its
-    // load event; the former timer could inject into an unmounted/old document.
-    const order = chapters.map((_, index) => index);
-    order.sort((a, b) => Math.abs(a - currentChapterIndex) - Math.abs(b - currentChapterIndex));
-    for (const index of order) {
-      if (index === currentChapterIndex) continue;
-      try {
-        let html = chapterCacheRef.current.get(index);
-        if (!html) {
-          const data = await extractChapterHtml(zip, chapters[index].itemPath, opfDirRef.current);
-          html = data.html;
-          chapterCacheRef.current.set(index, html);
-        }
-        webViewRef.current?.injectJavaScript(`
-          (function() {
-            var body = document.getElementById('chapter-body-${index}');
-            var section = document.getElementById('chapter-${index}');
-            if (body && section) {
-              body.innerHTML = ${JSON.stringify(html)};
-              section.setAttribute('data-loaded', 'true');
-            }
-          })(); true;
-        `);
-      } catch (err) {
-        logger.warn(TAG, `Failed loading continuous chapter ${index}`, err);
-      }
-    }
-    const restoreTarget = targetCfiRef.current ? parseSpineTarget(targetCfiRef.current) : null;
-    const restoreChapter = restoreTarget && restoreTarget.spineIndex < chapters.length
-      ? restoreTarget.spineIndex
-      : null;
-    const restoreScript = restoreChapter === null
-      ? `window.scrollTo(0, ${Math.max(0, initialScrollY)});`
-      : restoreTarget?.anchor
-        ? `var section = document.getElementById('chapter-${restoreChapter}'); var anchor = document.getElementById(${JSON.stringify(restoreTarget.anchor)}); (anchor && section && section.contains(anchor) ? anchor : section).scrollIntoView();`
-        : restoreTarget?.scrollY !== undefined
-          ? `window.scrollTo(0, ${restoreTarget.scrollY});`
-          : `var section = document.getElementById('chapter-${restoreChapter}'); if (section) section.scrollIntoView();`;
-    webViewRef.current?.injectJavaScript(`
-      (function() {
-        window.__epubHydrating = false;
-        ${restoreScript}
-        window.dispatchEvent(new Event('scroll'));
-      })(); true;
-    `);
-  };
-
   return (
-    <View style={[styles.container, { backgroundColor: palette.bg }]}>
+    <View style={[styles.container, { backgroundColor: palette.bg }]} onLayout={handleContainerLayout}>
       <WebView
         ref={webViewRef}
-        key={isPaginated ? `paginated-${currentChapterIndex}-${loadAttempt}` : `continuous-${loadAttempt}`}
+        key={`${geometry.mode}-${loadAttempt}-${book.filePath || book.uri || ''}`}
         {...READER_WEBVIEW_PROPS}
         source={{ html: renderedHtml }}
-        style={{ backgroundColor: palette.bg }}
+        style={[{ flex: 1 }, { backgroundColor: palette.bg }]}
         onMessage={handleMessage}
-        onLoadEnd={() => { void hydrateContinuousDocument(); }}
-        scrollEnabled={!isPaginated}
+        onLoadEnd={handleLoadEnd}
+        scrollEnabled={geometry.mode === 'continuous'}
         showsVerticalScrollIndicator={false}
       />
 
-      {/* Discrete Paginated Mode Page Indicator */}
-      {isPaginated && totalPages > 0 && (
+      {geometry.mode === 'paginated' && totalPages > 0 && (
         <View style={[styles.pageFooter, { bottom: Math.max(insets.bottom, 12) + 6 }]} pointerEvents="none">
           <Text style={[styles.pageFooterText, { color: palette.muted }]}>
-            {currentPage + 1} / {totalPages} • Chapter {currentChapterIndex + 1} of {chapters.length}
+            {geometry.twoColumn
+              ? `Cols ${currentPage * 2 + 1}–${currentPage * 2 + 2} / ${totalPages * 2}`
+              : `${currentPage + 1} / ${totalPages}`}{' '}
+            • Ch {currentChapterIndex + 1}/{chapters.length}
+            {geometry.twoColumn ? ' • 2-col' : ''}
           </Text>
         </View>
       )}
@@ -1198,42 +885,13 @@ export function EpubReaderView({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-  },
-  errorTitle: {
-    marginTop: 16,
-    fontSize: 18,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  errorMessage: {
-    marginTop: 8,
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-    maxWidth: 320,
-  },
-  errorBtn: {
-    marginTop: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  errorBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
-  },
+  container: { flex: 1 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, fontSize: 14 },
+  errorTitle: { marginTop: 16, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  errorMessage: { marginTop: 8, fontSize: 14, textAlign: 'center', lineHeight: 20, maxWidth: 320 },
+  errorBtn: { marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  errorBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
   pageFooter: {
     position: 'absolute',
     bottom: 8,
@@ -1242,10 +900,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pageFooterText: {
-    fontSize: 11,
-    letterSpacing: 0.3,
-    fontWeight: '500',
-    opacity: 0.7,
-  },
+  pageFooterText: { fontSize: 11, letterSpacing: 0.3, fontWeight: '500', opacity: 0.7 },
 });

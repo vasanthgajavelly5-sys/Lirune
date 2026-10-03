@@ -7,6 +7,7 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getContentUriAsync } from 'expo-file-system';
 import { logger } from '@/utils/logger';
+import { nativeStorage } from './NativeStorageBridge';
 
 const TAG = 'FileStorage';
 
@@ -73,41 +74,47 @@ export class FileStorageService {
       normalizedSource = normalizedSource.replace('file:///sdcard/', 'file:///storage/emulated/0/');
     }
 
-    try {
-      await FileSystem.copyAsync({
-        from: normalizedSource,
-        to: destPath,
-      });
-    } catch (copyErr) {
-      logger.warn(TAG, `copyAsync failed, trying content stream fallback for: ${sourceUri}`, copyErr);
+    // Try high-performance native stream copy first for Android content/file URIs
+    const nativeBytes = await nativeStorage.copyContentUriToStorage(normalizedSource, destPath);
+    if (nativeBytes !== null && nativeBytes > 0) {
+      logger.info(TAG, `Native stream copied ${nativeBytes} bytes to ${destPath}`);
+    } else {
       try {
-        let base64Data: string;
-        if (sourceUri.startsWith('content://')) {
-          base64Data = await FileSystem.StorageAccessFramework.readAsStringAsync(sourceUri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-        } else if (sourceUri.startsWith('file://')) {
-          try {
-            const contentUri = await getContentUriAsync(sourceUri);
-            base64Data = await FileSystem.StorageAccessFramework.readAsStringAsync(contentUri, {
+        await FileSystem.copyAsync({
+          from: normalizedSource,
+          to: destPath,
+        });
+      } catch (copyErr) {
+        logger.warn(TAG, `copyAsync failed, trying content stream fallback for: ${sourceUri}`, copyErr);
+        try {
+          let base64Data: string;
+          if (sourceUri.startsWith('content://')) {
+            base64Data = await FileSystem.StorageAccessFramework.readAsStringAsync(sourceUri, {
               encoding: FileSystem.EncodingType.Base64,
             });
-          } catch (contentErr) {
-            logger.warn(TAG, `getContentUriAsync fallback also failed for ${sourceUri}`, contentErr);
-            throw new Error('The selected file could not be read via content resolver.');
+          } else if (sourceUri.startsWith('file://')) {
+            try {
+              const contentUri = await getContentUriAsync(sourceUri);
+              base64Data = await FileSystem.StorageAccessFramework.readAsStringAsync(contentUri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+            } catch (contentErr) {
+              logger.warn(TAG, `getContentUriAsync fallback also failed for ${sourceUri}`, contentErr);
+              throw new Error('The selected file could not be read via content resolver.');
+            }
+          } else {
+            base64Data = await FileSystem.readAsStringAsync(normalizedSource, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
           }
-        } else {
-          base64Data = await FileSystem.readAsStringAsync(normalizedSource, {
+          await FileSystem.writeAsStringAsync(destPath, base64Data, {
             encoding: FileSystem.EncodingType.Base64,
           });
+        } catch (readErr) {
+          logger.warn(TAG, `Failed both copyAsync and readAsString fallback for ${sourceUri}`, readErr);
+          await FileSystem.deleteAsync(destPath, { idempotent: true }).catch(() => undefined);
+          throw new Error('The selected file could not be copied into app storage.');
         }
-        await FileSystem.writeAsStringAsync(destPath, base64Data, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-      } catch (readErr) {
-        logger.warn(TAG, `Failed both copyAsync and readAsString fallback for ${sourceUri}`, readErr);
-        await FileSystem.deleteAsync(destPath, { idempotent: true }).catch(() => undefined);
-        throw new Error('The selected file could not be copied into app storage.');
       }
     }
 

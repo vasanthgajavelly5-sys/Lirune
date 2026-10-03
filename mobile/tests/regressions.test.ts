@@ -49,7 +49,83 @@ test('sanitizeHtml: removes unsafe resources and SVG active content', () => {
       '<svg><a href="javascript:alert(1)"><script>alert(1)</script></a></svg>'
   );
 
-  assert.equal(result, '<a>bad</a><a>bad</a><a>bad</a><img><img src="data:image/png;base64,abc">');
+  // The SVG wrapper survives (it is legitimate content); only its active parts go.
+  assert.equal(
+    result,
+    '<a>bad</a><a>bad</a><a>bad</a><img><img src="data:image/png;base64,abc"><svg><a></a></svg>'
+  );
+});
+
+test('sanitizeHtml: preserves safe inline SVG used for diagrams', () => {
+  const source =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100%">' +
+      '<title>Diagram</title><desc>A chart</desc>' +
+      '<defs><linearGradient id="g"><stop offset="0" stop-color="#fff" /></linearGradient></defs>' +
+      '<g transform="translate(2,2)"><path d="M0 0 L10 10" stroke="#333" fill="url(#g)" /></g>' +
+      '<text x="5" y="20">Label</text></svg>';
+
+  assert.equal(sanitizeHtml(source), source);
+});
+
+test('sanitizeHtml: strips SVG event handlers and SMIL activation vectors', () => {
+  const result = sanitizeHtml(
+    '<svg onload="alert(1)"><animate attributeName="xlink:href" to="javascript:alert(1)"/>' +
+      '<set attributeName="href" to="javascript:alert(1)"/><circle r="5"/></svg>'
+  );
+
+  assert.doesNotMatch(result, /onload|javascript:|<set/i);
+  assert.match(result, /<circle r="5" \/>/);
+});
+
+test('sanitizeHtml: preserves MathML and its presentation attributes', () => {
+  const source =
+    '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block" alttext="x squared">' +
+      '<mrow><msup><mi>x</mi><mn>2</mn></msup><mo>+</mo><mn>1</mn></mrow></math>';
+
+  assert.equal(sanitizeHtml(source), source);
+});
+
+test('sanitizeHtml: preserves epub:type semantics and namespaced attributes', () => {
+  const source =
+    '<section epub:type="chapter" xml:lang="en-GB" id="ch1">' +
+      '<p epub:type="first">One</p>' +
+      '<aside epub:type="footnote" role="doc-footnote" id="fn1"><p>Note text</p></aside>' +
+      '<a epub:type="noteref" href="#fn1">1</a></section>';
+
+  assert.equal(sanitizeHtml(source), source);
+});
+
+test('sanitizeHtml: nothing hidden in a comment or CDATA section can execute', () => {
+  const result = sanitizeHtml(
+    '<!--[if IE]><script>alert(1)</script><![endif]-->' +
+      '<p>Visible</p><![CDATA[<script>alert(2)</script>]]>' +
+      '<!DOCTYPE html><?xml version="1.0"?>'
+  );
+
+  assert.equal(result, '<p>Visible</p>');
+});
+
+test('sanitizeHtml: inline styles keep embedded data URIs but reject live ones', () => {
+  const result = sanitizeHtml(
+    '<p style="background-image:url(&quot;data:image/png;base64,AAAA&quot;)">a</p>' +
+      '<p style="background-image:url(https://evil.example/x.png)">b</p>' +
+      '<p style="width:expression(alert(1))">c</p>' +
+      '<p style="background-image:url(&quot;../Images/cover.png&quot;)">d</p>'
+  );
+
+  // The data URI survives; only the quotes are entity-encoded for the attribute.
+  assert.match(result, /url\(&quot;data:image\/png;base64,AAAA&quot;\)/);
+  assert.doesNotMatch(result, /evil\.example/);
+  assert.doesNotMatch(result, /expression/);
+  assert.doesNotMatch(result, /cover\.png/);
+});
+
+test('sanitizeHtml: is idempotent and never double-escapes entities', () => {
+  const source = '<p style="color:red">&amp; &quot;x&quot; &nbsp; &#8212;</p>';
+  const once = sanitizeHtml(source);
+
+  assert.equal(once, source);
+  assert.equal(sanitizeHtml(once), once);
 });
 
 test('sanitizeHtml: preserves normal EPUB markup and relative links', () => {

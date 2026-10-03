@@ -44,6 +44,7 @@ import { getFormatFromExtension, BookFormat } from '@/models/Book';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
 import { LiruneToast } from '@/components/LiruneToast';
 import { logger } from '@/utils/logger';
+import { nativeStorage, type DiscoveredNativeFile } from '@/services/storage/NativeStorageBridge';
 
 const TAG = 'FilesDiscovery';
 
@@ -279,8 +280,9 @@ export default function FilesScreen() {
 
   /**
    * Action 1: Scan Phone
-   * Automatically discovers user-accessible documents in device storage (Downloads, Documents, Books, internal storage)
-   * Scans legitimately accessible storage and previously authorized SAF folders without forcing an unexpected folder picker popup.
+   * Uses the native LiruneStorage bridge for robust MediaStore-based discovery
+   * that works on Android 10+ without MANAGE_EXTERNAL_STORAGE.
+   * Also scans well-known paths via native filesystem traversal when accessible.
    */
   const handleScanPhone = async () => {
     setIsScanning(true);
@@ -289,33 +291,66 @@ export default function FilesScreen() {
     try {
       setHasScanned(true);
       const allFound: DiscoveredFile[] = [];
+      const seenIds = new Set(discoveredFiles.map((f) => f.id));
 
-      // 1. Scan standard accessible device storage directories directly if accessible
-      const accessibleDirs = [
-        { path: 'file:///storage/emulated/0/Download', label: 'Downloads', depth: 3 },
-        { path: 'file:///storage/emulated/0/Documents', label: 'Documents', depth: 3 },
-        { path: 'file:///storage/emulated/0/Books', label: 'Books', depth: 3 },
-      ];
-
-      for (const dir of accessibleDirs) {
+      // 1. Native MediaStore scan (works on Android 10+ without special permissions)
+      if (nativeStorage.isAvailable()) {
+        setScanStatus('Querying MediaStore...');
         try {
-          const info = await FileSystem.getInfoAsync(dir.path);
-          if (info.exists && info.isDirectory) {
-            setScanStatus(`Scanning ${dir.label}...`);
-            const found = await scanDirectoryRecursive(
-              dir.path,
-              dir.label,
-              0,
-              dir.depth
-            );
-            allFound.push(...found);
+          const nativeFiles: DiscoveredNativeFile[] = await nativeStorage.scanMediaStore();
+          for (const nf of nativeFiles) {
+            if (seenIds.has(nf.id)) continue;
+            seenIds.add(nf.id);
+            allFound.push({
+              id: nf.id,
+              uri: nf.uri,
+              name: nf.name,
+              format: nf.format,
+              size: nf.size,
+              folderName: nf.folderName || 'Device Storage',
+              inLibrary: isFileInLibrary(nf.name, nf.format),
+              selected: !isFileInLibrary(nf.name, nf.format),
+            });
           }
+          logger.info(TAG, `MediaStore scan found ${nativeFiles.length} files`);
+        } catch (msErr) {
+          logger.warn(TAG, 'MediaStore scan failed', msErr);
+        }
+
+        // 2. Native filesystem scan for common well-known directories
+        // (works when MANAGE_EXTERNAL_STORAGE is granted or on Android <= 9)
+        try {
+          const knownPaths = [
+            '/storage/emulated/0/Download',
+            '/storage/emulated/0/Downloads',
+            '/storage/emulated/0/Documents',
+            '/storage/emulated/0/Books',
+            '/storage/emulated/0/Ebooks',
+            '/storage/emulated/0/EPUB',
+          ];
+          setScanStatus('Scanning Downloads & Documents...');
+          const nativeDirFiles: DiscoveredNativeFile[] = await nativeStorage.scanDirectories(knownPaths, 4);
+          for (const nf of nativeDirFiles) {
+            if (seenIds.has(nf.id)) continue;
+            seenIds.add(nf.id);
+            allFound.push({
+              id: nf.id,
+              uri: nf.uri,
+              name: nf.name,
+              format: nf.format,
+              size: nf.size,
+              folderName: nf.folderName || 'Storage',
+              inLibrary: isFileInLibrary(nf.name, nf.format),
+              selected: !isFileInLibrary(nf.name, nf.format),
+            });
+          }
+          logger.info(TAG, `Native dir scan found ${nativeDirFiles.length} additional files`);
         } catch (dirErr) {
-          logger.warn(TAG, `Accessible directory scan skipped: ${dir.path}`, dirErr);
+          logger.warn(TAG, 'Native directory scan failed', dirErr);
         }
       }
 
-      // 2. Scan app documentDirectory if present
+      // 3. Fallback: scan app documentDirectory for locally stored books
       if (FileSystem.documentDirectory) {
         try {
           const docResults = await scanDirectoryRecursive(
@@ -324,17 +359,43 @@ export default function FilesScreen() {
             0,
             3
           );
-          allFound.push(...docResults);
+          for (const f of docResults) {
+            if (seenIds.has(f.id)) continue;
+            seenIds.add(f.id);
+            allFound.push(f);
+          }
         } catch {}
       }
 
-      // 3. Scan user-approved / authorized folder URIs that the application can legitimately access via SAF
+      // 4. Scan previously authorized SAF folder
       if (lastAuthorizedFolderUri) {
         try {
           const folderName = decodeURIComponent(lastAuthorizedFolderUri.split('%3A').pop() || 'Authorized Folder');
           setScanStatus(`Scanning ${folderName}...`);
-          const authResults = await scanDirectoryRecursive(lastAuthorizedFolderUri, folderName, 0, 4);
-          allFound.push(...authResults);
+          if (nativeStorage.isAvailable() && lastAuthorizedFolderUri.startsWith('content://')) {
+            const nativeSafFiles = await nativeStorage.scanSafTree(lastAuthorizedFolderUri, 5);
+            for (const nf of nativeSafFiles) {
+              if (seenIds.has(nf.id)) continue;
+              seenIds.add(nf.id);
+              allFound.push({
+                id: nf.id,
+                uri: nf.uri,
+                name: nf.name,
+                format: nf.format,
+                size: nf.size,
+                folderName: nf.folderName || folderName,
+                inLibrary: isFileInLibrary(nf.name, nf.format),
+                selected: !isFileInLibrary(nf.name, nf.format),
+              });
+            }
+          } else {
+            const authResults = await scanDirectoryRecursive(lastAuthorizedFolderUri, folderName, 0, 4);
+            for (const f of authResults) {
+              if (seenIds.has(f.id)) continue;
+              seenIds.add(f.id);
+              allFound.push(f);
+            }
+          }
         } catch (authErr) {
           logger.warn(TAG, 'Error scanning last authorized folder', authErr);
         }
@@ -351,7 +412,7 @@ export default function FilesScreen() {
           `Discovered ${allFound.length} document${allFound.length === 1 ? '' : 's'}`
         );
       } else {
-        setToastMessage('Scan complete: no supported books found in accessible storage. Use "Scan Folder" to grant access to a specific folder.');
+        setToastMessage('Scan complete: no supported books found. Use "Scan Folder" to pick a specific folder, or place books in your Downloads folder.');
       }
     } catch (err) {
       logger.error(TAG, 'Error during phone scan', err);
@@ -364,8 +425,7 @@ export default function FilesScreen() {
 
   /**
    * Action 2: Scan Folder via SAF folder authorization (Download, nested folders, SD cards)
-   * Note on Android platform limitation: Android 11+ Scoped Storage forbids selecting internal storage root
-   * (/storage/emulated/0) or /Android/data. Subdirectories like Download/Books, Documents, or custom folders are fully supported.
+   * Uses the native scanSafTree() for content:// URIs for full recursive DocumentsContract traversal.
    */
   const handleScanFolder = async () => {
     setIsScanning(true);
@@ -380,7 +440,7 @@ export default function FilesScreen() {
 
       const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (!permissions.granted) {
-        setToastMessage('Android restricts selecting root or Download root. Please choose a subfolder (e.g. Download/Books, Documents) or use "Scan File".');
+        setToastMessage('Folder access was not granted. Please try again and select a folder (e.g. Download, Documents, or a subfolder).');
         return;
       }
 
@@ -388,9 +448,36 @@ export default function FilesScreen() {
       const targetUri = permissions.directoryUri;
       await setLastAuthorizedFolderUri(targetUri);
 
-      const folderName = decodeURIComponent(targetUri.split('%3A').pop() || 'Storage Folder');
+      const folderName = decodeURIComponent(
+        targetUri.split('%3A').pop()?.split('%2F').join('/') || 'Storage Folder'
+      );
       setScanStatus(`Scanning ${folderName}...`);
-      const files = await scanDirectoryRecursive(targetUri, folderName, 0, 5);
+
+      let files: DiscoveredFile[] = [];
+
+      // Use native SAF tree scanner if available — it uses DocumentsContract and handles
+      // all MIME types/directory flags correctly without JS guessing
+      if (nativeStorage.isAvailable() && targetUri.startsWith('content://')) {
+        try {
+          const nativeFiles = await nativeStorage.scanSafTree(targetUri, 6);
+          files = nativeFiles.map((nf) => ({
+            id: nf.id,
+            uri: nf.uri,
+            name: nf.name,
+            format: nf.format,
+            size: nf.size,
+            folderName: nf.folderName || folderName,
+            inLibrary: isFileInLibrary(nf.name, nf.format),
+            selected: !isFileInLibrary(nf.name, nf.format),
+          }));
+          logger.info(TAG, `Native SAF scan found ${files.length} files in ${folderName}`);
+        } catch (nativeErr) {
+          logger.warn(TAG, 'Native SAF scan failed, falling back to JS traversal', nativeErr);
+          files = await scanDirectoryRecursive(targetUri, folderName, 0, 5);
+        }
+      } else {
+        files = await scanDirectoryRecursive(targetUri, folderName, 0, 5);
+      }
 
       setDiscoveredFiles((prev) => {
         const existingIds = new Set(prev.map((p) => p.id));
@@ -403,7 +490,7 @@ export default function FilesScreen() {
       );
     } catch (err) {
       logger.error(TAG, 'Error during folder scan', err);
-      setToastMessage('Unable to access selected folder. Note: Android blocks selecting storage root or entire Download.');
+      setToastMessage('Unable to access selected folder.');
     } finally {
       setIsScanning(false);
       setScanStatus('');

@@ -53,6 +53,55 @@ export class FileStorageService {
   }
 
   /**
+   * Deletes half-written imports left behind by a crash or a killed process.
+   *
+   * `copyToAppStorage` stages every book as `<path>.part` and renames it only
+   * once the size is verified, so a `.part` file is by definition garbage. Called
+   * once from the app layout, off the critical path.
+   */
+  async cleanupPartialImports(): Promise<number> {
+    if (Platform.OS === 'web') return 0;
+    let removed = 0;
+    try {
+      const entries = await FileSystem.readDirectoryAsync(BOOKS_DIR);
+      for (const entry of entries) {
+        if (!entry.endsWith('.part')) continue;
+        await FileSystem.deleteAsync(`${BOOKS_DIR}${entry}`, { idempotent: true });
+        removed++;
+      }
+      if (removed > 0) logger.info(TAG, `Removed ${removed} partial import(s) from a previous session`);
+    } catch (err) {
+      logger.warn(TAG, 'Partial import cleanup skipped', err);
+    }
+    return removed;
+  }
+
+  /**
+   * Fails before a copy starts when the device cannot hold the book.
+   *
+   * A half-written file plus a library row is worse than a clear message: the
+   * import used to fail at the very end with a generic storage error.
+   */
+  async assertFreeSpace(requiredBytes: number): Promise<void> {
+    if (Platform.OS === 'web' || requiredBytes <= 0) return;
+    try {
+      const free = await FileSystem.getFreeDiskStorageAsync();
+      // 32MB of headroom for SQLite, the cover cache and the OS itself.
+      if (free < requiredBytes + 32 * 1024 * 1024) {
+        const freeMb = Math.max(1, Math.round(free / 1024 / 1024));
+        const neededMb = Math.round(requiredBytes / 1024 / 1024);
+        throw new Error(
+          `Not enough free space to import this book (needs about ${neededMb} MB, ${freeMb} MB free).`
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Not enough free space')) throw err;
+      // A device that cannot report free space is not a reason to refuse an import.
+      logger.warn(TAG, 'Free space check unavailable', err);
+    }
+  }
+
+  /**
    * Copies a picked file from its temporary/content URI into app-managed durable storage.
    */
   async copyToAppStorage(
@@ -69,6 +118,10 @@ export class FileStorageService {
     const extMatch = originalName.match(/\.([A-Za-z0-9]+)$/);
     const ext = extMatch ? `.${extMatch[1].toLowerCase()}` : '';
     const destPath = `${BOOKS_DIR}${fileId}${ext}`;
+    // Written first, renamed last: an import interrupted by a crash, a low-battery
+    // shutdown or the OS killing the app left a half-written book at the final
+    // path, and the library then had a row pointing at a truncated EPUB.
+    const stagingPath = `${destPath}.part`;
 
     let normalizedSource = sourceUri;
     if (normalizedSource.startsWith('file:///sdcard/')) {
@@ -76,14 +129,14 @@ export class FileStorageService {
     }
 
     // Try high-performance native stream copy first for Android content/file URIs
-    const nativeBytes = await nativeStorage.copyContentUriToStorage(normalizedSource, destPath);
+    const nativeBytes = await nativeStorage.copyContentUriToStorage(normalizedSource, stagingPath);
     if (nativeBytes !== null && nativeBytes > 0) {
-      logger.info(TAG, `Native stream copied ${nativeBytes} bytes to ${destPath}`);
+      logger.info(TAG, `Native stream copied ${nativeBytes} bytes to ${stagingPath}`);
     } else {
       try {
         await FileSystem.copyAsync({
           from: normalizedSource,
-          to: destPath,
+          to: stagingPath,
         });
       } catch (copyErr) {
         logger.warn(TAG, `copyAsync failed, trying content stream fallback for: ${sourceUri}`, copyErr);
@@ -108,28 +161,31 @@ export class FileStorageService {
               encoding: FileSystem.EncodingType.Base64,
             });
           }
-          await FileSystem.writeAsStringAsync(destPath, base64Data, {
+          await FileSystem.writeAsStringAsync(stagingPath, base64Data, {
             encoding: FileSystem.EncodingType.Base64,
           });
         } catch (readErr) {
           logger.warn(TAG, `Failed both copyAsync and readAsString fallback for ${sourceUri}`, readErr);
-          await FileSystem.deleteAsync(destPath, { idempotent: true }).catch(() => undefined);
+          await FileSystem.deleteAsync(stagingPath, { idempotent: true }).catch(() => undefined);
           throw new Error('The selected file could not be copied into app storage.');
         }
       }
     }
 
     try {
-      const info = await FileSystem.getInfoAsync(destPath);
-      const fileSize = info.exists && !info.isDirectory ? info.size ?? 0 : 0;
-      if (!info.exists || info.isDirectory || fileSize <= 0) {
+      const staged = await FileSystem.getInfoAsync(stagingPath);
+      const stagedSize = staged.exists && !staged.isDirectory ? staged.size ?? 0 : 0;
+      if (!staged.exists || staged.isDirectory || stagedSize <= 0) {
         throw new Error('The selected file could not be copied into app storage.');
       }
 
-      logger.info(TAG, `Saved book to app storage: ${destPath} (${fileSize} bytes)`);
-      return { destPath, fileSize };
+      // Verified: now it becomes a book. Move is atomic within the same directory.
+      await FileSystem.moveAsync({ from: stagingPath, to: destPath });
+
+      logger.info(TAG, `Saved book to app storage: ${destPath} (${stagedSize} bytes)`);
+      return { destPath, fileSize: stagedSize };
     } catch (err) {
-      await FileSystem.deleteAsync(destPath, { idempotent: true }).catch(() => undefined);
+      await FileSystem.deleteAsync(stagingPath, { idempotent: true }).catch(() => undefined);
       if (err instanceof Error && err.message === 'The selected file could not be copied into app storage.') {
         throw err;
       }

@@ -285,6 +285,7 @@
       "./plugins/withLiruneStorage",
       "./plugins/withCutoutMode",
       "./plugins/withAndroidConfigChanges",
+      "./plugins/withReleaseSigning",
       [
         "expo-build-properties",
         {

@@ -1,3 +1,69 @@
+## Unreleased - Android reader hardening
+
+Fixes and hardening across the Android edition; every phase is a separate commit.
+
+### Native module and app config
+- The `LiruneStorage` Kotlin module is now tracked in the repository and
+  re-installed by `plugins/withLiruneStorage.js` on every prebuild, so
+  `prebuild --clean` can no longer silently delete it. A missing module is logged
+  at startup and reported in the Files screen.
+- `plugins/withCutoutMode.js`, `plugins/withAndroidConfigChanges.js` and
+  `plugins/withReleaseSigning.js` replace hand-edited files in the generated
+  `android/` tree.
+- Orientation follows the system rotation lock, `MANAGE_EXTERNAL_STORAGE` and
+  `READ_EXTERNAL_STORAGE` are declared, `versionCode` is tracked, and the build
+  covers `armeabi-v7a`, `arm64-v8a`, `x86` and `x86_64`.
+- Landscape can draw into the display cutout while safe-area insets keep text out
+  of it; `density`/`fontScale` changes re-lay out instead of recreating the
+  activity.
+
+### EPUB
+- One heading per chapter in scroll mode, and no fabricated "Chapter N" for a
+  spine item the publication never named.
+- Table-of-contents entries resolve: NCX `src` against the NCX directory, nav
+  hrefs keep their `#fragment`, percent-encoded names decode, and nested
+  `ol`/`navPoint` levels indent.
+- Chapter turns skip `linear="no"` items while every spine index, chapter id and
+  CFI keeps addressing the same document.
+- Books are read as bytes instead of base64, the page count is rounded up and
+  re-measured once fonts, images and resize settle, and a missing embedded font
+  can no longer leave text invisible.
+- Metadata comes from one shared OPF parser: entities, CDATA, every `dc:creator`,
+  language, publisher, date, series and both cover conventions.
+
+### Layout
+- Reader chrome toggling no longer re-flows the text: stable safe-area insets,
+  nothing is painted before the container is measured, font scale is reactive,
+  geometry settles for 200ms before it is applied, and module-level
+  `Dimensions.get('window')` reads are gone.
+- Two columns need two readable measures and a 720dp window with 24dp of
+  hysteresis, instead of flipping at 600dp; a new Columns setting (auto/1/2)
+  overrides it.
+
+### Files and storage
+- Scan Phone no longer lists the app's own imported copies, can see Downloads and
+  the storage root with All files access (explained before it is requested), shows
+  a cancellable native walk with progress, and always falls back to MediaStore and
+  the authorised folders.
+- Rows show the real title and author, read from the EPUB's OPF without copying
+  the book; duplicate detection uses format, size and file name or title+author
+  instead of comparing a file name to a title.
+
+### PDF
+- The document is streamed into the viewer in 512KB ranges with real progress,
+  layout is pushed instead of baked in, renders are queued rather than cancelled
+  on a shared canvas, the canvas is capped at 16MP, and fit mode is explicit.
+- Search, outline-as-contents, pinch re-render, panning, Retry and password
+  prompts are wired; import reads only the ends of the file.
+
+### Robustness
+- A killed WebView renderer is detected, the position is flushed and the view is
+  rebuilt.
+- Reading progress is flushed when the app leaves the foreground and when the
+  reader closes.
+- Imports are staged as `.part` files and renamed after verification, stale ones
+  are cleaned at startup, and a free-space check runs before copying.
+
 ## 4.0.6 - Android v4.0.6 release (EPUB engine)
 
 EPUB reading pipeline rebuilt around a per-publication session, and the
@@ -143,3 +209,4 @@ responsive reader geometry corrected.
 - Added a frameless full-page window experience with custom minimize, maximize, and close controls.
 - Added draggable application toolbars while preserving interactive search and reader controls.
 - Improved EPUB loading and local library storage handling.
+

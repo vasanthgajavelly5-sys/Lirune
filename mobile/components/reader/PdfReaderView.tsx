@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useStableInsets } from '@/hooks/useStableInsets';
+import { useWebViewRecovery } from '@/hooks/useWebViewRecovery';
 import { WebView } from 'react-native-webview';
 import { Book, ReaderSettings, SearchResult } from '@/models/Book';
 import { PDFJS_SOURCE, PDFJS_WORKER } from '@/services/pdf/pdfjsAssets';
@@ -89,6 +90,19 @@ export function PdfReaderView({
   const [attempt, setAttempt] = useState(0);
 
   const webViewRef = useRef<WebView>(null);
+  // A killed renderer must not leave the reader blank: the position is persisted
+  // and the viewer is rebuilt from the start of the file.
+  const recovery = useWebViewRecovery({
+    scope: `pdf-${book.id}`,
+    savePosition: () => {
+      onProgressChange(
+        Math.round((currentPageRef.current / Math.max(1, totalPagesRef.current)) * 100),
+        `page:${currentPageRef.current}`,
+        `Page ${currentPageRef.current}`
+      );
+    },
+  });
+  const totalPagesRef = useRef<number>(0);
   const pendingPageRef = useRef<number | null>(null);
   const currentPageRef = useRef<number>(1);
   const fitModeRef = useRef<FitMode>(fitMode);
@@ -200,6 +214,7 @@ export function PdfReaderView({
 
           case 'meta': {
             setTotalPages(data.numPages);
+            totalPagesRef.current = data.numPages;
             if (data.numPages > 0) {
               onTotalPagesLoaded?.(data.numPages);
               const pending = pendingPageRef.current;
@@ -705,9 +720,10 @@ export function PdfReaderView({
   return (
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
       <WebView
-        key={`pdf-${book.id}-${attempt}`}
+        key={`pdf-${book.id}-${attempt}-${recovery.reloadKey}`}
         ref={webViewRef}
         {...READER_WEBVIEW_PROPS}
+        {...recovery.recoveryProps}
         source={{ html: pdfViewerHtml }}
         style={{ backgroundColor: palette.bg }}
         onMessage={handleMessage}

@@ -6,7 +6,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { LogBox } from 'react-native';
+import { LogBox, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 
 // Suppress React Native dev overlay floating toasts (yellow/red boxes).
@@ -16,6 +16,7 @@ import { ThemeProvider } from '@/theme/ThemeContext';
 import { useSettingsStore } from '@/state/settingsStore';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useReaderStore } from '@/state/readerStore';
+import { fileStorage } from '@/services/storage/FileStorage';
 import { ImportService } from '@/services/import/ImportService';
 import { logger } from '@/utils/logger';
 
@@ -29,7 +30,24 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     loadSettings();
     loadLibrary();
+    // Housekeeping, off the critical path: an import interrupted by a crash left a
+    // `.part` file behind, which is never a usable book.
+    void fileStorage.cleanupPartialImports();
   }, [loadSettings, loadLibrary]);
+
+  /**
+   * Reading progress must reach the database before the app can be killed.
+   *
+   * Android gives a backgrounded process no warning, so a position that was still
+   * queued when the user swiped the app away was a page the reader lost.
+   */
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') return;
+      void useReaderStore.getState().flushPendingProgress();
+    });
+    return () => subscription.remove();
+  }, []);
 
   const handledUrlRef = useRef<string | null>(null);
 

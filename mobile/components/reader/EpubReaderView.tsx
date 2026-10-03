@@ -17,6 +17,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { useStableInsets } from '@/hooks/useStableInsets';
+import { useWebViewRecovery } from '@/hooks/useWebViewRecovery';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
@@ -247,6 +248,23 @@ export function EpubReaderView({
    * built once and every later chapter is injected into the live DOM.
    */
   const [continuousSeed, setContinuousSeed] = useState<{ body: string; css: string; index: number } | null>(null);
+
+  /**
+   * A renderer the system killed leaves an empty reader with no way back. The
+   * position is flushed first, then the view is rebuilt and restores from it.
+   */
+  const recovery = useWebViewRecovery({
+    scope: `epub-${book.id}`,
+    savePosition: () => {
+      const cfi = lastPublishedCfiRef.current;
+      if (!cfi) return;
+      const percent = Math.min(
+        100,
+        Math.round(((currentIndexRef.current + 1) / Math.max(1, chaptersRef.current.length)) * 100)
+      );
+      onProgressChange(percent, cfi, chaptersRef.current[currentIndexRef.current]?.title || '');
+    },
+  });
 
   const webViewRef = useRef<WebView>(null);
   const archiveRef = useRef<EpubArchive | null>(null);
@@ -994,8 +1012,9 @@ const overallPercent = Math.min(
     <View style={[styles.container, { backgroundColor: palette.bg }]} onLayout={handleContainerLayout}>
       <WebView
         ref={webViewRef}
-        key={`${geometry.mode}-${loadAttempt}-${book.filePath || book.uri || ''}`}
+        key={`${geometry.mode}-${loadAttempt}-${book.filePath || book.uri || ''}-${recovery.reloadKey}`}
         {...READER_WEBVIEW_PROPS}
+        {...recovery.recoveryProps}
         source={{ html: renderedHtml }}
         style={[{ flex: 1 }, { backgroundColor: palette.bg }]}
         onMessage={handleMessage}
@@ -1003,6 +1022,15 @@ const overallPercent = Math.min(
         scrollEnabled={geometry.mode === 'continuous'}
         showsVerticalScrollIndicator={false}
       />
+
+      {recovery.isRecovering && (
+        <View style={styles.recoveryBanner}>
+          <ActivityIndicator size="small" color={palette.link} />
+          <Text style={[styles.recoveryText, { color: palette.muted }]}>
+            The renderer was closed by the system. Restoring your place…
+          </Text>
+        </View>
+      )}
 
       {geometry.mode === 'paginated' && totalPages > 0 && (
         <View style={[styles.pageFooter, { bottom: Math.max(insets.bottom, 12) + 6 }]} pointerEvents="none">
@@ -1022,6 +1050,19 @@ const overallPercent = Math.min(
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  recoveryBanner: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  recoveryText: { fontSize: 13 },
   loadingText: { marginTop: 12, fontSize: 14 },
   errorTitle: { marginTop: 16, fontSize: 18, fontWeight: '700', textAlign: 'center' },
   errorMessage: { marginTop: 8, fontSize: 14, textAlign: 'center', lineHeight: 20, maxWidth: 320 },

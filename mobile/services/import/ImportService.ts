@@ -153,6 +153,10 @@ export class ImportService {
           'This file is too large to import safely. Choose a file smaller than 512 MB.'
         );
       }
+      // Check the device can actually hold it before copying anything.
+      if (fileSizeHint !== undefined) {
+        await fileStorage.assertFreeSpace(fileSizeHint);
+      }
 
       // 2. Duplicate check: same format, same size, and the same file name or the
       // same title+author. A name-only comparison let renamed copies in and

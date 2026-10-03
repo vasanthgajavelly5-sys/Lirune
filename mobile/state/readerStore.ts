@@ -49,6 +49,8 @@ interface ReaderState {
   // Actions
   openBook: (book: Book) => Promise<void>;
   closeBook: () => Promise<void>;
+  /** Writes every queued progress update, for when the app is leaving the foreground. */
+  flushPendingProgress: () => Promise<void>;
   updateProgress: (progressPercent: number, cfi?: string, chapter?: string) => Promise<void>;
   toggleBookmark: () => Promise<void>;
   deleteBookmark: (id: string) => Promise<void>;
@@ -125,18 +127,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   closeBook: async () => {
-    const { currentBook, progressPercent, currentCfi, currentChapter } = get();
+    const { currentBook } = get();
     if (currentBook) {
-      const now = Date.now();
-      await progressQueue.enqueue({
-        bookId: currentBook.id,
-        cfi: currentCfi || '',
-        chapter: currentChapter,
-        progressPercent,
-        timeSpent: 0,
-        lastRead: now,
-      });
-      await progressQueue.flush(currentBook.id);
+      await get().flushPendingProgress();
     }
 
     set({
@@ -149,6 +142,27 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       highlights: [],
       notes: [],
     });
+  },
+
+  /**
+   * Pushes the current reading position into the queue and waits for the write.
+   *
+   * Called when the reader closes and when the app leaves the foreground: Android
+   * can kill a backgrounded process without warning, and a position that was still
+   * sitting in the queue was a chapter the reader lost.
+   */
+  flushPendingProgress: async () => {
+    const { currentBook, progressPercent, currentCfi, currentChapter } = get();
+    if (!currentBook) return;
+    await progressQueue.enqueue({
+      bookId: currentBook.id,
+      cfi: currentCfi || '',
+      chapter: currentChapter,
+      progressPercent,
+      timeSpent: 0,
+      lastRead: Date.now(),
+    });
+    await progressQueue.flush(currentBook.id);
   },
 
   updateProgress: async (progressPercent: number, cfi?: string, chapter?: string) => {

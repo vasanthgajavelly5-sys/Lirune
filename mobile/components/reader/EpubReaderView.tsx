@@ -874,6 +874,14 @@ const overallPercent = Math.min(
           else nextChapter();
           break;
 
+        // Late-arriving fonts, images or a resize can change the page count after
+        // the reader already showed "Page 3 of 20" in the footer.
+        case 'pageCount':
+          if (Number.isFinite(data.totalPages) && data.totalPages > 0) {
+            setTotalPages(data.totalPages);
+          }
+          break;
+
         case 'toggleControls':
           onToggleControls();
           break;

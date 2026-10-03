@@ -356,6 +356,7 @@ function paginatedScript(input: ReaderDocumentInput): string {
   return `
     var currentPage = 0;
     var totalPages = 1;
+    var measureScheduled = false;
     var startAtEnd = ${input.startAtEnd ? 'true' : 'false'};
     var initialScrollY = ${input.initialScrollY};
     var currentZoom = 1.0;
@@ -379,8 +380,58 @@ function paginatedScript(input: ReaderDocumentInput): string {
       var padLeft = parseFloat(style.paddingLeft) || 0;
       var padRight = parseFloat(style.paddingRight) || 0;
       var flowWidth = Math.max(1, content.scrollWidth - padLeft - padRight);
-      totalPages = Math.max(1, Math.round(flowWidth / colStepPx));
+      // ceil, not round: rounding can drop the last, partially filled page and
+      // leave the reader stuck one screen short of the end of the chapter.
+      totalPages = Math.max(1, Math.ceil((flowWidth - 1) / colStepPx));
       return totalPages;
+    }
+
+    /**
+     * Re-measures once the document has settled.
+     *
+     * Measuring 60ms after load catches the CSS but not the fonts, the images or
+     * a late publisher stylesheet, so the reported page count could be wrong for the
+     * rest of the session. Every settle signal funnels through one animation
+     * frame, and the host is only told when the count actually changed.
+     */
+    function scheduleMeasure() {
+      if (measureScheduled) return;
+      measureScheduled = true;
+      window.requestAnimationFrame(function () {
+        measureScheduled = false;
+        var previous = totalPages;
+        measurePages();
+        if (previous !== totalPages) {
+          currentPage = Math.max(0, Math.min(totalPages - 1, currentPage));
+          updateTransform();
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'pageCount', totalPages: totalPages }));
+        }
+      });
+    }
+
+    function watchSettledLayout() {
+      var content = document.getElementById('book-content');
+      if (!content) return;
+
+      if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+        document.fonts.ready.then(scheduleMeasure).catch(function () {});
+      }
+
+      // Images change the column width as they resolve; a data-URI image is
+      // already decoded, but a lazily attached one is not.
+      var images = content.getElementsByTagName('img');
+      for (var i = 0; i < images.length; i++) {
+        if (images[i].complete) continue;
+        images[i].addEventListener('load', scheduleMeasure, { once: true });
+        images[i].addEventListener('error', scheduleMeasure, { once: true });
+      }
+
+      if (typeof ResizeObserver === 'function') {
+        var observer = new ResizeObserver(scheduleMeasure);
+        observer.observe(content);
+      }
+      window.addEventListener('resize', scheduleMeasure);
+      window.addEventListener('orientationchange', scheduleMeasure);
     }
 
     function updateTransform() {
@@ -437,6 +488,7 @@ function paginatedScript(input: ReaderDocumentInput): string {
         measurePages();
         currentPage = startAtEnd ? Math.max(0, totalPages - 1) : 0;
         updateTransform();
+        watchSettledLayout();
       }, 60);
     });
 

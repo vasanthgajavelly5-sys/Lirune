@@ -426,6 +426,13 @@ async function transformStylesheet(css: string, ctx: WalkContext): Promise<strin
         // @font-face descriptors (family/weight/style/stretch/unicode-range) are
         // preserved verbatim; only the src url() is rewritten.
         const inner = transformDeclarations(body, { ...ctx, preserveLayout: true });
+        if (keyword === 'font-face') {
+          // A book whose embedded font file is missing (a broken container entry, a
+          // publisher bug) must not hold the text invisible for the font-load
+          // timeout: `swap` paints the fallback immediately.
+          emit(`${selector}{font-display:swap;${inner}}`);
+          continue;
+        }
         emit(`${selector}{${inner}}`);
         continue;
       }

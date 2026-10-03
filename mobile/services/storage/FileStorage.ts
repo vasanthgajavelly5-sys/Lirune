@@ -6,6 +6,7 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getContentUriAsync } from 'expo-file-system';
+import { File as ExpoFile } from 'expo-file-system';
 import { logger } from '@/utils/logger';
 import { nativeStorage } from './NativeStorageBridge';
 
@@ -266,11 +267,26 @@ export class FileStorageService {
   }
 
   /**
-   * Reads a stored file as an ArrayBuffer (e.g., for EPUB or CBZ ZIP parsing).
-   * More memory-efficient than base64: avoids the ~33% size overhead and lets
-   * JSZip consume binary data directly without a decode pass.
+   * Reads a stored file as bytes for ZIP parsing (EPUB, CBZ, CBR).
+   *
+   * `expo-file-system`'s `File` API hands the bytes over directly; the legacy path
+   * materialises the whole publication as a base64 string first, which costs about
+   * 2.3x the file size in JS heap (base64 string, then the decoded buffer, then
+   * JSZip's own copy) and was the reason large books were killed by the WebView.
    */
   async readAsArrayBuffer(filePath: string): Promise<ArrayBuffer> {
+    if (Platform.OS !== 'web') {
+      try {
+        const bytes = await new ExpoFile(filePath).bytes();
+        // Copy into a standalone ArrayBuffer: the view may be a slice of a larger
+        // native allocation, and JSZip keeps the whole thing alive either way.
+        const copy = new Uint8Array(bytes.byteLength);
+        copy.set(bytes);
+        return copy.buffer;
+      } catch (err) {
+        logger.warn(TAG, `Native byte read failed for ${filePath}, falling back to base64`, err);
+      }
+    }
     const base64 = await this.readAsBase64(filePath);
     return base64ToBuffer(base64);
   }

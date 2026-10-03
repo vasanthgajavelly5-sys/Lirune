@@ -7,6 +7,7 @@ import JSZip from 'jszip';
 import { BookFormat } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { resolveZipPath } from '@/services/epub/zipPaths';
+import { parseOpfMetadata } from '@/services/epub/package';
 import { MobiParser } from '@/services/mobi/MobiParser';
 import { DocxParser } from '@/services/docx/DocxParser';
 import { OdtParser } from '@/services/odt/OdtParser';
@@ -153,8 +154,11 @@ export class MetadataExtractor {
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
     try {
-      const base64 = await fileStorage.readAsBase64(filePath);
-      const zip = await JSZip.loadAsync(base64, { base64: true });
+      // Bytes, not base64: the whole publication was being held as a base64
+      // string plus its decoded copy, which is what made importing a large EPUB
+      // look like a hang.
+      const bytes = await fileStorage.readAsArrayBuffer(filePath);
+      const zip = await JSZip.loadAsync(bytes);
 
       // 1. Read container.xml to find OPF file path
       const containerFile = zip.file('META-INF/container.xml');
@@ -174,17 +178,14 @@ export class MetadataExtractor {
 
       const opfXml = await opfFile.async('text');
 
-      // Extract title
-      const titleMatch = opfXml.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
-      const title = titleMatch ? titleMatch[1].trim() : fallbackTitle;
-
-      // Extract author
-      const authorMatch = opfXml.match(/<dc:creator[^>]*>([^<]+)<\/dc:creator>/i);
-      const author = authorMatch ? authorMatch[1].trim() : 'Unknown Author';
-
-      // Extract description
-      const descMatch = opfXml.match(/<dc:description[^>]*>([^<]+)<\/dc:description>/i);
-      const description = descMatch ? descMatch[1].trim() : undefined;
+      // Title, every author, description and the rest of the Dublin Core set come
+      // from the shared parser, so an imported book can never disagree with what
+      // the Files screen showed before the import. The regexes this replaces broke
+      // on CDATA, nested tags and `&amp;`, and stopped at the first creator.
+      const opfMetadata = parseOpfMetadata(opfXml, opfPath);
+      const title = opfMetadata.title || fallbackTitle;
+      const author = opfMetadata.authors.length > 0 ? opfMetadata.authors.join(', ') : 'Unknown Author';
+      const description = opfMetadata.description;
 
       // Count chapters/items in spine
       const spineItems = opfXml.match(/<itemref\b[^>]*>/gi) || [];
@@ -326,6 +327,14 @@ export class MetadataExtractor {
         coverUrl,
         coverColor: getCoverColorForTitle(title),
         chapterCount,
+        metadata: {
+          language: opfMetadata.language,
+          publisher: opfMetadata.publisher,
+          publishedDate: opfMetadata.date,
+          identifier: opfMetadata.identifier,
+          series: opfMetadata.series,
+          authors: opfMetadata.authors,
+        },
       };
     } catch (err) {
       logger.warn(TAG, `EPUB metadata extraction error: ${originalName}`, err);

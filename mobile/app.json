@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lirune Reader",
     "slug": "lirune-reader",
-    "version": "4.6.7",
+    "version": "4.7.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "splash": {
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.lirune.reader",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "backgroundColor": "#1A1A1D",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -283,6 +283,7 @@
       "expo-document-picker",
       "expo-sqlite",
       "./plugins/withLiruneStorage",
+      "./plugins/withLiruneScreen",
       "./plugins/withCutoutMode",
       "./plugins/withAndroidConfigChanges",
       "./plugins/withReleaseSigning",

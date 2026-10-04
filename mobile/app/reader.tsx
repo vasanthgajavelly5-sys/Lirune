@@ -38,6 +38,7 @@ import { ChmReaderView } from '@/components/reader/ChmReaderView';
 import { DjvuReaderView } from '@/components/reader/DjvuReaderView';
 import { CbrReaderView } from '@/components/reader/CbrReaderView';
 import { ReaderControls } from '@/components/reader/ReaderControls';
+import { BrightnessEdgeOverlay } from '@/components/reader/BrightnessEdgeOverlay';
 import { ChapterSheet } from '@/components/reader/ChapterSheet';
 import { SearchSheet } from '@/components/reader/SearchSheet';
 import { SettingsSheet } from '@/components/reader/SettingsSheet';
@@ -46,8 +47,9 @@ import { TtsControlsSheet } from '@/components/reader/TtsControlsSheet';
 import { DictionaryModal } from '@/components/reader/DictionaryModal';
 import { ThumbnailsSheet } from '@/components/reader/ThumbnailsSheet';
 import { ttsService } from '@/services/tts/TtsService';
+import { parseSpineTarget } from '@/services/epub/navigation';
 import { READER_THEMES } from '@/theme/Colors';
-import { Bookmark, TOCItem, SearchResult, Book } from '@/models/Book';
+import { Bookmark, TOCItem, SearchResult, Book, clampReaderBrightness } from '@/models/Book';
 import type { SelectionPayload } from '@/services/reader/selectionBridge';
 import { SourceUnavailableError, UnsupportedFormatError } from '@/utils/errors';
 import { getBookRepository } from '@/repositories';
@@ -189,6 +191,17 @@ export default function ReaderScreen() {
   }, [resolutionStatus]);
 
   // 2. Canonical Source Resolution
+  //
+  // The engine is mounted only once resolution is ready, and it must stay
+  // mounted: resolving again for a *same* book would unmount the reader and
+  // throw away its WebView, its scroll position and its hydration. Only the
+  // book's identity decides whether a resolve is needed — a chapter count
+  // arriving from the engine must not restart it.
+  const resolvedBookKeyRef = useRef<string | null>(null);
+  const bookSourceKey = currentBook
+    ? `${currentBook.id}|${currentBook.uri}|${currentBook.filePath || ''}`
+    : null;
+
   const resolveCurrentBook = useCallback(async (book: Book) => {
     setResolutionStatus('resolving');
     setResolvedSource(null);
@@ -220,12 +233,15 @@ export default function ReaderScreen() {
   const handleUpdateChapterCount = useCallback(
     async (count: number) => {
       if (!currentBook || currentBook.chapterCount === count || count <= 0) return;
+      const updatedBook: Book = { ...currentBook, chapterCount: count };
+      // The live stores are updated before the write is awaited: the reader's own
+      // footer already knows this count, and a header that lagged behind it for
+      // the length of a database write is exactly the "two different chapter
+      // numbers" report this ordering removes.
+      useReaderStore.setState({ currentBook: updatedBook, chapterCount: count });
       try {
-        const updatedBook: Book = { ...currentBook, chapterCount: count };
-        const repo = getBookRepository();
-        await repo.updateBook(updatedBook);
+        await getBookRepository().updateBook(updatedBook);
         useLibraryStore.getState().updateBook(updatedBook);
-        useReaderStore.setState({ currentBook: updatedBook });
       } catch (err) {
         logger.warn(TAG, 'Failed to persist document chapter/page count', err);
       }
@@ -234,10 +250,11 @@ export default function ReaderScreen() {
   );
 
   useEffect(() => {
-    if (currentBook) {
-      resolveCurrentBook(currentBook);
-    }
-  }, [currentBook, resolveCurrentBook]);
+    if (!currentBook || !bookSourceKey) return;
+    if (resolvedBookKeyRef.current === bookSourceKey) return;
+    resolvedBookKeyRef.current = bookSourceKey;
+    resolveCurrentBook(currentBook);
+  }, [currentBook, bookSourceKey, resolveCurrentBook]);
 
   // 3. Android Hardware & Gesture Back Button Handling
   const handleExitReader = useCallback(async () => {
@@ -341,6 +358,15 @@ export default function ReaderScreen() {
 
   const palette = READER_THEMES[readerSettings.theme] || READER_THEMES.sepia;
   const isThemeDark = readerSettings.theme === 'night' || readerSettings.theme.startsWith('contrast');
+
+  // Declared with the other hooks: this screen returns early for every
+  // resolution state, so a hook below those returns would run only sometimes.
+  const handleBrightnessChange = useCallback(
+    (next: number) => {
+      void updateReaderSettings({ brightness: next });
+    },
+    [updateReaderSettings]
+  );
 
   // Jump handlers
   const handleSelectChapter = (item: TOCItem, index: number) => {
@@ -514,7 +540,24 @@ export default function ReaderScreen() {
     filePath: resolvedPath || currentBook.filePath || currentBook.uri,
   };
 
+  /**
+   * The one chapter position every surface reads from.
+   *
+   * Header, footer and TOC all used to derive a number independently — the
+   * header from the published chapter *title* and the footer from the reader's
+   * own spine index — so a book whose navigation document skips numbering
+   * reported two different chapters at once. Both are now derived from the
+   * published CFI, which is the single value the engines agree on.
+   */
+  const spineTarget = currentCfi ? parseSpineTarget(currentCfi) : null;
+  const chapterNumber = spineTarget ? spineTarget.spineIndex + 1 : 0;
+  const chapterCount = Math.max(activeBook.chapterCount || 0, spineTarget ? spineTarget.spineIndex + 1 : 0);
+  const hasChapterNumber = spineTarget !== null && chapterCount > 0;
+
   const isBookmarked = bookmarks.some((b) => b.cfi === currentCfi);
+  const brightness = clampReaderBrightness(readerSettings.brightness);
+  const isSheetOpen =
+    isTOCVisible || isSearchVisible || isSettingsVisible || isAnnotationsVisible;
 
   return (
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
@@ -746,6 +789,17 @@ export default function ReaderScreen() {
         </View>
       )}
 
+      {/* Edge brightness gesture + screen wake lock. Rendered before the
+          navigation bars so those stay on top and fully tappable. */}
+      <BrightnessEdgeOverlay
+        isReading={!isSheetOpen}
+        brightness={brightness}
+        onBrightnessChange={handleBrightnessChange}
+        keepAwake={readerSettings.keepScreenAwake !== false}
+        accentColor={palette.link || (isThemeDark ? '#C9B8FF' : '#4C4666')}
+        textColor={palette.text}
+      />
+
       {/* Overlay Navigation Controls */}
       {isControlsVisible && (
         <ReaderControls
@@ -753,6 +807,8 @@ export default function ReaderScreen() {
           themeName={readerSettings.theme}
           progressPercent={progressPercent}
           currentChapter={currentChapter}
+          chapterNumber={hasChapterNumber ? chapterNumber : 0}
+          chapterCount={chapterCount}
           isBookmarked={isBookmarked}
           onBack={handleExitReader}
           onToggleBookmark={toggleBookmark}

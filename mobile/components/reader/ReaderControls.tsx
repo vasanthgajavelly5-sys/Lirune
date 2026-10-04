@@ -20,6 +20,14 @@ interface ReaderControlsProps {
   themeName: string;
   progressPercent: number;
   currentChapter: string;
+  /**
+   * 1-based chapter number taken from the same CFI the reader footer counts
+   * from. 0 when the active engine does not address chapters by spine index
+   * (an image-only PDF, for instance), in which case no number is shown rather
+   * than a fabricated one.
+   */
+  chapterNumber: number;
+  chapterCount: number;
   isBookmarked: boolean;
   onBack: () => void;
   onToggleBookmark: () => void;
@@ -36,6 +44,8 @@ export function ReaderControls({
   themeName,
   progressPercent,
   currentChapter,
+  chapterNumber,
+  chapterCount,
   isBookmarked,
   onBack,
   onToggleBookmark,
@@ -56,6 +66,16 @@ export function ReaderControls({
   const iconColor = activeTheme.text;
   const accentColor = activeTheme.link || (isDark ? '#C9B8FF' : '#4C4666');
 
+  // One label, one source: the number is the same one the reader footer shows,
+  // so the header can never disagree with it about which chapter this is.
+  const chapterLabel =
+    chapterNumber > 0
+      ? chapterCount > 0
+        ? `Chapter ${chapterNumber} of ${chapterCount}`
+        : `Chapter ${chapterNumber}`
+      : '';
+  const chapterSubtitle = [chapterLabel, currentChapter].filter(Boolean).join(' · ');
+
   return (
     <>
       {/* Top Navigation Bar */}
@@ -74,7 +94,7 @@ export function ReaderControls({
               {book.title}
             </Text>
             <Text style={[styles.chapterSubtitle, { color: mutedColor }]} numberOfLines={1}>
-              {currentChapter || book.author}
+              {chapterSubtitle || book.author}
             </Text>
           </View>
 

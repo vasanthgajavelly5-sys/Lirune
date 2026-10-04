@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import {
   ReaderSettings,
   DEFAULT_READER_SETTINGS,
+  clampReaderBrightness,
 } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
@@ -99,10 +100,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
       const folderUris: string[] = Array.isArray(savedFolderUris) ? savedFolderUris.filter(Boolean) : [];
 
+      // A settings blob written before brightness/keep-awake existed has no such
+      // keys, and one written by an older build can hold a value outside the
+      // supported range; both are normalised rather than trusted.
+      const mergedReaderSettings: ReaderSettings = {
+        ...DEFAULT_READER_SETTINGS,
+        ...savedReaderSettings,
+      };
+      mergedReaderSettings.brightness = clampReaderBrightness(mergedReaderSettings.brightness);
+      if (typeof mergedReaderSettings.keepScreenAwake !== 'boolean') {
+        mergedReaderSettings.keepScreenAwake = DEFAULT_READER_SETTINGS.keepScreenAwake === true;
+      }
+
       set({
         appTheme: savedAppTheme || 'light',
         accentColor: savedAccent || '#EEECF8',
-        readerSettings: { ...DEFAULT_READER_SETTINGS, ...savedReaderSettings },
+        readerSettings: mergedReaderSettings,
         accessibility: { ...DEFAULT_ACCESSIBILITY, ...savedAccessibility },
         lastAuthorizedFolderUri: savedFolderUri || folderUris[0] || null,
         authorizedFolderUris: folderUris,
@@ -138,12 +151,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   updateReaderSettings: async (partial: Partial<ReaderSettings>) => {
-    const updated = { ...get().readerSettings, ...partial };
-    set({ readerSettings: updated });
+    const merged: ReaderSettings = { ...get().readerSettings, ...partial };
+    merged.brightness = clampReaderBrightness(merged.brightness);
+    set({ readerSettings: merged });
 
     const repo = getBookRepository() as any;
     try {
-      await repo.setPreference?.('readerSettings', updated);
+      await repo.setPreference?.('readerSettings', merged);
     } catch (err) {
       logger.warn(TAG, 'Failed to persist readerSettings', err);
     }

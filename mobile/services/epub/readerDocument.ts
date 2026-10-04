@@ -162,8 +162,17 @@ function readerCss(input: ReaderDocumentInput): string {
          flow and let the neighbouring column show through on the right. */
       padding: ${layout.padTop}px 0 ${layout.padBottom}px 0;
       overflow: visible;
-      transition: transform 0.22s cubic-bezier(0.25, 1, 0.5, 1);
+      /* Snappier than a 300ms ease: a page turn should feel like a sheet being
+         pushed, not like a carousel settling. The decelerating curve starts fast
+         and stops hard, which is what reads as "responsive" here. */
+      transition: transform 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
       will-change: transform;
+    }
+    /* Applied for any transform change the reader did not ask to animate
+       (a re-measure after a font swap, a pinch zoom). Animating those is what
+       made the page appear to lag behind the gesture. */
+    #book-content.no-anim {
+      transition: none;
     }
     /* The reading margin lives on the content inside each column fragment, so
        every column gets its own inset and no column can overlap the next. */
@@ -403,7 +412,7 @@ function paginatedScript(input: ReaderDocumentInput): string {
         measurePages();
         if (previous !== totalPages) {
           currentPage = Math.max(0, Math.min(totalPages - 1, currentPage));
-          updateTransform();
+          updateTransform(false);
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'pageCount', totalPages: totalPages }));
         }
       });
@@ -434,10 +443,18 @@ function paginatedScript(input: ReaderDocumentInput): string {
       window.addEventListener('orientationchange', scheduleMeasure);
     }
 
-    function updateTransform() {
+    function updateTransform(animate) {
       var content = document.getElementById('book-content');
       if (content) {
+        // A non-animated change (zoom, re-measure) must not queue behind a turn
+        // that is still easing, or the page visibly trails the finger.
+        if (animate === false) content.classList.add('no-anim');
         content.style.transform = 'translateX(-' + (currentPage * colStepPx) + 'px)';
+        if (animate === false) {
+          window.requestAnimationFrame(function () {
+            if (content) content.classList.remove('no-anim');
+          });
+        }
       }
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'pageTurn',
@@ -451,7 +468,7 @@ function paginatedScript(input: ReaderDocumentInput): string {
       if (content) {
         content.style.fontSize = Math.round(baseFontSize * currentZoom) + 'px';
         measurePages();
-        updateTransform();
+        updateTransform(false);
       }
     }
 
@@ -466,7 +483,7 @@ function paginatedScript(input: ReaderDocumentInput): string {
         return;
       }
       currentPage = p;
-      updateTransform();
+      updateTransform(true);
     }
 
     window.__lirunePager = {
@@ -474,7 +491,7 @@ function paginatedScript(input: ReaderDocumentInput): string {
       setPage: function (p) {
         measurePages();
         currentPage = Math.max(0, Math.min(totalPages - 1, p));
-        updateTransform();
+        updateTransform(false);
       },
       getPageCount: function () { return measurePages(); },
       getPageRatio: function () { return totalPages > 1 ? currentPage / (totalPages - 1) : 0; },
@@ -487,7 +504,7 @@ function paginatedScript(input: ReaderDocumentInput): string {
         if (initialScrollY > 0) window.scrollTo(0, initialScrollY);
         measurePages();
         currentPage = startAtEnd ? Math.max(0, totalPages - 1) : 0;
-        updateTransform();
+        updateTransform(false);
         watchSettledLayout();
       }, 60);
     });
@@ -531,12 +548,15 @@ function paginatedScript(input: ReaderDocumentInput): string {
       var deltaY = e.changedTouches[0].clientY - touchStartY;
       var elapsed = Date.now() - touchStartTime;
 
-      if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5 && elapsed < 600) {
+      // Raised threshold: 55px minimum horizontal, must be 2x more horizontal than
+      // vertical to avoid accidental page turns on diagonal scrolls.
+      if (Math.abs(deltaX) > 55 && Math.abs(deltaX) > Math.abs(deltaY) * 2.0 && elapsed < 500) {
         goToPage(currentPage + (deltaX < 0 ? 1 : -1));
         return;
       }
 
-      if (Math.abs(deltaX) < 15 && Math.abs(deltaY) < 15 && elapsed < 400) {
+      // Tap: small movement within a short time window
+      if (Math.abs(deltaX) < 12 && Math.abs(deltaY) < 12 && elapsed < 350) {
         var now = Date.now();
         if (now - lastTapTime < 320) {
           if (currentZoom !== 1.0) {
@@ -568,11 +588,50 @@ function continuousScript(input: ReaderDocumentInput): string {
     var initialPinchDist = 0;
     var initialZoom = 1.0;
     var lastTapTime = 0;
+    var touchStartX = 0;
+    var touchStartY = 0;
+    var touchStartTime = 0;
+    var touchStartScrollY = 0;
+    var lastHydrateRequest = 0;
 
     function applyContinuousZoom() {
       var container = document.getElementById('continuous-container') || document.body;
       container.style.fontSize = Math.round(baseFontSize * currentZoom) + 'px';
     }
+
+    /**
+     * Asks the host to hydrate the chapters the reader can see.
+     *
+     * Continuous mode used to inline every chapter before revealing the first
+     * frame, so a 400-chapter book opened onto a screen of placeholders for as
+     * long as the whole archive took to extract — and any chapter that failed to
+     * extract stayed a "Loading chapter…" placeholder for good. Hydration is
+     * now demand-driven: the document reports which unloaded sections are near
+     * the viewport and the host fills exactly those.
+     */
+    function scanPendingChapters(force) {
+      var now = Date.now();
+      if (!force && now - lastHydrateRequest < 120) return;
+      lastHydrateRequest = now;
+      var sections = document.querySelectorAll('.chapter-section[data-loaded="false"]');
+      var pending = [];
+      for (var i = 0; i < sections.length; i++) {
+        var rect = sections[i].getBoundingClientRect();
+        if (rect.bottom < -window.innerHeight) continue;
+        // Document order, so the first section past the window ends the scan.
+        if (rect.top > window.innerHeight * 1.5) break;
+        pending.push(Number(sections[i].getAttribute('data-chapter-index')));
+        if (pending.length >= 6) break;
+      }
+      if (!pending.length) return;
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'hydrateRequest',
+          indices: pending
+        }));
+      } catch (e) {}
+    }
+    window.__liruneScanPending = scanPendingChapters;
 
     document.addEventListener('touchstart', function (e) {
       if (e.touches.length === 2) {
@@ -581,25 +640,51 @@ function continuousScript(input: ReaderDocumentInput): string {
           e.touches[0].clientY - e.touches[1].clientY
         );
         initialZoom = currentZoom;
+        return;
+      }
+      if (e.touches.length === 1) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = Date.now();
+        touchStartScrollY = window.pageYOffset;
       }
     }, { passive: true });
 
     document.addEventListener('touchmove', function (e) {
-      if (e.touches.length === 2 && initialPinchDist > 10) {
+      if (e.touches.length === 2 && initialPinchDist > 24) {
         var currentDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
         var scale = currentDist / initialPinchDist;
         var newZoom = Math.max(0.8, Math.min(2.5, initialZoom * scale));
-        if (Math.abs(newZoom - currentZoom) > 0.04) {
+        // One font-size change relayouts the whole document, so the step is wide
+        // on purpose: a fine-grained threshold turned a pinch into a stutter.
+        if (Math.abs(newZoom - currentZoom) > 0.08) {
           currentZoom = newZoom;
           applyContinuousZoom();
         }
       }
     }, { passive: true });
 
-    document.body.addEventListener('click', function (e) {
+    /**
+     * A tap, not a scroll.
+     *
+     * The reader turns chapters from the screen edges and toggles the controls
+     * from the middle, so a gesture that actually moved the page must never
+     * reach this handler. Movement, duration and the scroll offset at touch
+     * start are all checked: a fling that ends with the finger back near where
+     * it started still moved the page, and the offset is the only honest signal.
+     */
+    document.addEventListener('touchend', function (e) {
+      if (e.changedTouches.length !== 1) return;
+      var dx = e.changedTouches[0].clientX - touchStartX;
+      var dy = e.changedTouches[0].clientY - touchStartY;
+      var elapsed = Date.now() - touchStartTime;
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
+      if (elapsed > 320) return;
+      if (Math.abs(window.pageYOffset - touchStartScrollY) > 4) return;
+
       var now = Date.now();
       if (now - lastTapTime < 320 && currentZoom !== 1.0) {
         currentZoom = 1.0;
@@ -609,13 +694,14 @@ function continuousScript(input: ReaderDocumentInput): string {
       }
       lastTapTime = now;
 
-      var ratio = e.clientX / (window.innerWidth || 1);
-      if (ratio < 0.22) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prevChapter' }));
-      else if (ratio > 0.78) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'nextChapter' }));
+      var ratio = e.changedTouches[0].clientX / (window.innerWidth || 1);
+      if (ratio < 0.18) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prevChapter' }));
+      else if (ratio > 0.82) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'nextChapter' }));
       else window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'toggleControls' }));
-    });
+    }, { passive: true });
 
     window.addEventListener('scroll', function () {
+      scanPendingChapters(false);
       if (window.__epubHydrating) return;
       var doc = document.documentElement;
       var total = doc.scrollHeight - window.innerHeight;
@@ -634,6 +720,10 @@ function continuousScript(input: ReaderDocumentInput): string {
         chapterIndex: chapterIndex
       }));
     }, { passive: true });
+
+    window.addEventListener('load', function () {
+      window.setTimeout(function () { scanPendingChapters(true); }, 0);
+    });
 
     window.__lirunePager = null;
   `;
@@ -684,6 +774,32 @@ export function buildContinuousShell(
   return `<div id="continuous-container">${sections.join('<hr class="chapter-divider" />')}</div>`;
 }
 
+/**
+ * Tells the host the document has actually painted.
+ *
+ * `onLoadEnd` fires when the load finished, which on Android is before the
+ * compositor has put a frame on screen — revealing the WebView on it is what
+ * produced the flash of unstyled, half-laid-out content on open. Two animation
+ * frames after `load` is the earliest point at which the first real frame is on
+ * screen. If anything goes wrong the host still reveals the view on its own
+ * timer, so this is an optimisation of timing and never a gate.
+ */
+const FIRST_PAINT_JS = `
+(function () {
+  function announce() {
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'readerReady' }));
+        } catch (e) {}
+      });
+    });
+  }
+  if (document.readyState === 'complete') announce();
+  else window.addEventListener('load', announce, { once: true });
+})();
+`;
+
 /** Builds the complete reader document for either mode. */
 export function buildReaderDocument(input: ReaderDocumentInput): string {
   const bookCss = input.bookCss ? `<style id="book-css">${input.bookCss}</style>` : '';
@@ -707,6 +823,7 @@ export function buildReaderDocument(input: ReaderDocumentInput): string {
     ${script}
     ${readingPositionScript(input.mode)}
     ${SELECTION_WATCHER_JS}
+    ${FIRST_PAINT_JS}
   </script>
 </body>
 </html>`;

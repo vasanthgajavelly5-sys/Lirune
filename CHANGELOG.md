@@ -1,3 +1,61 @@
+## 4.7.0 — Android reader: scroll mode, first frame, reading comfort (2026-10-04)
+
+Seven reported Android reader defects fixed, plus two reading-comfort features.
+The headline change is that continuous scroll mode no longer has to extract a
+whole publication before it can show a page.
+
+### Fixed
+
+- **Scroll mode could open onto chapter headings and "Loading chapter…"
+  placeholders and stay there.** Continuous mode inlined every spine item before
+  revealing the first frame, so a large book sat on placeholders for as long as
+  the whole archive took to read — and any chapter that failed to extract stayed
+  a placeholder permanently. Hydration is now demand-driven: the document reports
+  which unloaded sections are near the viewport, the host fills exactly those,
+  and a bounded background drain fills the rest while yielding to scrolling. A
+  watchdog guarantees the document is never left suppressing scroll progress.
+- **Coming back from the library was slow and lost the position.** The reader
+  re-resolved and re-mounted its document every time an engine reported a chapter
+  count. Resolution is now keyed on the book's identity, so a count arriving
+  cannot restart the reader. Extracted chapters also survive the session: a
+  handful per source are kept in memory, so re-opening a book in scroll mode
+  renders from cache instead of re-reading the archive.
+- **Settings panel taps were unreliable.** The panel claims touches in the
+  capture phase, so a tap on a control cannot be lost to the backdrop underneath.
+- **The header and the footer reported different chapters.** The header counted
+  from the published chapter title and the footer from the engine's spine index.
+  Both now derive from the published position, so they cannot disagree, and the
+  header shows `Chapter N of M` next to the title.
+- **A flash of unstyled content on open.** The reader document announces its own
+  first painted frame (two animation frames after `load`, not `onLoadEnd`), and
+  the WebView is revealed against an opaque themed backdrop only then.
+- **Page turns lagged and scrolling felt twitchy.** A page turn is a 240ms
+  decelerating transition; a re-measure, a zoom and the load-time restore are not
+  animated at all, so nothing queues behind an easing turn. In scroll mode a tap
+  must match on movement, duration *and* the scroll offset captured at touch
+  start, which is what stops a fling from turning a chapter.
+- **`fileStorage.readAsArrayBuffers` did not exist** and threw on every EPUB
+  open, failing the book outright.
+
+### Added
+
+- **Edge brightness.** Swipe up or down on the left or right 44dp edge to dim or
+  brighten the page. A floating pill follows the gesture and hides itself after
+  two seconds. The overlay is `box-none` and only its two edge zones can become
+  the touch responder, so it never competes with the reader.
+- **Keep Screen Awake.** A new tracked `LiruneScreen` native module
+  (`plugins/withLiruneScreen.js`) holds the display on with
+  `FLAG_KEEP_SCREEN_ON` while a book is open — no permission, and the system
+  releases it when the window goes away. On by default, with a toggle in the
+  appearance panel.
+- **Reading Comfort** section in the appearance panel: brightness stepper with a
+  level bar, and the keep-screen-awake switch.
+
+### Changed
+
+- Default page margin is **Standard (20px)** rather than Compact (12px), and is
+  persisted like every other reader setting.
+
 ## 4.6.7 — Android hardening & stability (2026-10-03)
 
 Comprehensive hardening pass across the Android edition: native module correctness, Kotlin type-safety, build pipeline fixes, reader robustness, and a slimmed 64-bit-only APK.

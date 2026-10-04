@@ -48,6 +48,90 @@ const TAG = 'EpubReaderView';
 /** Chapters kept in memory; a 500-chapter book must not hold 500 rendered strings. */
 const CHAPTER_CACHE_LIMIT = 40;
 
+/**
+ * Chapters hydrated per round trip by the background drain.
+ *
+ * Smaller than the on-demand batch because this work happens while the reader
+ * is scrolling: it must yield often enough that a fling never waits on it.
+ */
+const BACKGROUND_BATCH_SIZE = 3;
+
+/** ms between background hydration batches. */
+const BACKGROUND_YIELD_MS = 24;
+
+/**
+ * Chapters the background drain will inline, nearest the reader first.
+ *
+ * Continuous mode keeps the whole book in one DOM, so an unbounded drain turns
+ * a 900-chapter anthology into a memory problem on a mid-range phone. Past this
+ * point the document's own demand-driven hydration takes over — it fills a
+ * chapter within a scroll of it being needed anyway.
+ */
+const BACKGROUND_CHAPTER_LIMIT = 120;
+
+/**
+ * Fallback reveal timer for the first painted frame.
+ *
+ * The document announces its own first paint; this only covers a document that
+ * never does (an older WebView, a script that failed to parse), so the reader is
+ * never stuck behind a spinner that cannot finish.
+ */
+const PAINT_REVEAL_FALLBACK_MS = 900;
+
+/**
+ * Longest continuous mode may suppress scroll progress while filling the first
+ * chapters. A chapter read that never settles must not leave the document muted
+ * for the rest of the session — that is the "reader is stuck but looks fine"
+ * report.
+ */
+const HYDRATION_WATCHDOG_MS = 2500;
+
+/**
+ * Chapters that outlive a reader session, keyed by resolved source path.
+ *
+ * Re-opening a book in continuous scroll mode used to start from an empty shell:
+ * every section was a placeholder again and the reader waited for the archive
+ * to re-extract what it had already extracted a minute earlier. A handful of
+ * chapters per source is cheap — a few hundred kilobytes — and turns the second
+ * visit into an instant one.
+ */
+const SESSION_CACHE_SOURCES = 3;
+const SESSION_CACHE_CHAPTERS = 12;
+
+const sessionChapterCache = new Map<string, Map<number, ChapterDocument>>();
+
+function readSessionChapter(sourcePath: string, index: number): ChapterDocument | undefined {
+  const perSource = sessionChapterCache.get(sourcePath);
+  if (!perSource) return undefined;
+  const doc = perSource.get(index);
+  if (doc) {
+    // Refresh recency so the chapters in use are not the ones evicted.
+    perSource.delete(index);
+    perSource.set(index, doc);
+  }
+  return doc;
+}
+
+function writeSessionChapter(sourcePath: string, index: number, doc: ChapterDocument): void {
+  let perSource = sessionChapterCache.get(sourcePath);
+  if (!perSource) {
+    perSource = new Map();
+    sessionChapterCache.set(sourcePath, perSource);
+    while (sessionChapterCache.size > SESSION_CACHE_SOURCES) {
+      const oldest = sessionChapterCache.keys().next();
+      if (oldest.done) break;
+      sessionChapterCache.delete(oldest.value);
+    }
+  }
+  perSource.delete(index);
+  perSource.set(index, doc);
+  while (perSource.size > SESSION_CACHE_CHAPTERS) {
+    const oldest = perSource.keys().next();
+    if (oldest.done) break;
+    perSource.delete(oldest.value);
+  }
+}
+
 /** Longest the reader waits for the WebView to answer a position capture. */
 const POSITION_CAPTURE_TIMEOUT_MS = 400;
 
@@ -187,6 +271,15 @@ class BoundedCache<T> {
   }
 }
 
+/** One chapter on its way into the continuous-mode DOM. */
+interface ChapterPayload {
+  index: number;
+  body: string;
+  sheets: { path: string; css: string }[];
+  hasHeading: boolean;
+  title: string;
+}
+
 /**
  * The geometry actually rendered into the WebView. It lags the live settings by
  * one position-capture round trip so the reading position survives a rotation,
@@ -243,11 +336,18 @@ export function EpubReaderView({
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  /** True once the WebView has fired its first onLoadEnd and drawn a real frame. */
+  const [webViewPainted, setWebViewPainted] = useState(false);
   /**
    * Continuous mode never re-renders its document while reading: the shell is
    * built once and every later chapter is injected into the live DOM.
    */
   const [continuousSeed, setContinuousSeed] = useState<{ body: string; css: string; index: number } | null>(null);
+  /** Mirror of `continuousSeed` for callbacks that must not re-subscribe to it. */
+  const continuousSeedRef = useRef(continuousSeed);
+  useEffect(() => {
+    continuousSeedRef.current = continuousSeed;
+  }, [continuousSeed]);
 
   /**
    * A renderer the system killed leaves an empty reader with no way back. The
@@ -289,6 +389,19 @@ export function EpubReaderView({
   const geometryRequestRef = useRef<AppliedGeometry | null>(null);
   /** Pending debounce for the next geometry application. */
   const geometrySettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Reveal timer for the first painted frame. */
+  const paintRevealRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Deadline for handing continuous mode back to the document. */
+  const hydrationWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Resolved path of the publication currently open; keys the session cache. */
+  const sourcePathRef = useRef<string | null>(null);
+  /** Chapter indices already present in the continuous-mode DOM. */
+  const hydratedRef = useRef<Set<number>>(new Set());
+  /** Token that invalidates an in-flight background hydration run. */
+  const drainTokenRef = useRef(0);
+  /** Timer for the next background hydration batch. */
+  const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
   const appliedGeometryRef = useRef<AppliedGeometry | null>(null);
   const liveGeometryRef = useRef<ReaderGeometry | null>(null);
   /** Last rendered column count; the hysteresis input for the next decision. */
@@ -304,6 +417,10 @@ export function EpubReaderView({
    * Geometry is only meaningful once the container has been measured. A guessed
    * 360x640 first paint is what produced one reflow on every open, so until the
    * real size arrives the reader renders nothing but its loading state.
+   *
+   * Seed from windowWidth/windowHeight if they are available immediately so the
+   * container is considered "measured" on the first render whenever dimensions
+   * are already known (common on Android).
    */
   const isMeasured = containerDimensions.width > 0 && containerDimensions.height > 0;
 
@@ -391,14 +508,148 @@ export function EpubReaderView({
     const archive = archiveRef.current;
     const list = chaptersRef.current;
     const item = list[index];
+    const sourcePath = sourcePathRef.current;
     if (!archive || !item) return null;
     const cached = chapterCacheRef.current.get(index);
     if (cached) return cached;
+    const shared = sourcePath ? readSessionChapter(sourcePath, index) : undefined;
+    if (shared) {
+      chapterCacheRef.current.set(index, shared);
+      return shared;
+    }
     const doc = await extractChapterDocument(archive, item.itemPath, { navigationTitle: item.navTitle });
     // A book switch during extraction invalidates the result.
     if (archiveRef.current !== archive) return null;
     chapterCacheRef.current.set(index, doc);
+    if (sourcePath) writeSessionChapter(sourcePath, index, doc);
     return doc;
+  }, []);
+
+  /* ---------------------------------------------------------------------- */
+  /* WebView hydration                                                        */
+  /* ---------------------------------------------------------------------- */
+
+  const injectChapters = useCallback((payload: ChapterPayload[]) => {
+    if (payload.length === 0) return;
+    webViewRef.current?.injectJavaScript(`
+      (function () {
+        var chapters = ${JSON.stringify(payload)};
+        for (var i = 0; i < chapters.length; i++) {
+          var chapter = chapters[i];
+          var body = document.getElementById('chapter-body-' + chapter.index);
+          var section = document.getElementById('chapter-' + chapter.index);
+          if (!body || !section || section.getAttribute('data-loaded') === 'true') continue;
+          window.__liruneInjectStyles(chapter.index, chapter.sheets);
+          body.innerHTML = chapter.body;
+          section.setAttribute('data-loaded', 'true');
+          if (window.__liruneChapterHeader) {
+            window.__liruneChapterHeader(chapter.index, chapter.hasHeading, chapter.title);
+          }
+        }
+        // Filling a section changes the document height, so the document asks
+        // again whether anything new came into view.
+        if (window.__liruneScanPending) window.__liruneScanPending(true);
+      })(); true;
+    `);
+  }, []);
+
+  /**
+   * Loads and injects the given chapters, skipping any already in the DOM.
+   *
+   * On-demand hydration is what keeps continuous mode usable: the document asks
+   * for the sections near the viewport, and nothing else has to be ready first.
+   */
+  const hydrateIndices = useCallback(
+    async (indices: number[]) => {
+      const archive = archiveRef.current;
+      if (!archive || indices.length === 0) return;
+      const payload: ChapterPayload[] = [];
+      const seen = new Set<number>();
+      for (const index of indices) {
+        if (seen.has(index) || hydratedRef.current.has(index)) continue;
+        seen.add(index);
+        try {
+          const doc = await loadChapter(index);
+          if (!doc) continue;
+          if (archiveRef.current !== archive) return; // book switched mid-hydration
+          hydratedRef.current.add(index);
+          payload.push({
+            index,
+            body: doc.body,
+            sheets: doc.stylesheets,
+            hasHeading: doc.hasLeadingHeading,
+            title: doc.title,
+          });
+        } catch (err) {
+          logger.warn(TAG, `Failed loading continuous chapter ${index}`, err);
+        }
+      }
+      payload.sort((a, b) => a.index - b.index);
+      injectChapters(payload);
+    },
+    [injectChapters, loadChapter]
+  );
+
+  /**
+   * Fills the rest of the book in the background.
+   *
+   * Purely opportunistic: what the reader can see is already loaded, and every
+   * batch yields so a fling is never waiting on archive I/O. A run stops at the
+   * first sign that the book or the reader changed.
+   */
+  const startBackgroundDrain = useCallback(() => {
+    const archive = archiveRef.current;
+    if (!archive) return;
+    const pending = chaptersRef.current
+      .map((_, index) => index)
+      .filter((index) => !hydratedRef.current.has(index));
+    if (pending.length === 0) return;
+
+    const center = currentIndexRef.current;
+    pending.sort((a, b) => Math.abs(a - center) - Math.abs(b - center));
+    const token = ++drainTokenRef.current;
+    let cursor = 0;
+    const bounded = pending.slice(0, BACKGROUND_CHAPTER_LIMIT);
+
+    const step = () => {
+      if (!mountedRef.current || token !== drainTokenRef.current || archiveRef.current !== archive) return;
+      if (cursor >= bounded.length) return;
+      const batch = bounded.slice(cursor, cursor + BACKGROUND_BATCH_SIZE);
+      cursor += batch.length;
+      void hydrateIndices(batch).finally(() => {
+        if (!mountedRef.current || token !== drainTokenRef.current || archiveRef.current !== archive) return;
+        if (cursor < bounded.length) drainTimerRef.current = setTimeout(step, BACKGROUND_YIELD_MS);
+      });
+    };
+
+    drainTimerRef.current = setTimeout(step, BACKGROUND_YIELD_MS);
+  }, [hydrateIndices]);
+
+  /**
+   * Hands the reader back to the document: stops suppressing scroll progress and
+   * puts them where they were. Called once the visible chapters exist.
+   */
+  const finishContinuousHydration = useCallback(() => {
+    webViewRef.current?.injectJavaScript('window.__epubHydrating = false; true;');
+
+    const position = positionToRestoreRef.current;
+    if (position) {
+      positionToRestoreRef.current = null;
+      webViewRef.current?.injectJavaScript(restorePositionScript('continuous', position, 80));
+    } else {
+      webViewRef.current?.injectJavaScript(
+        `window.scrollTo(0, ${Math.max(0, initialScrollY)}); window.dispatchEvent(new Event('scroll')); true;`
+      );
+    }
+    startBackgroundDrain();
+  }, [initialScrollY, startBackgroundDrain]);
+
+  const revealWebView = useCallback(() => {
+    if (paintRevealRef.current) {
+      clearTimeout(paintRevealRef.current);
+      paintRevealRef.current = null;
+    }
+    setWebViewPainted(true);
   }, []);
 
   /* ---------------------------------------------------------------------- */
@@ -412,6 +663,7 @@ export function EpubReaderView({
     async function loadEpub() {
       setIsLoading(true);
       setLoadError(null);
+      setWebViewPainted(false); // Reset painted flag so loading overlay shows for the new book
       restorePendingRef.current = true;
       webViewReadyRef.current = false;
       // A new book starts at the beginning: stale scroll/paging state from the
@@ -420,6 +672,14 @@ export function EpubReaderView({
       setStartAtEnd(false);
       setCurrentPage(0);
       setContinuousSeed(null);
+
+      // Any hydration still in flight belongs to the previous publication.
+      drainTokenRef.current += 1;
+      if (drainTimerRef.current) {
+        clearTimeout(drainTimerRef.current);
+        drainTimerRef.current = null;
+      }
+      hydratedRef.current = new Set();
 
       // Multi-book isolation: the previous archive (index, image cache, font
       // cache, chapter cache) is dropped before the next book is touched.
@@ -442,6 +702,7 @@ export function EpubReaderView({
         }
         const archive = await EpubArchive.open(buffer);
         archiveRef.current = archive;
+        sourcePathRef.current = bookPath;
         validateArchiveBudget(archive.budgetEntries());
 
         const epubPackage = await readEpubPackage(archive);
@@ -495,6 +756,7 @@ export function EpubReaderView({
           if (liveGeometryRef.current && isMeasured) setAppliedGeometry(liveGeometryRef.current);
           if (settings.flow === 'scrolled') {
             setContinuousSeed({ body: initialChapter.body, css: initialChapter.css, index: initialIdx });
+            hydratedRef.current = new Set([initialIdx]);
           }
           if (onTOCLoaded) onTOCLoaded(toc);
           onChapterCountLoaded?.(loadedChapters.length);
@@ -530,17 +792,31 @@ export function EpubReaderView({
   }, [book.filePath, book.uri, loadAttempt, settings.flow]);
 
   // Release the archive on unmount and on every book switch.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      drainTokenRef.current += 1;
+      if (drainTimerRef.current) {
+        clearTimeout(drainTimerRef.current);
+        drainTimerRef.current = null;
+      }
+      if (paintRevealRef.current) {
+        clearTimeout(paintRevealRef.current);
+        paintRevealRef.current = null;
+      }
+      if (hydrationWatchdogRef.current) {
+        clearTimeout(hydrationWatchdogRef.current);
+        hydrationWatchdogRef.current = null;
+      }
       if (archiveRef.current) {
         archiveRef.current.dispose();
         archiveRef.current = null;
       }
       chapterCacheRef.current.clear();
       packageRef.current = null;
-    },
-    [book.filePath, book.uri]
-  );
+    };
+  }, [book.filePath, book.uri]);
 
   /* ---------------------------------------------------------------------- */
   /* Layout-affecting changes: capture → re-render → restore                   */
@@ -595,6 +871,10 @@ export function EpubReaderView({
       setActiveChapter((previous) => (previous === doc ? previous : doc));
       if (!continuousDocumentRef.current) {
         setCurrentPage(0);
+      } else if (!hydratedRef.current.has(currentChapterIndex)) {
+        // Continuous mode has its own DOM: the chapter has to be injected, not
+        // just extracted, or the reader scrolls onto an empty section.
+        void hydrateIndices([currentChapterIndex]);
       }
     });
     // Warm the neighbours so page turns and fast scrolling do not wait on I/O.
@@ -606,7 +886,7 @@ export function EpubReaderView({
     return () => {
       cancelled = true;
     };
-  }, [currentChapterIndex, chapters, loadChapter]);
+  }, [currentChapterIndex, chapters, hydrateIndices, loadChapter]);
 
   // Jump to the requested target chapter.
   useEffect(() => {
@@ -644,39 +924,25 @@ if (!targetCfi || chapters.length === 0) return;
     }
 
     pendingChapterNavigationRef.current = idx;
-    loadChapter(idx).then((doc) => {
-      if (!doc) return;
+    // Fill the target before scrolling to it: scrolling first would land the
+    // reader on the placeholder for the length of one archive read.
+    void hydrateIndices([idx]).then(() => {
       webViewRef.current?.injectJavaScript(`
         (function () {
-          var body = document.getElementById('chapter-body-${idx}');
           var section = document.getElementById('chapter-${idx}');
-          if (!body || !section) return;
-          if (section.getAttribute('data-loaded') !== 'true') {
-            window.__liruneInjectStyles(${idx}, ${JSON.stringify(doc.stylesheets)});
-            body.innerHTML = ${JSON.stringify(doc.body)};
-            section.setAttribute('data-loaded', 'true');
-            if (window.__liruneChapterHeader) {
-              window.__liruneChapterHeader(${idx}, ${doc.hasLeadingHeading ? 'true' : 'false'}, ${JSON.stringify(doc.title)});
-            }
+          if (!section) return;
+          ${
+            target.anchor
+              ? `var anchor = document.getElementById(${JSON.stringify(target.anchor)});
+               (anchor && section.contains(anchor) ? anchor : section).scrollIntoView({ behavior: 'smooth' });`
+              : typeof target.scrollY === 'number'
+                ? `window.scrollTo(0, ${target.scrollY});`
+                : `section.scrollIntoView({ behavior: 'smooth' });`
           }
         })(); true;
       `);
     });
-    webViewRef.current?.injectJavaScript(`
-      (function () {
-        var section = document.getElementById('chapter-${idx}');
-        if (!section) return;
-        ${
-          target.anchor
-            ? `var anchor = document.getElementById(${JSON.stringify(target.anchor)});
-               (anchor && section.contains(anchor) ? anchor : section).scrollIntoView({ behavior: 'smooth' });`
-            : typeof target.scrollY === 'number'
-              ? `window.scrollTo(0, ${target.scrollY});`
-              : `section.scrollIntoView({ behavior: 'smooth' });`
-        }
-      })(); true;
-    `);
-  }, [targetCfi, chapters, currentChapterIndex, loadChapter]);
+  }, [targetCfi, chapters, currentChapterIndex, hydrateIndices]);
 
   /* ---------------------------------------------------------------------- */
   /* Progress                                                                 */
@@ -756,84 +1022,18 @@ if (!targetCfi || chapters.length === 0) return;
   }, [searchQuery, chapters, onSearchResults, loadChapter]);
 
   /* ---------------------------------------------------------------------- */
-  /* WebView hydration                                                        */
+  /* WebView load                                                             */
   /* ---------------------------------------------------------------------- */
-
-  /** Chapters hydrated per WebView round trip during continuous-mode hydration. */
-const HYDRATE_BATCH_SIZE = 8;
-
-const hydrateContinuousDocument = useCallback(async () => {
-    if (!continuousDocumentRef.current) return;
-    const archive = archiveRef.current;
-    const total = chaptersRef.current.length;
-    if (!archive || total === 0) return;
-
-    const center = currentIndexRef.current;
-    const order = chaptersRef.current.map((_, index) => index);
-    // Hydrate outward from the chapter the reader is looking at so the visible
-    // section is complete first.
-    order.sort((a, b) => Math.abs(a - center) - Math.abs(b - center));
-
-    for (let cursor = 0; cursor < order.length; cursor += HYDRATE_BATCH_SIZE) {
-      if (archiveRef.current !== archive) return; // book switched mid-hydration
-      const batch = order.slice(cursor, cursor + HYDRATE_BATCH_SIZE);
-
-      const payload: { index: number; body: string; sheets: { path: string; css: string }[]; hasHeading: boolean; title: string }[] = [];
-      await Promise.all(
-        batch.map(async (index) => {
-          try {
-            const doc = await loadChapter(index);
-            if (doc) {
-              payload.push({
-                index,
-                body: doc.body,
-                sheets: doc.stylesheets,
-                hasHeading: doc.hasLeadingHeading,
-                title: doc.title,
-              });
-            }
-          } catch (err) {
-            logger.warn(TAG, `Failed loading continuous chapter ${index}`, err);
-          }
-        })
-      );
-      if (payload.length === 0) continue;
-      payload.sort((a, b) => a.index - b.index);
-
-      webViewRef.current?.injectJavaScript(`
-        (function () {
-          var chapters = ${JSON.stringify(payload)};
-          for (var i = 0; i < chapters.length; i++) {
-            var chapter = chapters[i];
-            var body = document.getElementById('chapter-body-' + chapter.index);
-            var section = document.getElementById('chapter-' + chapter.index);
-            if (!body || !section || section.getAttribute('data-loaded') === 'true') continue;
-            window.__liruneInjectStyles(chapter.index, chapter.sheets);
-            body.innerHTML = chapter.body;
-            section.setAttribute('data-loaded', 'true');
-            if (window.__liruneChapterHeader) {
-              window.__liruneChapterHeader(chapter.index, chapter.hasHeading, chapter.title);
-            }
-          }
-        })(); true;
-      `);
-    }
-
-    webViewRef.current?.injectJavaScript('window.__epubHydrating = false; true;');
-
-    const position = positionToRestoreRef.current;
-    if (position) {
-      positionToRestoreRef.current = null;
-      webViewRef.current?.injectJavaScript(restorePositionScript('continuous', position, 80));
-    } else {
-      webViewRef.current?.injectJavaScript(
-        `window.scrollTo(0, ${Math.max(0, initialScrollY)}); window.dispatchEvent(new Event('scroll')); true;`
-      );
-    }
-  }, [initialScrollY, loadChapter]);
 
   const handleLoadEnd = useCallback(() => {
     webViewReadyRef.current = true;
+    // The document announces its own first paint; this only covers a document
+    // that never does.
+    if (paintRevealRef.current) clearTimeout(paintRevealRef.current);
+    paintRevealRef.current = setTimeout(() => {
+      paintRevealRef.current = null;
+      setWebViewPainted(true);
+    }, PAINT_REVEAL_FALLBACK_MS);
     if (geometryRequestRef.current) {
       // The document reloaded before the capture round trip finished.
       geometryRequestRef.current = null;
@@ -841,7 +1041,27 @@ const hydrateContinuousDocument = useCallback(async () => {
     webViewRef.current?.injectJavaScript(STYLE_INJECTOR_JS);
 
     if (continuousDocumentRef.current) {
-      void hydrateContinuousDocument();
+      const seedIndex = continuousSeedRef.current?.index ?? currentIndexRef.current;
+      // A reloaded document starts with only the shell, and the shell carries
+      // exactly one loaded section: the one the seed was built from. Anything
+      // that was in the DOM before the reload is gone.
+      hydratedRef.current = new Set([seedIndex]);
+
+      let settled = false;
+      const complete = () => {
+        if (settled) return;
+        settled = true;
+        if (hydrationWatchdogRef.current) {
+          clearTimeout(hydrationWatchdogRef.current);
+          hydrationWatchdogRef.current = null;
+        }
+        finishContinuousHydration();
+      };
+      hydrationWatchdogRef.current = setTimeout(complete, HYDRATION_WATCHDOG_MS);
+      // The neighbours are filled first because they are what a reader scrolling
+      // off the current chapter runs into next; anything further out waits for
+      // the document to ask for it.
+      void hydrateIndices([seedIndex - 1, seedIndex + 1]).then(complete, complete);
       return;
     }
     const position = positionToRestoreRef.current;
@@ -849,7 +1069,7 @@ const hydrateContinuousDocument = useCallback(async () => {
       positionToRestoreRef.current = null;
       webViewRef.current?.injectJavaScript(restorePositionScript('paginated', position, 140));
     }
-  }, [hydrateContinuousDocument]);
+  }, [finishContinuousHydration, hydrateIndices]);
 
   /* ---------------------------------------------------------------------- */
   /* Messages                                                                 */
@@ -870,6 +1090,25 @@ const hydrateContinuousDocument = useCallback(async () => {
       }
 
       switch (data.type) {
+        case 'readerReady':
+          revealWebView();
+          break;
+
+        case 'hydrateRequest': {
+          const total = chaptersRef.current.length;
+          const indices: number[] = Array.isArray(data.indices)
+            ? data.indices.filter(
+                (value: unknown): value is number =>
+                  typeof value === 'number' &&
+                  Number.isInteger(value) &&
+                  value >= 0 &&
+                  value < total
+              )
+            : [];
+          if (indices.length > 0) void hydrateIndices(indices);
+          break;
+        }
+
         case 'pageTurn':
           setCurrentPage(data.currentPage);
           setTotalPages(data.totalPages);
@@ -936,7 +1175,7 @@ const overallPercent = Math.min(
           break;
       }
     },
-    [nextChapter, onProgressChange, onSelectionChange, onToggleControls, prevChapter]
+    [hydrateIndices, nextChapter, onProgressChange, onSelectionChange, onToggleControls, prevChapter, revealWebView]
   );
 
   /* ---------------------------------------------------------------------- */
@@ -1027,18 +1266,27 @@ const overallPercent = Math.min(
 
   return (
     <View style={[styles.container, { backgroundColor: palette.bg }]} onLayout={handleContainerLayout}>
+      {/* The opaque background is always on the container to prevent any flash
+          of transparent/noisy frames before the WebView first-paints. */}
       <WebView
         ref={webViewRef}
         key={`${geometry.mode}-${loadAttempt}-${book.filePath || book.uri || ''}-${recovery.reloadKey}`}
         {...READER_WEBVIEW_PROPS}
         {...recovery.recoveryProps}
         source={{ html: renderedHtml }}
-        style={[{ flex: 1 }, { backgroundColor: palette.bg }]}
+        style={[{ flex: 1, opacity: webViewPainted ? 1 : 0 }, { backgroundColor: palette.bg }]}
         onMessage={handleMessage}
         onLoadEnd={handleLoadEnd}
         scrollEnabled={geometry.mode === 'continuous'}
         showsVerticalScrollIndicator={false}
       />
+      {/* Loading overlay shown until first paint to prevent noise/grid artifacts */}
+      {!webViewPainted && (
+        <View style={[StyleSheet.absoluteFill, styles.centered, { backgroundColor: palette.bg }]}>
+          <ActivityIndicator size="large" color={palette.link} />
+          <Text style={[styles.loadingText, { color: palette.muted }]}>Opening book…</Text>
+        </View>
+      )}
 
       {recovery.isRecovering && (
         <View style={styles.recoveryBanner}>

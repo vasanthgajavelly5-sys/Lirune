@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { useStableInsets } from '@/hooks/useStableInsets';
 import { Ionicons } from '@expo/vector-icons';
-import { ReaderSettings, ReaderThemeName } from '@/models/Book';
+import { ReaderSettings, ReaderThemeName, clampReaderBrightness } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { READER_FONTS, getNativeFontFamily } from '@/theme/Typography';
 
@@ -83,6 +83,8 @@ export function SettingsSheet({
     { label: 'Wide', value: 28 },
   ];
 
+  const brightness = clampReaderBrightness(settings.brightness);
+
   const columnOptions: { label: string; value: ReaderSettings['columns'] }[] = [
     { label: 'Auto', value: 'auto' },
     { label: 'One', value: 1 },
@@ -115,6 +117,10 @@ export function SettingsSheet({
 
         {/* Right-Side Panel */}
         <Animated.View
+          // The panel claims touches in the capture phase. Without this the
+          // backdrop underneath can win the race on Android and a tap on a
+          // control closes the sheet instead of applying the change.
+          onStartShouldSetResponderCapture={() => true}
           style={[
             styles.panel,
             {
@@ -313,7 +319,81 @@ export function SettingsSheet({
               </View>
             </View>
 
-            {/* 3. RICH TYPOGRAPHY */}
+            {/* 3. READING COMFORT */}
+            <Text style={[styles.sectionTitle, { color: mutedColor, marginTop: 18 }]}>
+              Reading Comfort
+            </Text>
+
+            {/* Brightness — the same value the edge swipe gesture writes */}
+            <View style={styles.controlRow}>
+              <Text style={[styles.controlLabel, { color: textColor }]}>Brightness</Text>
+              <View style={[styles.stepperRow, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
+                <TouchableOpacity
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
+                  accessibilityLabel="Dim the page"
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() =>
+                    onUpdateSettings({ brightness: clampReaderBrightness((settings.brightness ?? 100) - 10) })
+                  }
+                >
+                  <Ionicons name="moon-outline" size={16} color={textColor} />
+                </TouchableOpacity>
+                <Text style={[styles.stepValue, { color: textColor }]}>{brightness}%</Text>
+                <TouchableOpacity
+                  style={[styles.stepBtn, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
+                  accessibilityLabel="Brighten the page"
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() =>
+                    onUpdateSettings({ brightness: clampReaderBrightness((settings.brightness ?? 100) + 10) })
+                  }
+                >
+                  <Ionicons name="sunny-outline" size={16} color={textColor} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={[styles.brightnessTrackWrap, { backgroundColor: surfaceBg, borderColor: borderColor }]}>
+              <View style={styles.brightnessTrack}>
+                <View
+                  style={[
+                    styles.brightnessFill,
+                    { width: `${brightness}%`, backgroundColor: activeAccent },
+                  ]}
+                />
+              </View>
+            </View>
+
+            {/* Keep Screen Awake */}
+            <View style={[styles.controlRow, { marginTop: 12 }]}>
+              <View style={styles.controlLabelGroup}>
+                <Text style={[styles.controlLabel, { color: textColor }]}>Keep Screen Awake</Text>
+                <Text style={[styles.controlHint, { color: mutedColor }]}>
+                  Hold the display on while this book stays open.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => onUpdateSettings({ keepScreenAwake: settings.keepScreenAwake === false })}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: settings.keepScreenAwake !== false }}
+                style={[
+                  styles.switchTrack,
+                  {
+                    backgroundColor:
+                      settings.keepScreenAwake !== false ? activeAccent : (isThemeDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'),
+                  },
+                ]}
+                activeOpacity={0.8}
+              >
+                <View
+                  style={[
+                    styles.switchKnob,
+                    settings.keepScreenAwake !== false ? styles.switchKnobOn : styles.switchKnobOff,
+                  ]}
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* 4. RICH TYPOGRAPHY */}
             <Text style={[styles.sectionTitle, { color: mutedColor, marginTop: 18 }]}>
               Typeface
             </Text>
@@ -643,6 +723,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  controlLabelGroup: {
+    flex: 1,
+    marginRight: 12,
+  },
+  controlHint: {
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  brightnessTrackWrap: {
+    marginTop: 8,
+    height: 6,
+    borderRadius: 3,
+    borderWidth: 1,
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  brightnessTrack: {
+    flex: 1,
+    borderRadius: 3,
+  },
+  brightnessFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  switchTrack: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  switchKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    elevation: 2,
+  },
+  switchKnobOn: { alignSelf: 'flex-end' },
+  switchKnobOff: { alignSelf: 'flex-start' },
   stepperRow: {
     flexDirection: 'row',
     alignItems: 'center',

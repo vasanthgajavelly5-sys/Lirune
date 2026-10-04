@@ -294,12 +294,30 @@ export interface ReaderSettings {
   fontFamily: string; // 'System', 'Serif', 'Sans-Serif', 'Monospace', 'Georgia'
   lineHeight: number; // 1.2 - 2.4, default 1.6
   paragraphSpacing: number; // 0.4 - 2.5, default 1.0 (em)
-  margin: number; // 2 - 24, default 12
+  margin: number; // 2 - 32, default 20 (standard)
   flow: 'paginated' | 'scrolled';
   alignment: 'left' | 'center' | 'right' | 'justify';
   pageGap: number; // 0 - 32, default 16 (px) - gap between pages in paginated mode
   /** Reading columns: 'auto' follows the measured width, 1 or 2 force the layout. */
   columns: 'auto' | 1 | 2;
+  /**
+   * Reader brightness as a percentage, 100 = undimmed.
+   *
+   * Set by the edge swipe gesture and persisted, so a dim setting chosen for a
+   * dark room is still in force the next time the app opens.
+   */
+  brightness?: number;
+  /** Hold a screen wake lock for as long as a book stays open. */
+  keepScreenAwake?: boolean;
+}
+
+/** Narrowest brightness the edge gesture can dial down to. */
+export const MIN_READER_BRIGHTNESS = 10;
+
+/** Normalises any stored brightness into the supported range. */
+export function clampReaderBrightness(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 100;
+  return Math.min(100, Math.max(MIN_READER_BRIGHTNESS, Math.round(value)));
 }
 
 export const DEFAULT_READER_SETTINGS: ReaderSettings = {
@@ -308,9 +326,11 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   fontFamily: 'Serif',
   lineHeight: 1.6,
   paragraphSpacing: 1.0,
-  margin: 12,
+  margin: 20, // Standard margins by default (was 12 = compact)
   flow: 'paginated',
   alignment: 'left',
   pageGap: 16,
   columns: 'auto',
+  brightness: 100,
+  keepScreenAwake: true,
 };

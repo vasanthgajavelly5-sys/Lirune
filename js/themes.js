@@ -6,7 +6,7 @@ const ThemeManager = (() => {
   const APP_THEMES = ['dark', 'light'];
   const READER_THEMES = ['neutral', 'sepia', 'night', 'paper', 'contrast1', 'contrast2', 'contrast3', 'contrast4', 'custom'];
   const LEGACY_READER_THEMES = { dark: 'night', light: 'neutral', oled: 'night', sepia: 'sepia' };
-  let currentAppTheme = 'dark';
+  let currentAppTheme = 'light';
   let currentReaderTheme = 'neutral';
   let customColors = null;
   let persistTimer = null;
@@ -85,8 +85,8 @@ const ThemeManager = (() => {
   }
 
   async function init() {
-    const legacyTheme = await NoveraDB.getPref('theme', 'dark');
-    const savedAppTheme = await NoveraDB.getPref('appTheme', APP_THEMES.includes(legacyTheme) ? legacyTheme : 'dark');
+    const legacyTheme = await NoveraDB.getPref('theme', 'light');
+    const savedAppTheme = await NoveraDB.getPref('appTheme', APP_THEMES.includes(legacyTheme) ? legacyTheme : 'light');
     customColors = normalizeCustomColors(await NoveraDB.getPref('customReaderTheme', DEFAULT_CUSTOM_COLORS));
     const savedReaderTheme = await NoveraDB.getPref('readerTheme', 'neutral');
     applyAccent(await NoveraDB.getPref('accentColor', DEFAULT_ACCENT), false);
@@ -98,7 +98,7 @@ const ThemeManager = (() => {
   }
 
   function setAppTheme(themeName, persist = true) {
-    if (!APP_THEMES.includes(themeName)) themeName = 'dark';
+    if (!APP_THEMES.includes(themeName)) themeName = 'light';
     currentAppTheme = themeName;
 
     document.documentElement.setAttribute('data-theme', themeName);

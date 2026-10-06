@@ -49,6 +49,7 @@ const SettingsUI = (() => {
     { value: 'added', label: 'Recently added' },
     { value: 'title', label: 'Title' },
     { value: 'author', label: 'Author' },
+    { value: 'type', label: 'Type (Format)' },
     { value: 'progress', label: 'Reading progress' }
   ];
 
@@ -76,7 +77,13 @@ const SettingsUI = (() => {
   const SWITCH_ACTIONS = {
     'qs-metadata': () => Library.setView({ showMetadata: !Library.getViewState().showMetadata }),
     'fs-metadata': () => Library.setView({ showMetadata: !Library.getViewState().showMetadata }),
-    'fs-reduce-motion': () => AppPrefs.set({ reduceMotion: !AppPrefs.getAll().reduceMotion })
+    'fs-group-by-type': () => Library.setView({ groupByType: !Library.getViewState().groupByType }),
+    'fs-reduce-motion': () => AppPrefs.set({ reduceMotion: !AppPrefs.getAll().reduceMotion }),
+    'fs-confirm-delete': () => AppPrefs.set({ confirmDelete: !AppPrefs.getAll().confirmDelete }),
+    'fs-restore-last': () => AppPrefs.set({ restoreLastBook: !AppPrefs.getAll().restoreLastBook }),
+    'fs-focus-outlines': () => AppPrefs.set({ focusOutlines: !AppPrefs.getAll().focusOutlines }),
+    'fs-large-controls': () => AppPrefs.set({ largeControls: !AppPrefs.getAll().largeControls }),
+    'fs-high-contrast': () => AppPrefs.set({ highContrast: !AppPrefs.getAll().highContrast })
   };
 
   // ---------------------------------------------------------------
@@ -282,6 +289,7 @@ const SettingsUI = (() => {
   }
 
   function buildStaticControls() {
+    buildGeneralControls();
     buildAppThemeControls();
     buildLibraryControls();
     buildAccessibilityControls();
@@ -297,6 +305,16 @@ const SettingsUI = (() => {
         <span>${Utils.escapeHTML(theme === 'dark' ? 'Dark' : 'Light')}</span>
       </button>
     `).join('');
+  }
+
+  function buildGeneralControls() {
+    const host = document.getElementById('general-controls');
+    if (!host) return;
+    const prefs = AppPrefs.getAll();
+    host.innerHTML = `
+      ${switchRow('fs-confirm-delete', 'Confirm book removal', 'Show a confirmation dialog before deleting books from your library', prefs.confirmDelete)}
+      ${switchRow('fs-restore-last', 'Reopen last book on startup', 'Automatically open the most recently read book when Lirune launches', prefs.restoreLastBook)}
+    `;
   }
 
   function buildLibraryControls() {
@@ -317,18 +335,20 @@ const SettingsUI = (() => {
         { value: 'compact', label: 'Compact' }
       ], Library.getViewState().density)}
       ${switchRow('fs-metadata', 'Show book metadata', 'Author and file format on every cover', Library.getViewState().showMetadata)}
+      ${switchRow('fs-group-by-type', 'Group by type', 'Visually group books by file format (EPUB, PDF, TXT, CBZ, FB2, HTML)', Library.getViewState().groupByType)}
     `;
   }
 
   function buildAccessibilityControls() {
     const host = document.getElementById('accessibility-controls');
     if (!host) return;
-    host.innerHTML = switchRow(
-      'fs-reduce-motion',
-      'Reduce motion',
-      'Turns off interface animations and transitions',
-      AppPrefs.getAll().reduceMotion
-    );
+    const prefs = AppPrefs.getAll();
+    host.innerHTML = `
+      ${switchRow('fs-reduce-motion', 'Reduce motion', 'Turns off interface animations and transitions', prefs.reduceMotion)}
+      ${switchRow('fs-focus-outlines', 'Stronger focus visibility', 'Highlights active keyboard focus outlines prominently', prefs.focusOutlines)}
+      ${switchRow('fs-large-controls', 'Larger UI controls', 'Increases touch and click target sizes for buttons and menus', prefs.largeControls)}
+      ${switchRow('fs-high-contrast', 'High contrast mode', 'Increases text contrast and sharpens border dividers', prefs.highContrast)}
+    `;
   }
 
   function renderShortcuts() {
@@ -716,9 +736,15 @@ const SettingsUI = (() => {
     setSegment('fs-order', view.sortOrder);
     setSegment('fs-density', view.density);
     setSwitch('fs-metadata', view.showMetadata);
+    setSwitch('fs-group-by-type', view.groupByType);
 
-    const motionSwitch = document.getElementById('fs-reduce-motion');
-    if (motionSwitch) motionSwitch.setAttribute('aria-checked', AppPrefs.getAll().reduceMotion ? 'true' : 'false');
+    const prefs = AppPrefs.getAll();
+    setSwitch('fs-confirm-delete', prefs.confirmDelete);
+    setSwitch('fs-restore-last', prefs.restoreLastBook);
+    setSwitch('fs-reduce-motion', prefs.reduceMotion);
+    setSwitch('fs-focus-outlines', prefs.focusOutlines);
+    setSwitch('fs-large-controls', prefs.largeControls);
+    setSwitch('fs-high-contrast', prefs.highContrast);
 
     document.querySelectorAll('#app-theme-grid [data-app-theme]').forEach(button => {
       const isActive = button.dataset.appTheme === ThemeManager.getAppTheme();

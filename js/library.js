@@ -27,7 +27,8 @@ const Library = (() => {
     sortBy: 'recent',
     sortOrder: 'desc',
     density: 'comfortable',
-    showMetadata: true
+    showMetadata: true,
+    groupByType: false
   };
 
   let viewPrefs = { ...DEFAULT_VIEW };
@@ -42,10 +43,11 @@ const Library = (() => {
     const source = prefs || {};
     return {
       view: source.view === 'list' ? 'list' : 'grid',
-      sortBy: ['recent', 'added', 'title', 'author', 'progress'].includes(source.sortBy) ? source.sortBy : DEFAULT_VIEW.sortBy,
+      sortBy: ['recent', 'added', 'title', 'author', 'type', 'progress'].includes(source.sortBy) ? source.sortBy : DEFAULT_VIEW.sortBy,
       sortOrder: source.sortOrder === 'asc' ? 'asc' : 'desc',
       density: source.density === 'compact' ? 'compact' : 'comfortable',
-      showMetadata: source.showMetadata !== false
+      showMetadata: source.showMetadata !== false,
+      groupByType: source.groupByType === true
     };
   }
 
@@ -76,7 +78,7 @@ const Library = (() => {
     syncViewControls();
     persistViewPrefs();
 
-    if (next.view !== previous.view || next.sortBy !== previous.sortBy || next.sortOrder !== previous.sortOrder) {
+    if (next.view !== previous.view || next.sortBy !== previous.sortBy || next.sortOrder !== previous.sortOrder || next.groupByType !== previous.groupByType) {
       renderLibraryUI();
     }
     return getViewState();
@@ -381,12 +383,49 @@ const RENDER_BATCH_SIZE = 50;
   }
 
   function renderAllBooks(grid, books) {
-    const fragment = document.createDocumentFragment();
-    books.forEach(book => fragment.appendChild(createBookCard(book)));
-    grid.appendChild(fragment);
+    if (viewPrefs.groupByType) {
+      renderGroupedBooks(grid, books);
+    } else {
+      const fragment = document.createDocumentFragment();
+      books.forEach(book => fragment.appendChild(createBookCard(book)));
+      grid.appendChild(fragment);
+    }
     if (isListView) {
       observeMissingChapterCounts(books, grid);
     }
+  }
+
+  function renderGroupedBooks(grid, books) {
+    // Group books by type while preserving their sorted order within each group
+    const groups = new Map();
+    books.forEach(book => {
+      const format = (book.format || 'epub').toUpperCase();
+      if (!groups.has(format)) groups.set(format, []);
+      groups.get(format).push(book);
+    });
+
+    // Sort group keys deterministically
+    const sortedFormats = Array.from(groups.keys()).sort();
+    const fragment = document.createDocumentFragment();
+
+    sortedFormats.forEach(fmt => {
+      const groupBooks = groups.get(fmt);
+      if (!groupBooks.length) return;
+
+      const header = document.createElement('div');
+      header.className = 'library-group-header';
+      header.setAttribute('role', 'heading');
+      header.setAttribute('aria-level', '2');
+      header.innerHTML = `
+        <span class="library-group-title">${Utils.escapeHTML(fmt)}</span>
+        <span class="library-group-count">(${groupBooks.length})</span>
+      `;
+      fragment.appendChild(header);
+
+      groupBooks.forEach(book => fragment.appendChild(createBookCard(book)));
+    });
+
+    grid.appendChild(fragment);
   }
 
   function createBookCard(book) {
@@ -510,8 +549,8 @@ const RENDER_BATCH_SIZE = 50;
     grid.classList.toggle('list-view', isListView);
     grid.classList.add('visible');
 
-    // For large libraries in grid view, render in batches to avoid blocking the main thread
-    if (books.length > RENDER_BATCH_SIZE && !isListView) {
+    // For large libraries in grid view, render in batches to avoid blocking the main thread (unless grouped)
+    if (books.length > RENDER_BATCH_SIZE && !isListView && !viewPrefs.groupByType) {
       renderBatchIndex = 0;
       renderBatch(grid, books);
     } else {
@@ -550,6 +589,12 @@ const RENDER_BATCH_SIZE = 50;
       added: (a, b) => (a.dateAdded || 0) - (b.dateAdded || 0),
       title: (a, b) => (a.title || '').localeCompare(b.title || ''),
       author: (a, b) => (a.author || '').localeCompare(b.author || ''),
+      type: (a, b) => {
+        const typeA = (a.format || 'epub').toUpperCase();
+        const typeB = (b.format || 'epub').toUpperCase();
+        const diff = typeA.localeCompare(typeB);
+        return diff !== 0 ? diff : (a.title || '').localeCompare(b.title || '');
+      },
       progress: (a, b) => (a.progressPercent || 0) - (b.progressPercent || 0)
     }[criterion];
 
@@ -609,11 +654,14 @@ const RENDER_BATCH_SIZE = 50;
         Utils.toast('Folder import is available in the desktop app', 'info');
         return;
       }
-      updateImportProgress(0, 'Scanning folder...');
       const result = await window.noveraDesktop.openFolderDialog();
       showImportErrors(result.errors);
-      if (!result.canceled && result.files?.length) await processNativeFiles(result.files, null, updateImportProgress);
-        else if (!result.canceled) updateImportProgress(0, 'No supported book files found in that folder.');
+      if (!result.canceled && result.files?.length) {
+        updateImportProgress(0, 'Scanning folder...');
+        await processNativeFiles(result.files, null, updateImportProgress);
+      } else if (!result.canceled) {
+        updateImportProgress(0, 'No supported book files found in that folder.');
+      }
     };
 
     [browseBtn, addBtn, addMoreBtn].forEach(btn => {
@@ -916,7 +964,7 @@ const RENDER_BATCH_SIZE = 50;
   function showBatchErrors(errors) {
     if (!errors.length) return;
     const first = errors.slice(0, 3).map(item => `${item.name}: ${item.error}`).join(' | ');
-    Utils.toast(`${errors.length} EPUB${errors.length === 1 ? '' : 's'} could not be imported. ${first}`, 'error');
+    Utils.toast(`${errors.length} book file${errors.length === 1 ? '' : 's'} could not be imported. ${first}`, 'error');
   }
 
   async function validateEpubArchive(arrayBuffer) {
@@ -2334,6 +2382,9 @@ const RENDER_BATCH_SIZE = 50;
   }
 
   function confirmBookRemoval() {
+    if (typeof AppPrefs !== 'undefined' && !AppPrefs.getAll().confirmDelete) {
+      return Promise.resolve(true);
+    }
     const modal = document.getElementById('delete-book-modal');
     if (!modal) return Promise.resolve(false);
     modal.classList.remove('hidden');

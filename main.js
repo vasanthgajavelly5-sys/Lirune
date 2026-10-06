@@ -201,7 +201,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     frame: false,
-    backgroundColor: '#0C0C12',
+    backgroundColor: '#EEECF8',
     icon: iconPath,
     show: false,
     title: 'Lirune Reader — A calm home for your books',

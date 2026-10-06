@@ -31,7 +31,6 @@ if (!hasCertificate) {
   localConfig.win = {
     ...localConfig.win,
     signExecutable: false,
-    signAndEditExecutable: false,
     forceCodeSigning: false
   };
   temporaryConfig = path.join(os.tmpdir(), `novera-electron-builder-${process.pid}.json`);

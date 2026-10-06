@@ -49,6 +49,17 @@ const App = (() => {
     bindViewportClamping();
 
     console.log('Lirune Reader successfully initialized');
+
+    if (AppPrefs.getAll().restoreLastBook && activeView === 'library') {
+      const recent = Library.getAllBooks?.()
+        ?.filter(b => b.lastReadDate && b.lastReadDate > 0)
+        ?.sort((a, b) => (b.lastReadDate || 0) - (a.lastReadDate || 0));
+      if (recent && recent.length > 0) {
+        setTimeout(() => {
+          if (activeView === 'library') openReader(recent[0].id);
+        }, 100);
+      }
+    }
   }
 
   // View Switching

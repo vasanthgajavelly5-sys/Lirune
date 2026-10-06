@@ -13,7 +13,12 @@
 
 const AppPrefs = (() => {
   const DEFAULTS = {
-    reduceMotion: false
+    reduceMotion: false,
+    confirmDelete: true,
+    restoreLastBook: false,
+    highContrast: false,
+    largeControls: false,
+    focusOutlines: false
   };
 
   let current = { ...DEFAULTS };
@@ -28,12 +33,20 @@ const AppPrefs = (() => {
   function normalize(prefs) {
     const source = prefs || {};
     return {
-      reduceMotion: source.reduceMotion === true
+      reduceMotion: source.reduceMotion === true,
+      confirmDelete: source.confirmDelete !== false,
+      restoreLastBook: source.restoreLastBook === true,
+      highContrast: source.highContrast === true,
+      largeControls: source.largeControls === true,
+      focusOutlines: source.focusOutlines === true
     };
   }
 
   function apply() {
     document.documentElement.dataset.reduceMotion = current.reduceMotion ? 'on' : 'off';
+    document.documentElement.dataset.highContrast = current.highContrast ? 'on' : 'off';
+    document.documentElement.dataset.largeControls = current.largeControls ? 'on' : 'off';
+    document.documentElement.dataset.focusOutlines = current.focusOutlines ? 'on' : 'off';
   }
 
   function getAll() {
@@ -43,7 +56,6 @@ const AppPrefs = (() => {
   function set(patch) {
     if (!patch || typeof patch !== 'object') return getAll();
     const next = normalize({ ...current, ...patch });
-    if (next.reduceMotion === current.reduceMotion) return getAll();
     current = next;
     apply();
     clearTimeout(persistTimer);

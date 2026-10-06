@@ -258,8 +258,7 @@ function createWindow() {
     const initialFile = pendingOpenFile || extractBookArg(process.argv);
     if (initialFile) {
       pendingOpenFile = path.resolve(initialFile);
-      pendingBookReadPaths.add(normalizePath(pendingOpenFile));
-      pendingBookReadPaths.add(pendingOpenFile);
+      authorizeBookPath(pendingOpenFile);
       if (isRendererReady) {
         dispatchOpenFile(pendingOpenFile);
         pendingOpenFile = null;
@@ -337,8 +336,7 @@ ipcMain.handle('dialog:open-files', async (event) => {
     try {
       const resolved = path.resolve(filePath);
       if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
-        pendingBookReadPaths.add(normalizePath(resolved));
-        pendingBookReadPaths.add(resolved);
+        authorizeBookPath(resolved);
         descriptors.push({
           name: path.basename(resolved),
           path: resolved,

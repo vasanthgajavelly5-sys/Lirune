@@ -296,13 +296,10 @@ const EpubLoader = (() => {
       if (currentBook && typeof currentBook.replacements === 'function') {
         const origReplacements = currentBook.replacements.bind(currentBook);
         currentBook.replacements = function() {
-          if (!this.resources) return Promise.resolve();
-          return this.resources.replacements().then(() => {
-            if (this.resources && typeof this.resources.replaceCss === 'function') {
-              return this.resources.replaceCss();
-            }
+          return origReplacements().catch((err) => {
+            console.warn('Epub replacements warning:', err);
             return [];
-          }).catch(() => []);
+          });
         };
       }
 

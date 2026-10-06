@@ -85,8 +85,17 @@ const ThemeManager = (() => {
   }
 
   async function init() {
-    const legacyTheme = await NoveraDB.getPref('theme', 'light');
-    const savedAppTheme = await NoveraDB.getPref('appTheme', APP_THEMES.includes(legacyTheme) ? legacyTheme : 'light');
+    let cachedTheme = null;
+    try { cachedTheme = localStorage.getItem('lirune-app-theme'); } catch (_) {}
+    const dbAppTheme = await NoveraDB.getPref('appTheme', null);
+    const legacyTheme = await NoveraDB.getPref('theme', null);
+    const savedAppTheme = (dbAppTheme && APP_THEMES.includes(dbAppTheme))
+      ? dbAppTheme
+      : (cachedTheme && APP_THEMES.includes(cachedTheme))
+        ? cachedTheme
+        : (legacyTheme && APP_THEMES.includes(legacyTheme))
+          ? legacyTheme
+          : 'light';
     customColors = normalizeCustomColors(await NoveraDB.getPref('customReaderTheme', DEFAULT_CUSTOM_COLORS));
     const savedReaderTheme = await NoveraDB.getPref('readerTheme', 'neutral');
     applyAccent(await NoveraDB.getPref('accentColor', DEFAULT_ACCENT), false);

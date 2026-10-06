@@ -92,7 +92,7 @@ const EpubLoader = (() => {
       return candidates[0] || (currentActiveHref ? resolveChapter(currentActiveHref) : null);
     }
 
-    const doc = getCurrentDocument();
+    const doc = getCurrentDocument(location?.start?.href);
     const axis = readingAxis(doc);
     const limit = readingLimit(doc, axis);
     if (axis === null || limit === null) return candidates[0];
@@ -953,35 +953,83 @@ const EpubLoader = (() => {
       return;
     }
 
-    if (scrollToFragment(fragment)) return;
+    if (scrollToFragment(fragment, file)) return;
 
     // epub.js finishes positioning a freshly displayed document after it
     // announces the render, so the scroll is applied again once the engine
     // has settled on the new section.
     const onRendered = () => {
       rendition.off('rendered', onRendered);
-      if (!scrollToFragment(fragment)) return;
-      requestAnimationFrame(() => scrollToFragment(fragment));
-      setTimeout(() => scrollToFragment(fragment), 300);
+      if (!scrollToFragment(fragment, file)) return;
+      requestAnimationFrame(() => scrollToFragment(fragment, file));
+      setTimeout(() => scrollToFragment(fragment, file), 300);
     };
     rendition.on('rendered', onRendered);
     rendition.display(file);
   }
 
-  function getCurrentDocument() {
-    const contents = rendition?.getContents?.();
-    const first = contents?.[0];
-    return first?.document || null;
+  function getCurrentDocument(targetHref) {
+    if (!rendition) return null;
+    const contents = rendition.getContents?.() || [];
+    if (contents.length === 0) return null;
+    if (contents.length === 1 && !targetHref) return contents[0]?.document || null;
+
+    if (targetHref) {
+      const normTarget = normalizeHref(targetHref);
+      const match = contents.find(c => {
+        const h = normalizeHref(c.section?.href || c.cfiBase);
+        return h && (h === normTarget || normTarget.endsWith(h) || h.endsWith(normTarget));
+      });
+      if (match?.document) return match.document;
+    }
+
+    const loc = rendition.currentLocation?.();
+    if (loc?.start?.href) {
+      const locHref = normalizeHref(loc.start.href);
+      const match = contents.find(c => {
+        const h = normalizeHref(c.section?.href);
+        return h && (h === locHref || locHref.endsWith(h) || h.endsWith(locHref));
+      });
+      if (match?.document) return match.document;
+    }
+
+    const container = document.getElementById('epub-container');
+    const containerRect = container?.getBoundingClientRect() || { top: 0, bottom: window.innerHeight };
+    for (const c of contents) {
+      const frame = c.document?.defaultView?.frameElement;
+      if (frame) {
+        const rect = frame.getBoundingClientRect();
+        if (rect.bottom > containerRect.top + 20 && rect.top < containerRect.bottom - 20) {
+          return c.document;
+        }
+      }
+    }
+
+    return contents[0]?.document || null;
   }
 
   function findFragmentElement(doc, fragment) {
-    if (!doc || !fragment) return null;
-    return doc.getElementById(fragment)
-      || doc.querySelector(`[name="${CSS.escape(fragment)}"]`);
+    if (doc && fragment) {
+      const el = doc.getElementById(fragment)
+        || doc.querySelector(`[name="${CSS.escape(fragment)}"]`);
+      if (el) return el;
+    }
+    if (fragment && rendition?.getContents) {
+      const contents = rendition.getContents() || [];
+      for (const c of contents) {
+        const d = c.document;
+        if (d && d !== doc) {
+          const el = d.getElementById(fragment)
+            || d.querySelector(`[name="${CSS.escape(fragment)}"]`);
+          if (el) return el;
+        }
+      }
+    }
+    return null;
   }
 
-  function scrollToFragment(fragment) {
-    const doc = getCurrentDocument();
+  function scrollToFragment(fragment, targetFile) {
+    const doc = getCurrentDocument(targetFile);
     const element = findFragmentElement(doc, fragment);
     if (!element) return false;
 
@@ -992,7 +1040,7 @@ const EpubLoader = (() => {
       if (!view) return false;
       view.scrollLeft = Math.max(0, Math.round(element.getBoundingClientRect().left));
     } else {
-      const win = doc.defaultView;
+      const win = element.ownerDocument?.defaultView || doc?.defaultView;
       if (!win) return false;
       win.scrollTo({ top: Math.max(0, Math.round(element.getBoundingClientRect().top)), left: 0 });
     }

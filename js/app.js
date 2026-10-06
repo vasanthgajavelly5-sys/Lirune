@@ -51,13 +51,15 @@ const App = (() => {
     console.log('Lirune Reader successfully initialized');
 
     if (AppPrefs.getAll().restoreLastBook && activeView === 'library') {
-      const recent = Library.getAllBooks?.()
-        ?.filter(b => b.lastReadDate && b.lastReadDate > 0)
-        ?.sort((a, b) => (b.lastReadDate || 0) - (a.lastReadDate || 0));
-      if (recent && recent.length > 0) {
-        setTimeout(() => {
-          if (activeView === 'library') openReader(recent[0].id);
-        }, 100);
+      const hasPendingExternal = await window.noveraDesktop?.hasPendingOpenFile?.().catch(() => false);
+      if (!hasPendingExternal && !window.__externalFileOpening && activeView === 'library') {
+        const books = await NoveraDB.getAllBooks().catch(() => []);
+        const recent = books
+          ?.filter(b => b.lastReadDate && b.lastReadDate > 0)
+          ?.sort((a, b) => (b.lastReadDate || 0) - (a.lastReadDate || 0));
+        if (recent && recent.length > 0 && !window.__externalFileOpening && activeView === 'library') {
+          openReader(recent[0].id);
+        }
       }
     }
   }

@@ -694,6 +694,7 @@ const RENDER_BATCH_SIZE = 50;
 
     async function openBookFromFilePath(filePath) {
       if (!filePath) return;
+      window.__externalFileOpening = true;
       if (!libraryInitialized && libraryInitPromise) {
         await libraryInitPromise;
       }
@@ -755,6 +756,7 @@ const RENDER_BATCH_SIZE = 50;
         App.openReader(savedBook.id);
       } catch (err) {
         console.error('Failed to open book from OS:', err);
+        window.noveraDesktop?.revokePendingBookFile?.(filePath);
         Utils.toast('Could not open the selected file', 'error');
       }
     }

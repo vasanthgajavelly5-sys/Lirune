@@ -409,9 +409,11 @@ const DocumentAdapter = (() => {
         const read = (this._currentPage() + 1) * pageWidth;
         percent = Math.min(100, Math.max(0, Math.round((read / totalWidth) * 100)));
       } else {
-        const read = (current ? current.top : 0) + (this.viewport?.scrollTop || 0);
         const totalHeight = Math.max(1, this.element?.scrollHeight || 1);
-        percent = Math.min(100, Math.max(0, Math.round((read / totalHeight) * 100)));
+        const viewportHeight = this.viewport?.clientHeight || 0;
+        const maxScroll = Math.max(1, totalHeight - viewportHeight);
+        const currentScroll = Math.max(0, this.viewport?.scrollTop || 0);
+        percent = Math.min(100, Math.max(0, Math.round((currentScroll / maxScroll) * 100)));
       }
 
       return {

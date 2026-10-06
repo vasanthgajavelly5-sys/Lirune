@@ -24,8 +24,15 @@
 !macro customUnInstall
   DeleteRegKey HKCU "Software\Classes\Applications\Lirune Reader.exe"
   DeleteRegKey HKCU "Software\Classes\Lirune.epub"
+
+  ReadRegStr $0 HKCU "Software\Classes\.epub" ""
+  StrCmp $0 "Lirune.epub" 0 +2
+    DeleteRegValue HKCU "Software\Classes\.epub" ""
+
   DeleteRegValue HKCU "Software\Classes\.epub\OpenWithProgids" "Lirune.epub"
+  DeleteRegValue HKCU "Software\Classes\.epub\OpenWithProgids" "EPUB Electronic Publication"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.epub\OpenWithProgids" "Lirune.epub"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.epub\OpenWithProgids" "EPUB Electronic Publication"
   DeleteRegKey HKCU "Software\Lirune Reader"
   DeleteRegValue HKCU "Software\RegisteredApplications" "Lirune Reader"
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'

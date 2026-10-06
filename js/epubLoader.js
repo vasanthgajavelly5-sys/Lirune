@@ -23,6 +23,8 @@ const EpubLoader = (() => {
   let currentActiveHref = '';
   let locationsPromise = null;
   let currentSessionToken = 0;
+  let userInteracted = false;
+  let initialCfi = null;
 
   // Prevent epub.js dangling promises on destroyed books from leaking unhandled rejections
   window.addEventListener('unhandledrejection', (event) => {
@@ -230,6 +232,8 @@ const EpubLoader = (() => {
     currentLocationLabel = '';
     currentActiveHref = '';
     isBookLoaded = false;
+    userInteracted = false;
+    initialCfi = null;
     const container = document.getElementById('epub-container');
     if (container) {
       container.innerHTML = '';
@@ -336,7 +340,9 @@ const EpubLoader = (() => {
       document.getElementById('reader-author').textContent = bookRecord.author ? `by ${bookRecord.author}` : '';
 
       // Display initial location (saved CFI or target or beginning)
+      userInteracted = false;
       const startCfi = targetCfi || bookRecord.currentCfi || undefined;
+      initialCfi = startCfi || null;
       await rendition.display(startCfi);
       if (sessionToken !== currentSessionToken) return false;
 
@@ -384,6 +390,10 @@ const EpubLoader = (() => {
 
     // Relocated event: triggers on page turns
     rendition.on('relocated', (location) => {
+      const curCfi = location?.start?.cfi;
+      if (initialCfi && curCfi && curCfi !== initialCfi) {
+        userInteracted = true;
+      }
       updateProgress(location);
 
       // Hide selection toolbar on page turn
@@ -727,7 +737,8 @@ const EpubLoader = (() => {
       NoveraDB.updateProgress(currentBookData.id, {
         currentCfi,
         progressPercent: percent,
-        currentChapter
+        currentChapter,
+        updateLastRead: Boolean(userInteracted)
       });
     }
   }
@@ -918,6 +929,7 @@ const EpubLoader = (() => {
   function navigate(direction) {
     if (!rendition || Date.now() - lastNavigationAt < 120) return;
     lastNavigationAt = Date.now();
+    userInteracted = true;
     rendition[direction === 'next' ? 'next' : 'prev']();
   }
 
@@ -937,8 +949,9 @@ const EpubLoader = (() => {
    * is what makes a table of contents land on the exact chapter rather than
    * the one that happens to share its file.
    */
-  function goTo(target) {
+  function goTo(target, isProgrammatic = false) {
     if (!rendition || !target) return;
+    if (!isProgrammatic) userInteracted = true;
     const text = String(target);
     const at = text.indexOf('#');
     if (at < 0) {
@@ -1049,6 +1062,7 @@ const EpubLoader = (() => {
 
   function scrollBy(dx, dy) {
     if (!rendition) return;
+    userInteracted = true;
 
     const settings = ReaderSettings.getSettings();
     if (settings.flow !== 'scrolled') {
@@ -1386,6 +1400,7 @@ const EpubLoader = (() => {
     waitForLocations,
     cfiFromPercentage,
     destroy,
-      getSearchResultCount: () => searchResults.length
+    setInitialCfi: (cfi) => { initialCfi = cfi; },
+    getSearchResultCount: () => searchResults.length
   };
 })();

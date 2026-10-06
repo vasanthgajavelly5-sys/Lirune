@@ -33,6 +33,9 @@ const Reader = (() => {
   let searchGeneration = 0;
   let progressTimer = null;
   let currentSessionToken = 0;
+  let userInteracted = false;
+  let initialLocation = '';
+  let initialProgressPercent = 0;
 
   // ---------------------------------------------------------------- hosts
   function epubHost() { return document.getElementById('epub-container'); }
@@ -67,6 +70,9 @@ const Reader = (() => {
     const sessionToken = ++currentSessionToken;
     currentRecord = bookRecord || null;
     if (!currentRecord) return false;
+    userInteracted = false;
+    initialLocation = bookRecord.currentCfi || '';
+    initialProgressPercent = Number(bookRecord.progressPercent) || 0;
 
     const bytes = await readRecordBytes(bookRecord);
     if (sessionToken !== currentSessionToken) return false;
@@ -102,9 +108,14 @@ const Reader = (() => {
 
     try {
       const hooks = {
-        onLocationChange: () => { if (sessionToken === currentSessionToken) scheduleProgress(); },
+        onLocationChange: (isUser) => {
+          if (isUser) userInteracted = true;
+          if (sessionToken === currentSessionToken) scheduleProgress();
+        },
         onSectionChange: () => { if (sessionToken === currentSessionToken) refreshNavigationPanel(); },
-        onPageChange: () => { if (sessionToken === currentSessionToken) scheduleProgress(); }
+        onPageChange: () => {
+          if (sessionToken === currentSessionToken) scheduleProgress();
+        }
       };
       if (typeof instance.open === 'function') await instance.open(hooks);
       if (sessionToken !== currentSessionToken) {
@@ -147,6 +158,9 @@ const Reader = (() => {
   async function close() {
     currentSessionToken++;
     stopProgressLoop();
+    if (adapter && currentRecord?.id) {
+      try { await persistProgress(); } catch (error) { console.warn('Progress save on close failed:', error); }
+    }
     searchGeneration++;
     searchResults = [];
     searchIndex = -1;
@@ -156,6 +170,9 @@ const Reader = (() => {
     adapter = null;
     currentFormat = null;
     currentRecord = null;
+    userInteracted = false;
+    initialLocation = '';
+    initialProgressPercent = 0;
     clearSearchUi();
   }
 
@@ -169,12 +186,13 @@ const Reader = (() => {
   }
 
   // ---------------------------------------------------------------- navigation
-  async function next() { if (requireAdapter()) await adapter.next?.(); }
-  async function prev() { if (requireAdapter()) await adapter.prev?.(); }
-  async function goTo(target) { if (requireAdapter()) await adapter.goTo?.(target); }
+  async function next() { if (requireAdapter()) { userInteracted = true; await adapter.next?.(); } }
+  async function prev() { if (requireAdapter()) { userInteracted = true; await adapter.prev?.(); } }
+  async function goTo(target) { if (requireAdapter()) { userInteracted = true; await adapter.goTo?.(target); } }
 
   async function scrollBy(dx, dy) {
     if (!requireAdapter()) return;
+    userInteracted = true;
     if (adapter.scroll) return adapter.scroll(dy);
     if (adapter.scrollBy) return adapter.scrollBy(dx, dy);
   }
@@ -267,15 +285,23 @@ const Reader = (() => {
     if (statusPage) statusPage.textContent = locationLabel;
   }
 
-  function persistProgress() {
+  async function persistProgress() {
     if (!currentRecord?.id || !adapter) return;
     const progress = getProgress();
     const location = getLocation();
-    NoveraDB.updateProgress(currentRecord.id, {
-      currentCfi: location || '',
-      progressPercent: Number.isFinite(progress.percent) ? progress.percent : 0,
-      currentChapter: progress.chapter || 'Reading'
-    }).catch(error => console.warn('Progress save failed:', error));
+    const currentPercent = Number.isFinite(progress.percent) ? progress.percent : 0;
+    const shouldUpdateLastRead = Boolean(userInteracted);
+
+    try {
+      await NoveraDB.updateProgress(currentRecord.id, {
+        currentCfi: location || '',
+        progressPercent: currentPercent,
+        currentChapter: progress.chapter || 'Reading',
+        updateLastRead: shouldUpdateLastRead
+      });
+    } catch (error) {
+      console.warn('Progress save failed:', error);
+    }
   }
 
   function updateFormatUI(format) {

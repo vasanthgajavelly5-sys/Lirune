@@ -174,6 +174,7 @@ function mimeFor(filePath) {
     '.htm': 'text/html',
     '.fb2': 'application/x-fictionbook+xml',
     '.cbz': 'application/vnd.comicbook+zip',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.cbr': 'application/vnd.comicbook-rar',
     '.azw3': 'application/vnd.amazon.ebook',
     '.mobi': 'application/x-mobipocket-ebook'

@@ -47,7 +47,10 @@ const EpubReaderAdapter = (() => {
       await EpubLoader.waitForLocations();
       if (this.record.id !== recordId || !EpubLoader.isLoaded()) return;
       const cfi = EpubLoader.cfiFromPercentage(savedPercent);
-      if (cfi) await EpubLoader.goTo(cfi);
+      if (cfi) {
+        EpubLoader.setInitialCfi?.(cfi);
+        await EpubLoader.goTo(cfi, true);
+      }
     } catch (error) {
       console.warn('Could not realign reading position:', error);
     }

@@ -294,7 +294,7 @@ const NoveraDB = (() => {
       });
     },
 
-    async updateProgress(id, { currentCfi, progressPercent, currentChapter }) {
+    async updateProgress(id, { currentCfi, progressPercent, currentChapter, updateLastRead = true }) {
       const db = await openDB();
       return new Promise((resolve, reject) => {
         const transaction = db.transaction('books', 'readwrite');
@@ -307,7 +307,9 @@ const NoveraDB = (() => {
           if (currentCfi !== undefined) book.currentCfi = currentCfi;
           if (progressPercent !== undefined) book.progressPercent = progressPercent;
           if (currentChapter !== undefined) book.currentChapter = currentChapter;
-          book.lastReadDate = Date.now();
+          if (updateLastRead) {
+            book.lastReadDate = Date.now();
+          }
           result = book;
           store.put(book);
         };

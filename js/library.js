@@ -1181,6 +1181,30 @@ const RENDER_BATCH_SIZE = 50;
         const headings = (xml.match(/<w:pStyle w:val="Heading/g) || []).length;
         record.chapterCount = headings || null;
       }
+      // Extract thumbnail cover if document has embedded media
+      const mediaFiles = Object.keys(zip.files).filter(name =>
+        !zip.files[name].dir &&
+        name.startsWith('word/media/') &&
+        BookFormat.IMAGE_EXT.includes(BookFormat.extensionOf(name))
+      ).sort();
+      if (mediaFiles.length > 0) {
+        try {
+          const firstImage = zip.file(mediaFiles[0]);
+          if (firstImage) {
+            const blob = await firstImage.async('blob');
+            const bitmap = await createImageBitmap(blob);
+            const scale = Math.min(1, 420 / Math.max(bitmap.width, 1));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.floor(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
+            canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            bitmap.close?.();
+            record.coverDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          }
+        } catch (coverErr) {
+          console.warn('DOCX cover image extraction failed:', coverErr);
+        }
+      }
     } catch (e) {
       console.warn('DOCX metadata extraction failed:', e);
     }
@@ -3071,6 +3095,7 @@ a { color: inherit; text-decoration: underline; }
     applyBackup,
     restoreMetadata,
     getBookStats,
-    deleteAllBooks
+    deleteAllBooks,
+    processFiles
   };
 })();

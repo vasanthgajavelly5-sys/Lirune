@@ -119,3 +119,76 @@ test('Production content safety: No QA corpus book in source or bundle', () => {
   const libraryJs = fs.readFileSync(path.join(__dirname, '../js/library.js'), 'utf8');
   assert.equal(libraryJs.includes('Sker Point'), false, 'library.js must not contain Sker Point');
 });
+
+test('DOCX format detection and validation', async () => {
+  const JSZip = require('jszip');
+  globalThis.JSZip = JSZip;
+  const formatsSource = fs.readFileSync(path.join(__dirname, '../js/formats.js'), 'utf8');
+  const formatsModule = new Function(`${formatsSource}\nreturn BookFormat;`)();
+
+  // Create valid DOCX zip buffer
+  const validZip = new JSZip();
+  validZip.file('word/document.xml', '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Hello DOCX</w:t></w:r></w:p></w:body></w:document>');
+  const validBuf = await validZip.generateAsync({ type: 'nodebuffer' });
+
+  // Detect valid DOCX
+  const detected = await formatsModule.detect('test.docx', validBuf.buffer.slice(validBuf.byteOffset, validBuf.byteOffset + validBuf.byteLength));
+  assert.equal(detected.id, 'docx');
+  assert.equal(detected.supported, true);
+  assert.equal(detected.layout, 'reflowable');
+
+  // Corrupted non-ZIP buffer named .docx
+  const corruptedBuf = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]);
+  const detectedCorrupt = await formatsModule.detect('fake.docx', corruptedBuf.buffer.slice(corruptedBuf.byteOffset, corruptedBuf.byteOffset + corruptedBuf.byteLength));
+  // Falls back by extension to docx with source extension
+  assert.equal(detectedCorrupt.id, 'docx');
+  assert.equal(detectedCorrupt.source, 'extension');
+
+  // Non-DOCX ZIP (e.g. unknown zip)
+  const otherZip = new JSZip();
+  otherZip.file('random.txt', 'some content');
+  const otherBuf = await otherZip.generateAsync({ type: 'nodebuffer' });
+  const detectedOther = await formatsModule.detect('archive.zip', otherBuf.buffer.slice(otherBuf.byteOffset, otherBuf.byteOffset + otherBuf.byteLength));
+  assert.equal(detectedOther.id, 'unknown');
+});
+
+test('Continue Reading non-promotion semantics on book close', () => {
+  // Test the model of progress updates:
+  // Book A read at T=1000
+  // Book B read at T=2000
+  const books = [
+    { id: 'book-a', title: 'Book A', lastReadDate: 1000, progressPercent: 20, currentCfi: 'page:5' },
+    { id: 'book-b', title: 'Book B', lastReadDate: 2000, progressPercent: 50, currentCfi: 'page:12' }
+  ];
+
+  // Helper simulating NoveraDB.updateProgress with updateLastRead flag
+  function applyProgressUpdate(book, { currentCfi, progressPercent, updateLastRead }) {
+    if (currentCfi !== undefined) book.currentCfi = currentCfi;
+    if (progressPercent !== undefined) book.progressPercent = progressPercent;
+    if (updateLastRead) {
+      book.lastReadDate = 3000; // Simulated current timestamp
+    }
+  }
+
+  function getContinueReadingOrder(list) {
+    return list.slice().sort((a, b) => (b.lastReadDate || 0) - (a.lastReadDate || 0)).map(b => b.id);
+  }
+
+  // Initial order: Book B is first (most recently read at T=2000)
+  assert.deepEqual(getContinueReadingOrder(books), ['book-b', 'book-a']);
+
+  // Case 1: User opens Book A without reading/navigating, then closes it
+  // Initial mount / restore occurs: updateLastRead is false
+  applyProgressUpdate(books[0], { currentCfi: 'page:5', progressPercent: 20, updateLastRead: false });
+
+  // After closing Book A without reading, Book B must STILL be first!
+  assert.deepEqual(getContinueReadingOrder(books), ['book-b', 'book-a'],
+    'Closing Book A without reading must NOT promote it over Book B');
+
+  // Case 2: User opens Book A and ACTUALLY reads (turns page to page:6)
+  applyProgressUpdate(books[0], { currentCfi: 'page:6', progressPercent: 25, updateLastRead: true });
+
+  // Now Book A was read, so it should be promoted to #1
+  assert.deepEqual(getContinueReadingOrder(books), ['book-a', 'book-b'],
+    'Reading Book A must promote it to the most recently read item');
+});

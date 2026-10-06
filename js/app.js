@@ -100,6 +100,17 @@ const App = (() => {
   async function openLibrary() {
     activeView = 'library';
     closeAllPanels();
+
+    try {
+      await Reader.close();
+    } catch (e) {
+      console.warn('Reader close warning:', e);
+    }
+
+    // Refresh library state completely BEFORE making it visible
+    // so that the library renders only ONCE, preventing any visible flicker/blink
+    await Library.loadAndRenderBooks();
+
     document.body.classList.remove('reader-open');
 
     const libView = document.getElementById('library-view');
@@ -113,15 +124,6 @@ const App = (() => {
       libView.classList.remove('hidden');
       libView.classList.add('active');
     }
-
-    try {
-      await Reader.close();
-    } catch (e) {
-      console.warn('Reader close warning:', e);
-    }
-
-    // Refresh library state (progress, recent books)
-    Library.loadAndRenderBooks();
   }
 
   async function openReader(bookId) {

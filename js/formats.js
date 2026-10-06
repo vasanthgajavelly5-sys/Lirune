@@ -38,7 +38,7 @@ const BookFormat = (() => {
   // the ZIP signature is an archive, so if it cannot be opened as one it must
   // not quietly fall back to a plain-text reader just because it was named
   // .txt, which would render the raw bytes as a wall of nonsense.
-  const ZIP_CONTAINER_IDS = new Set(['epub', 'cbz']);
+  const ZIP_CONTAINER_IDS = new Set(['epub', 'cbz', 'docx']);
 
   function extensionOf(fileName) {
     const match = /\.([A-Za-z0-9]+)$/.exec(String(fileName || ''));
@@ -129,6 +129,9 @@ const BookFormat = (() => {
       if (zip.file('META-INF/container.xml')) return { ...FORMATS.epub, source: 'signature' };
       if (zip.file('mimetype') && /application\/epub/i.test(await zip.file('mimetype').async('text'))) {
         return { ...FORMATS.epub, source: 'signature' };
+      }
+      if (zip.file('word/document.xml')) {
+        return { ...FORMATS.docx, source: 'signature' };
       }
 
       const images = names.filter(name => !zip.files[name].dir && IMAGE_EXT.includes(extensionOf(name)));

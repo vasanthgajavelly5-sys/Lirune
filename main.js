@@ -318,6 +318,7 @@ ipcMain.handle('dialog:open-files', async (event) => {
       { name: 'Supported books', extensions: SUPPORTED_EXTENSIONS },
       { name: 'EPUB eBooks (*.epub)', extensions: ['epub'] },
       { name: 'PDF documents (*.pdf)', extensions: ['pdf'] },
+      { name: 'Word documents (*.docx)', extensions: ['docx'] },
       { name: 'Comic archives (*.cbz)', extensions: ['cbz'] },
       { name: 'Text and HTML (*.txt, *.html, *.htm)', extensions: ['txt', 'html', 'htm'] },
       { name: 'FictionBook (*.fb2)', extensions: ['fb2'] },
@@ -433,6 +434,14 @@ async function validateBookBuffer(buffer, extension = '') {
     const zip = await JSZip.loadAsync(buffer);
     if (Object.keys(zip.files).filter(name => !zip.files[name].dir).length === 0) {
       throw new Error('The comic archive is empty');
+    }
+    return true;
+  }
+  if (ext === 'docx') {
+    if (!isZip) throw new Error('Not a readable Word (.docx) document');
+    const zip = await JSZip.loadAsync(buffer);
+    if (!zip.file('word/document.xml')) {
+      throw new Error('Not a valid Word (.docx) document');
     }
     return true;
   }

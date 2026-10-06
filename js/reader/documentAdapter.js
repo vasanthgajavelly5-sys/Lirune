@@ -39,8 +39,18 @@ const DocumentAdapter = (() => {
       this._staleMatches = false;
       this.flow = 'paginated';
       this._pageIndex = 0;
+      this._isRestoring = false;
       this.destroyed = false;
       this._onScroll = this._onScroll.bind(this);
+    }
+
+    async loadBytes() {
+      if (this.record.fileData) return new Uint8Array(this.record.fileData);
+      if (this.record.storageId && window.noveraDesktop?.readManagedBook) {
+        const buffer = await window.noveraDesktop.readManagedBook(this.record.storageId, this.record.fingerprint, this.record.fileSize);
+        return new Uint8Array(buffer);
+      }
+      throw new Error(`This ${this.formatLabel || this.format || 'document'} file is unavailable.`);
     }
 
     // ---- lifecycle -------------------------------------------------
@@ -69,12 +79,15 @@ const DocumentAdapter = (() => {
     _restoreLocation() {
       const saved = String(this.record.currentCfi || '');
       if (!saved) return;
+      this._isRestoring = true;
 
       const apply = () => {
         if (this.destroyed || !this.viewport) return;
+        this._isRestoring = true;
         const page = /^page:(\d+)/.exec(saved);
         if (page && this.flow === 'paginated' && this.capabilities.paginate) {
           this._gotoPage(Number(page[1]));
+          setTimeout(() => { if (!this.destroyed) this._isRestoring = false; }, 60);
           return;
         }
         const scroll = /^scroll:(\d+)/.exec(saved);
@@ -83,6 +96,7 @@ const DocumentAdapter = (() => {
           this.viewport.scrollTop = Math.min(target, Math.max(0, this.viewport.scrollHeight - this.viewport.clientHeight));
           this._syncActiveSection();
         }
+        setTimeout(() => { if (!this.destroyed) this._isRestoring = false; }, 60);
       };
 
       apply();
@@ -318,7 +332,8 @@ const DocumentAdapter = (() => {
 
     _afterMove() {
       this._syncActiveSection();
-      this.hooks.onLocationChange?.();
+      const isUser = !this._isRestoring;
+      this.hooks.onLocationChange?.(isUser);
     }
 
     _syncActiveSection() {
@@ -356,7 +371,8 @@ const DocumentAdapter = (() => {
 
     _onScroll() {
       this._syncActiveSection();
-      this.hooks.onLocationChange?.();
+      const isUser = !this._isRestoring;
+      this.hooks.onLocationChange?.(isUser);
     }
 
     // ---- reader settings -------------------------------------------

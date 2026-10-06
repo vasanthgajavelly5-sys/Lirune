@@ -22,7 +22,9 @@ test('managed storage keeps the real format extension', () => {
   const fingerprint = fingerprintBuffer(Buffer.from('a pdf'));
   assert.equal(storageIdForFingerprint(fingerprint, 'pdf'), `${fingerprint}.pdf`);
   assert.equal(storageIdForFingerprint(fingerprint, 'cbz'), `${fingerprint}.cbz`);
+  assert.equal(storageIdForFingerprint(fingerprint, 'docx'), `${fingerprint}.docx`);
   assert.equal(isStorageId(`${fingerprint}.cbz`), true);
+  assert.equal(isStorageId(`${fingerprint}.docx`), true);
   assert.equal(isStorageId(`${fingerprint}.html`), true);
   assert.equal(isStorageId(`${fingerprint}.fb2`), true);
 });

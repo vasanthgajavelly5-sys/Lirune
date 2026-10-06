@@ -18,7 +18,10 @@ const Reader = (() => {
     txt: () => TextAdapter,
     html: () => HtmlAdapter,
     fb2: () => Fb2Adapter,
-    cbz: () => CbzAdapter
+    cbz: () => CbzAdapter,
+    docx: () => DocxAdapter,
+    odt: () => OdtAdapter,
+    rtf: () => RtfAdapter
   };
 
   let adapter = null;
@@ -29,6 +32,7 @@ const Reader = (() => {
   let searchIndex = -1;
   let searchGeneration = 0;
   let progressTimer = null;
+  let currentSessionToken = 0;
 
   // ---------------------------------------------------------------- hosts
   function epubHost() { return document.getElementById('epub-container'); }
@@ -60,11 +64,16 @@ const Reader = (() => {
   async function open(bookRecord) {
     await close();
 
+    const sessionToken = ++currentSessionToken;
     currentRecord = bookRecord || null;
     if (!currentRecord) return false;
 
     const bytes = await readRecordBytes(bookRecord);
+    if (sessionToken !== currentSessionToken) return false;
+    if (bytes) bookRecord.fileData = bytes;
+
     const format = await BookFormat.detect(bookRecord.originalName || bookRecord.title || '', bytes);
+    if (sessionToken !== currentSessionToken) return false;
 
     if (!format.supported) {
       showLoading(false);
@@ -90,16 +99,20 @@ const Reader = (() => {
     const settings = ReaderSettings.getSettings();
     const AdapterClass = ADAPTERS[format.id]().Adapter;
     const instance = new AdapterClass(host, bookRecord);
-    adapter = instance;
 
     try {
       const hooks = {
-        onLocationChange: () => scheduleProgress(),
-        onSectionChange: () => refreshNavigationPanel(),
-        onPageChange: () => scheduleProgress()
+        onLocationChange: () => { if (sessionToken === currentSessionToken) scheduleProgress(); },
+        onSectionChange: () => { if (sessionToken === currentSessionToken) refreshNavigationPanel(); },
+        onPageChange: () => { if (sessionToken === currentSessionToken) scheduleProgress(); }
       };
       if (typeof instance.open === 'function') await instance.open(hooks);
+      if (sessionToken !== currentSessionToken) {
+        try { await instance.destroy?.(); } catch {}
+        return false;
+      }
 
+      adapter = instance;
       applyAdapterSettings(settings);
       applyZoomToAdapter(zoomControl ? zoomControl.get() : 100);
       renderNavigation();
@@ -132,6 +145,7 @@ const Reader = (() => {
   }
 
   async function close() {
+    currentSessionToken++;
     stopProgressLoop();
     searchGeneration++;
     searchResults = [];

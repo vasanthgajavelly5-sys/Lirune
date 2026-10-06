@@ -1,0 +1,25 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "maestro": {
+      "type": "local",
+      "command": [
+        "cmd",
+        "/c",
+        "npx",
+        "-y",
+        "@luxurylabs/maestro-mcp"
+      ],
+      "environment": {
+        "JAVA_HOME": "C:\\Users\\vasanth\\jdk17",
+        "ANDROID_HOME": "C:\\Users\\vasanth\\android-sdk",
+        "ANDROID_SDK_ROOT": "C:\\Users\\vasanth\\android-sdk",
+        "MAESTRO_BIN": "C:\\maestro\\maestro\\bin\\maestro.bat",
+        "MAESTRO_CLI_NO_ANALYTICS": "1"
+      },
+      "enabled": true,
+      "timeout": 120000
+    }
+  },
+  "snapshot": false
+}

@@ -1,7 +1,7 @@
 {
   "name": "lirune",
   "productName": "Lirune Reader",
-  "version": "4.0.4",
+  "version": "5.0.0",
   "description": "A private, open-source Windows EPUB reader",
   "main": "main.js",
   "scripts": {

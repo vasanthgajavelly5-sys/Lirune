@@ -28,7 +28,8 @@ config.appx = {
 config.win = { ...(config.win || {}), target: [{ target: 'appx', arch: ['x64'] }] };
 const configPath = path.join(os.tmpdir(), `novera-store-${process.pid}.json`);
 fs.writeFileSync(configPath, JSON.stringify(config));
-const result = spawnSync(process.execPath, [require.resolve('electron-builder/cli.js'), '--win', 'appx', '--config', configPath], {
+const hookPath = path.join(__dirname, 'builder-env-hook.js');
+const result = spawnSync(process.execPath, ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'appx', '--config', configPath], {
   stdio: 'inherit',
   env: { ...process.env }
 });

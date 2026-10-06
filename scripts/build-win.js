@@ -23,14 +23,15 @@ if (!hasCertificate) {
   console.log('Building a signed NSIS installer using the configured certificate.');
 }
 
-const args = [require.resolve('electron-builder/cli.js'), '--win', 'nsis'];
+const hookPath = path.join(__dirname, 'builder-env-hook.js');
+const args = ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'nsis'];
 let temporaryConfig;
 if (!hasCertificate) {
   const localConfig = JSON.parse(JSON.stringify(packageJson.build));
   localConfig.win = {
     ...localConfig.win,
     signExecutable: false,
-    signAndEditExecutable: true,
+    signAndEditExecutable: false,
     forceCodeSigning: false
   };
   temporaryConfig = path.join(os.tmpdir(), `novera-electron-builder-${process.pid}.json`);

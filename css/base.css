@@ -126,7 +126,16 @@ svg { flex-shrink: 0; }
   min-height: 100vh;
   display: none;
 }
-.view.active { display: flex; flex-direction: column; }
+.view.active {
+  display: flex;
+  flex-direction: column;
+  animation: viewFadeIn var(--dur-normal) var(--ease-out);
+}
+
+@keyframes viewFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 
 /* ── Typography helpers ──────────────────────────────────── */
 .text-sm     { font-size: 0.8125rem; }

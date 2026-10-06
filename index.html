@@ -4,8 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Lirune Reader — A calm, private home for your books.">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob: file:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob: data:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self' blob: data:; form-action 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob: file:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob: data:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self' blob: data:; form-action 'none';">
   <title>Lirune Reader — A calm home for your books</title>
+  <!-- Synchronously apply the saved theme before first paint to prevent flash -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('lirune-app-theme');
+        if (t === 'light' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) {}
+    })();
+  </script>
 
   <!-- Application Stylesheets -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -114,8 +125,10 @@
       <!-- Continue Reading Strip -->
       <section id="continue-section" aria-label="Continue reading">
         <div class="continue-label">Continue Reading</div>
-        <div id="continue-card" class="continue-card" tabindex="0" role="button" aria-label="Continue reading current book">
-          <!-- Dynamically filled by library.js -->
+        <div id="continue-cards" class="continue-cards">
+          <div id="continue-card" class="continue-card" tabindex="0" role="button" aria-label="Continue reading current book">
+            <!-- Dynamically filled by library.js -->
+          </div>
         </div>
       </section>
 
@@ -1074,6 +1087,7 @@
   <script src="js/reader/epubAdapter.js"></script>
   <script src="js/reader/pdfAdapter.js"></script>
   <script src="js/reader/cbzAdapter.js"></script>
+  <script src="js/reader/officeAdapters.js"></script>
   <script src="js/reader/zoomControl.js"></script>
   <script src="js/reader/readerController.js"></script>
 <script src="js/library.js"></script>

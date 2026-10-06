@@ -22,8 +22,12 @@ const BookFormat = (() => {
     html: { id: 'html', label: 'HTML', extensions: ['html', 'htm'], mime: 'text/html', layout: 'reflowable', supported: true },
     fb2: { id: 'fb2', label: 'FictionBook', extensions: ['fb2'], mime: 'application/x-fictionbook+xml', layout: 'reflowable', supported: true },
     cbz: { id: 'cbz', label: 'Comic archive', extensions: ['cbz'], mime: 'application/vnd.comicbook+zip', layout: 'image', supported: true },
+    docx: { id: 'docx', label: 'Word document', extensions: ['docx'], mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', layout: 'reflowable', supported: true },
+    odt: { id: 'odt', label: 'OpenDocument text', extensions: ['odt'], mime: 'application/vnd.oasis.opendocument.text', layout: 'reflowable', supported: true },
+    rtf: { id: 'rtf', label: 'Rich text', extensions: ['rtf'], mime: 'application/rtf', layout: 'reflowable', supported: true },
     mobi: { id: 'mobi', label: 'Kindle / MOBI', extensions: ['mobi', 'azw', 'azw3', 'kfx'], mime: 'application/x-mobipocket-ebook', layout: 'reflowable', supported: false, reason: 'MOBI/KF8 need a native conversion step that is not bundled in this build.' },
-    cbr: { id: 'cbr', label: 'Comic archive (RAR)', extensions: ['cbr'], mime: 'application/vnd.comicbook-rar', layout: 'image', supported: false, reason: 'CBR needs a native RAR decoder. Support is deferred rather than shipping a fragile decoder.' }
+    cbr: { id: 'cbr', label: 'Comic archive (RAR)', extensions: ['cbr'], mime: 'application/vnd.comicbook-rar', layout: 'image', supported: false, reason: 'CBR needs a native RAR decoder. Support is deferred rather than shipping a fragile decoder.' },
+    doc: { id: 'doc', label: 'Legacy Word document', extensions: ['doc'], mime: 'application/msword', layout: 'reflowable', supported: false, reason: 'Legacy .doc (OLE) format requires a native parser. Import as .docx, .rtf or plain text instead.' }
   };
 
   const UNKNOWN = { id: 'unknown', label: 'Unknown', extensions: [], mime: 'application/octet-stream', layout: 'unknown', supported: false, reason: 'Unrecognised file type.' };

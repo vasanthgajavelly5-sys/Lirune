@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>science_fiction</genre>
+      <author><first-name>A.</first-name><last-name>Wren</last-name></author>
+      <book-title>The Lighthouse at Sker Point</book-title>
+      <annotation><p>Synthetic FictionBook 2 QA fixture: coverpage image, author, two genres, annotation, and 5 chapters.</p></annotation>
+      <keywords>qa, fb2, fictionbook, lighthouses</keywords>
+      <date>2026-01-15</date>
+      <coverpage><image l:href="#cover.jpg"/></coverpage>
+      <lang>en</lang>
+      <src-lang>en</src-lang>
+      <sequence name="Lirune QA Corpus"/>
+    </title-info>
+    <document-info>
+      <author><nickname>Lirune QA Corpus</nickname></author>
+      <program-used>generate_corpus.py</program-used>
+      <date>2026-01-15</date>
+      <id>urn:uuid:lirune-qa-fb2-0001</id>
+      <version>1.0</version>
+    </document-info>
+  </description>
+  <body>
+    <title><p>The Lighthouse at Sker Point</p></title>
+    <section>
+      <title><p>1. The Keeper's Ledger</p></title>
+      <p>Maren wrote the log in a hand so small it looked like a line of ants.</p>
+      <p>The wind had been steady for nine days, and the entries repeated</p>
+      <p>themselves: clear at four, clear at eight, nothing on the horizon.</p>
+      <p>She had inherited the ledger with the post. Nobody had explained the</p>
+      <p>job, only the objects - a brass key, a tin of wick, a book with a</p>
+      <p>leather spine and no title. The keeper's rule was simple and unwritten:</p>
+      <p>the light does not go out.</p>
+      <p>On the eleventh day the wind changed direction, and with it came a sound</p>
+      <p>she had never heard before, low and patient, like something large moving</p>
+      <p>slowly under the water of the sound.</p>
+      <subtitle>Section 1 of 5</subtitle>
+    </section>
+    <section>
+      <title><p>2. Fog on the Sound</p></title>
+      <p>Fog arrived without ceremony. It simply was there at noon, a soft grey</p>
+      <p>wall that swallowed the harbour and then the last hundred metres of rock</p>
+      <p>below the tower.</p>
+      <p>In fog the work became ritual. Wick trimmed, lens polished, clock wound,</p>
+      <p>log signed. Maren found she liked the ritual. It gave the hours an order</p>
+      <p>the fog had taken away.</p>
+      <p>She talked to the sea a little. It was not madness, exactly; it was the</p>
+      <p>ordinary courtesy of living alone with something that listens. The sea</p>
+      <p>never answered, but it never left either.</p>
+      <empty-line/>
+      <poem><stanza><v>Wick trimmed, lens polished,</v><v>clock wound, log signed, lamp turned.</v></stanza></poem>
+      <subtitle>Section 2 of 5</subtitle>
+    </section>
+    <section>
+      <title><p>3. What the Lamp Recorded</p></title>
+      <p>The lens was a machine of brass and glass that turned on a clockwork</p>
+      <p>drum. Maren cleaned it the way she imagined her grandmother had, with a</p>
+      <p>soft cloth and a great deal of patience.</p>
+      <p>Behind the glass the flame flattened and widened. She wrote down the</p>
+      <p>time, the weather, the number of ships that answered. The numbers</p>
+      <p>mattered. Somebody, somewhere, was reading them.</p>
+      <p>That night a ship answered. Three short flashes, meaning all well. Maren</p>
+      <p>wrote it down, and then sat for a while in the dark, letting the beam go</p>
+      <p>over her face again and again.</p>
+      <subtitle>Section 3 of 5</subtitle>
+    </section>
+    <section>
+      <title><p>4. The Long Dark Interval</p></title>
+      <p>The dark interval began on a Thursday and lasted four days. The</p>
+      <p>generator failed, the spare coil was corroded, and the road was under</p>
+      <p>water.</p>
+      <p>She trimmed wick by hand every four hours through the long nights,</p>
+      <p>moving the lamp with a rope and a shoulder, holding the light on the</p>
+      <p>channel the way she had been taught - a foot left of the marker, no</p>
+      <p>more, no less.</p>
+      <p>The ships kept coming in. She counted nine of them, and she never once</p>
+      <p>wrote the word failure in the ledger, because it had not happened. The</p>
+      <p>light was still there. That was the whole of the job.</p>
+      <subtitle>Section 4 of 5</subtitle>
+    </section>
+    <section>
+      <title><p>5. A Light Kept Anyway</p></title>
+      <p>The relief boat came in spring. Maren handed over the key, the tin, and</p>
+      <p>the book with the leather spine, and said nothing about the eleven days</p>
+      <p>of wind or the ship that answered.</p>
+      <p>The new keeper read the ledger for a long time. At the entry for the</p>
+      <p>thirty-first night he stopped and looked up, and Maren told him what she</p>
+      <p>had done with the rope, and the foot left of the marker.</p>
+      <p>Then she walked up the path to the bus, carrying nothing much, in a coat</p>
+      <p>that smelled of oil and salt. Behind her the lamp turned, and kept</p>
+      <p>turning, and the light did not go out.</p>
+      <subtitle>Section 5 of 5</subtitle>
+    </section>
+  </body>
+  <binary id="cover.jpg" content-type="image/jpeg">/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAcFBQYFBAcGBgYIBwcICxILCwoKCxYPEA0SGhYbGhkW
+GRgcICgiHB4mHhgZIzAkJiorLS4tGyIyNTEsNSgsLSz/2wBDAQcICAsJCxULCxUsHRkdLCwsLCws
+LCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCz/wAARCAHCASwDASIA
+AhEBAxEB/8QAHAABAAICAwEAAAAAAAAAAAAAAAECAwQFBgcI/8QAUxAAAQMCAgUIBgUGCA0FAAAA
+AAECEQMEBRITFCFU0QYHMVORkpPSFiJSZKPhNkFRgbMVMjNhdIMXN0JFcXWksiMnNUZVZXOEoaLC
+w+JiZnKU4//EABsBAQADAQEBAQAAAAAAAAAAAAABBAUDAgYH/8QALhEBAAEDAwMCBAYDAQAAAAAA
+AAECAxEEEiEFMTJRYVJxscETFUFCodEiQ/CR/9oADAMBAAIRAxEAPwDwkFoEFpxVBaBAFQWgQBUF
+oEAVBaBAFQWgQBUFoEAVBaBAFQWgQBUFoEAVBaBAFQWgQBUFoEAVBaBAFQWgQBUFoEAVBaBAFQWg
+QBUFoEATAgtAgCsCC0CAKwILQIArAgtAgCsCC0CAKwILQIArAgtAgCsCC0CAKwILQIArAgtAgCsC
+C0CAKwILQIArAgtAgCsCC0CAKwILQIArAgtAgCsCC0CAKwILQIArAgtAgCYEFoEEoVgQWgQBWBBa
+BAFYEFoEAVgQWgQBWBBaBAFYEFoEAVgQWgQBWBBaBAFYEFoEAVgQWgQBWBBaBAFYEFoEAVgQWgQB
+WBBaBAFYEFoEAVgQWgQBWBBaBAFYEFoEATAgmBBIiBBMCAIgQTAgCIEEwIAiBBMCAIgQTAgCIEEw
+IAiBBMCAIgQTAgCIEEwIAiBBMCAIgQTAgCIEEwIAiBBMCAIgQTAgCIEEwIAiBBMCAIgQTAgCIEEw
+IAtAgmBAEQIJgQBECCYEARAgmBAEQIJgQBECCYEARAgmBAEQIJgQBECCYEARAgmBAEQIJgQBECCY
+EARAgmBAEQIJgQBECCYEARAgmBAEQIJgQBECCYEARAgmBAFoEEwIJQiBBMCAIgQTAgCIEEwIAiBB
+MCAIgQTAgCIEEwIAiBBMCAIgQTAgCIEEwIAiBBMCAIgQTAgCIEEwIAiBBMCAIgQTAgCIEEwIAiBB
+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
+  </binary>
+</FictionBook>

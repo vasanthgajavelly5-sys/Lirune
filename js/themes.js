@@ -104,6 +104,11 @@ const ThemeManager = (() => {
     document.documentElement.setAttribute('data-theme', themeName);
     document.body.setAttribute('data-theme', themeName);
 
+    // Write to localStorage immediately so the anti-flash <script> in index.html
+    // can apply the correct theme synchronously on next app launch, before IndexedDB
+    // is even opened — this eliminates the dark→light repaint on startup.
+    try { localStorage.setItem('lirune-app-theme', themeName); } catch (_) {}
+
     if (persist) {
       NoveraDB.setPref('appTheme', themeName);
     }

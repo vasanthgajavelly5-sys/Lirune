@@ -22,6 +22,14 @@ const EpubLoader = (() => {
   let currentZoom = 100;
   let currentActiveHref = '';
   let locationsPromise = null;
+  let currentSessionToken = 0;
+
+  // Prevent epub.js dangling promises on destroyed books from leaking unhandled rejections
+  window.addEventListener('unhandledrejection', (event) => {
+    if (event.reason && /replaceCss/i.test(event.reason?.message || '')) {
+      event.preventDefault();
+    }
+  });
 
   const HIGHLIGHT_COLORS = {
     yellow: '#FBBF24',
@@ -201,8 +209,17 @@ const EpubLoader = (() => {
   }
 
   async function destroy() {
+    currentSessionToken++;
     try { rendition?.destroy(); } catch { /* already gone */ }
-    try { currentBook?.destroy(); } catch { /* already gone */ }
+    try {
+      if (currentBook) {
+        const dummyResources = { replaceCss: () => Promise.resolve([]), replacements: () => Promise.resolve([]), substitute: () => '' };
+        const bookToDestroy = currentBook;
+        bookToDestroy.resources = dummyResources;
+        try { bookToDestroy.destroy(); } catch { /* already gone */ }
+        bookToDestroy.resources = dummyResources;
+      }
+    } catch { /* already gone */ }
     rendition = null;
     currentBook = null;
     currentBookData = null;
@@ -214,7 +231,12 @@ const EpubLoader = (() => {
     currentActiveHref = '';
     isBookLoaded = false;
     const container = document.getElementById('epub-container');
-    if (container) container.innerHTML = '';
+    if (container) {
+      container.innerHTML = '';
+      container.classList.remove('flow-scrolled');
+    }
+    document.getElementById('reader-view')?.classList.remove('flow-scrolled');
+    document.getElementById('reader-main')?.classList.remove('flow-scrolled');
   }
 
   function getLastLocation() {
@@ -227,6 +249,7 @@ const EpubLoader = (() => {
       return false;
     }
 
+    const sessionToken = ++currentSessionToken;
     currentBookData = bookRecord;
     annotationCache = [];
     searchGeneration++;
@@ -241,7 +264,11 @@ const EpubLoader = (() => {
         rendition = null;
       }
       if (currentBook) {
-        currentBook.destroy();
+        const dummyResources = { replaceCss: () => Promise.resolve([]), replacements: () => Promise.resolve([]), substitute: () => '' };
+        const bookToDestroy = currentBook;
+        bookToDestroy.resources = dummyResources;
+        try { bookToDestroy.destroy(); } catch { /* ignore */ }
+        bookToDestroy.resources = dummyResources;
         currentBook = null;
       }
     } catch (cleanErr) {
@@ -257,25 +284,42 @@ const EpubLoader = (() => {
       if (!epubData && bookRecord.storageId && window.noveraDesktop?.readManagedBook) {
         epubData = await window.noveraDesktop.readManagedBook(bookRecord.storageId, bookRecord.fingerprint, bookRecord.fileSize);
       }
+      if (sessionToken !== currentSessionToken) return false;
       if (!epubData) throw new Error('Book file is unavailable');
 
       // Initialize ePub instance from the selected book only.
       currentBook = ePub(epubData);
+      if (currentBook && typeof currentBook.replacements === 'function') {
+        const origReplacements = currentBook.replacements.bind(currentBook);
+        currentBook.replacements = function() {
+          if (!this.resources) return Promise.resolve();
+          return this.resources.replacements().then(() => {
+            if (this.resources && typeof this.resources.replaceCss === 'function') {
+              return this.resources.replaceCss();
+            }
+            return [];
+          }).catch(() => []);
+        };
+      }
 
       const settings = ReaderSettings.getSettings();
+      const isScrolled = settings.flow === 'scrolled';
 
       // Keep the reader viewport aware of the active epub.js flow. This lets
       // keyboard scrolling target the EPUB document rather than the outer app.
       if (container) {
-        container.classList.toggle('flow-scrolled', settings.flow === 'scrolled');
+        container.classList.toggle('flow-scrolled', isScrolled);
       }
+      document.getElementById('reader-view')?.classList.toggle('flow-scrolled', isScrolled);
+      document.getElementById('reader-main')?.classList.toggle('flow-scrolled', isScrolled);
 
-      // Render book into container
+      // Render book into container using continuous manager when scrolled
       rendition = currentBook.renderTo('epub-container', {
         width: '100%',
         height: '100%',
-        flow: settings.flow || 'paginated',
-        spread: settings.spread || 'auto',
+        flow: isScrolled ? 'scrolled' : (settings.flow || 'paginated'),
+        manager: isScrolled ? 'continuous' : 'default',
+        spread: isScrolled ? 'none' : (settings.spread || 'auto'),
         allowScriptedContent: false
       });
 
@@ -294,6 +338,7 @@ const EpubLoader = (() => {
       // Display initial location (saved CFI or target or beginning)
       const startCfi = targetCfi || bookRecord.currentCfi || undefined;
       await rendition.display(startCfi);
+      if (sessionToken !== currentSessionToken) return false;
 
       // Extract TOC navigation
       loadTableOfContents();
@@ -309,10 +354,12 @@ const EpubLoader = (() => {
       locationsPromise = currentBook.ready
         .then(() => currentBook.locations.generate(1000))
         .then(() => {
+          if (sessionToken !== currentSessionToken) return null;
           updateProgress();
           return currentBook.locations;
         })
         .catch(err => {
+          if (sessionToken !== currentSessionToken) return null;
           console.warn('Location generation warning:', err);
           return null;
         });
@@ -458,8 +505,11 @@ const EpubLoader = (() => {
   function bindIframeKeyboard(doc) {
     if (!doc) return;
     doc.addEventListener('keydown', (e) => {
-      // Forward keydown event to main window handler
-      window.dispatchEvent(new KeyboardEvent('keydown', {
+      // Dispatch to the outer window so the main app keyboard handler fires.
+      // Some Electron/Chromium builds swallow synthetic events whose target is
+      // the Window object, so we also call the global handler directly as a
+      // guaranteed fallback — this is what makes arrow-key navigation reliable.
+      const synthetic = new KeyboardEvent('keydown', {
         key: e.key,
         code: e.code,
         keyCode: e.keyCode,
@@ -467,8 +517,42 @@ const EpubLoader = (() => {
         metaKey: e.metaKey,
         shiftKey: e.shiftKey,
         altKey: e.altKey,
-        bubbles: true
-      }));
+        bubbles: true,
+        cancelable: true
+      });
+      // Attempt via standard event dispatch first.
+      const handled = !window.dispatchEvent(synthetic);
+      if (!handled) {
+        // Direct fallback: replicate only the reader navigation actions that
+        // arrow keys perform, scoped so we never double-fire other shortcuts.
+        const navKeys = new Set(['ArrowRight','ArrowLeft','ArrowUp','ArrowDown','PageDown','PageUp',' ']);
+        if (navKeys.has(e.key) && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          const flow = (typeof ReaderSettings !== 'undefined')
+            ? ReaderSettings.getSettings().flow : 'paginated';
+          const inScrollMode = flow === 'scrolled';
+          const pageDelta = Math.max(200, Math.round(window.innerHeight * 0.75));
+          if (e.key === 'ArrowRight') {
+            inScrollMode ? scrollBy(0, 150) : next();
+          } else if (e.key === 'ArrowLeft') {
+            inScrollMode ? scrollBy(0, -150) : prev();
+          } else if (e.key === 'PageDown') {
+            inScrollMode ? scrollBy(0, pageDelta) : next();
+          } else if (e.key === 'PageUp') {
+            inScrollMode ? scrollBy(0, -pageDelta) : prev();
+          } else if (e.key === 'ArrowDown') {
+            inScrollMode ? scrollBy(0, 100) : next();
+          } else if (e.key === 'ArrowUp') {
+            inScrollMode ? scrollBy(0, -100) : prev();
+          } else if (e.key === ' ') {
+            if (inScrollMode) {
+              scrollBy(0, e.shiftKey ? -pageDelta : pageDelta);
+            } else {
+              e.shiftKey ? prev() : next();
+            }
+          }
+        }
+      }
     });
   }
 
@@ -479,7 +563,16 @@ const EpubLoader = (() => {
     let gestureLocked = false;
     doc.addEventListener('wheel', (event) => {
       const settings = ReaderSettings.getSettings();
-      if (settings.flow === 'scrolled' || Math.abs(event.deltaY) < 8 || gestureLocked) return;
+      if (settings.flow === 'scrolled') {
+        const scroller = rendition?.manager?.container || document.querySelector('#epub-container .epub-container');
+        if (scroller) {
+          scroller.scrollTop += event.deltaY;
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (Math.abs(event.deltaY) < 8 || gestureLocked) return;
 
       event.preventDefault();
       gestureLocked = true;
@@ -652,6 +745,7 @@ const EpubLoader = (() => {
 
   async function loadTableOfContents() {
     if (!currentBook) return;
+    const token = currentSessionToken;
 
     currentNavigation = [];
     lastRenderedSections = [];
@@ -659,6 +753,7 @@ const EpubLoader = (() => {
 
     try {
       const navigation = await currentBook.loaded.navigation;
+      if (token !== currentSessionToken) return;
       const entries = [];
 
       function flattenToc(items, depth = 0) {
@@ -916,6 +1011,12 @@ const EpubLoader = (() => {
       return;
     }
 
+    const scroller = rendition?.manager?.container || document.querySelector('#epub-container .epub-container') || document.getElementById('epub-container');
+    if (scroller) {
+      scroller.scrollBy({ left: dx, top: dy, behavior: 'auto' });
+      return;
+    }
+
     const iframe = document.querySelector('#epub-container iframe');
     const doc = iframe?.contentDocument;
     const win = iframe?.contentWindow;
@@ -990,7 +1091,10 @@ const EpubLoader = (() => {
   }
 
   async function loadAnnotations(bookId) {
-    annotationCache = await NoveraDB.getAnnotations(bookId);
+    const token = currentSessionToken;
+    const annotations = await NoveraDB.getAnnotations(bookId);
+    if (token !== currentSessionToken || !currentBookData || currentBookData.id !== bookId) return;
+    annotationCache = annotations;
     annotationCache.forEach(ann => {
       if (ann.type === 'highlight' || ann.type === 'note') {
         renderHighlightOnPage(ann);

@@ -84,7 +84,7 @@ const App = (() => {
     window.addEventListener('scroll', clamp, true);
   }
 
-  function openLibrary() {
+  async function openLibrary() {
     activeView = 'library';
     closeAllPanels();
     document.body.classList.remove('reader-open');
@@ -99,6 +99,12 @@ const App = (() => {
     if (libView) {
       libView.classList.remove('hidden');
       libView.classList.add('active');
+    }
+
+    try {
+      await Reader.close();
+    } catch (e) {
+      console.warn('Reader close warning:', e);
     }
 
     // Refresh library state (progress, recent books)
@@ -601,23 +607,54 @@ const App = (() => {
 
   function handleReaderKeys(e) {
     const flow = ReaderSettings.getSettings().flow;
+    const inScrollMode = flow === 'scrolled';
+    const pageDelta = Math.max(200, Math.round(window.innerHeight * 0.75));
 
-    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key.toLowerCase() === 'j' || (e.key === ' ' && !e.shiftKey)) {
-      if (e.key === ' ' && e.shiftKey) return;
-      e.preventDefault();
-      Reader.next();
-    } else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key.toLowerCase() === 'k' || (e.key === ' ' && e.shiftKey)) {
-      e.preventDefault();
-      Reader.prev();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (flow === 'scrolled') Reader.scrollBy(0, -100);
-      else Reader.prev();
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (flow === 'scrolled') Reader.scrollBy(0, 100);
-      else Reader.next();
-    } else if (e.key.toLowerCase() === 't') {
+    if (inScrollMode) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        Reader.scrollBy(0, 100);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        Reader.scrollBy(0, -100);
+      } else if (e.key === 'PageDown' || (e.key === ' ' && !e.shiftKey)) {
+        e.preventDefault();
+        Reader.scrollBy(0, pageDelta);
+      } else if (e.key === 'PageUp' || (e.key === ' ' && e.shiftKey)) {
+        e.preventDefault();
+        Reader.scrollBy(0, -pageDelta);
+      } else if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        Reader.scrollBy(0, 150);
+      } else if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        Reader.scrollBy(0, -150);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        const scroller = document.querySelector('#epub-container .epub-container') || document.querySelector('.doc-viewport') || document.getElementById('epub-container');
+        if (scroller) scroller.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        const scroller = document.querySelector('#epub-container .epub-container') || document.querySelector('.doc-viewport') || document.getElementById('epub-container');
+        if (scroller) scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+      }
+    } else {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key.toLowerCase() === 'j' || (e.key === ' ' && !e.shiftKey)) {
+        e.preventDefault();
+        Reader.next();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key.toLowerCase() === 'k' || (e.key === ' ' && e.shiftKey)) {
+        e.preventDefault();
+        Reader.prev();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        Reader.prev();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        Reader.next();
+      }
+    }
+
+    if (e.key.toLowerCase() === 't') {
       e.preventDefault();
       Reader.renderNavigation();
       toggleDrawer(document.getElementById('toc-panel'));

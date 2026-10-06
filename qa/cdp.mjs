@@ -197,18 +197,18 @@ export async function launch({ freshUserData = false, extraArgs = [] } = {}) {
   if (freshUserData && fs.existsSync(userDataDir)) {
     fs.rmSync(userDataDir, { recursive: true, force: true });
   }
-  const electron = path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
+  const isPackaged = Boolean(process.env.LIRUNE_BIN);
+  const electron = process.env.LIRUNE_BIN
+    || path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
   // This machine exports ELECTRON_RUN_AS_NODE=1 for tooling, which would make
   // the Electron binary behave as plain Node. The launcher BAT does not inherit
   // that, so strip it here to reproduce real application behaviour.
   const env = { ...process.env, ELECTRON_ENABLE_LOGGING: '1' };
   delete env.ELECTRON_RUN_AS_NODE;
-  const child = spawn(electron, [
-    '.',
-    `--remote-debugging-port=${PORT}`,
-    `--user-data-dir=${userDataDir}`,
-    ...extraArgs
-  ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env });
+  const launchArgs = isPackaged
+    ? [`--remote-debugging-port=${PORT}`, `--user-data-dir=${userDataDir}`, ...extraArgs]
+    : ['.', `--remote-debugging-port=${PORT}`, `--user-data-dir=${userDataDir}`, ...extraArgs];
+  const child = spawn(electron, launchArgs, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env });
 
   let stdout = '';
   child.stdout.on('data', d => { stdout += d.toString(); });

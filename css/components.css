@@ -83,13 +83,13 @@
     border-color var(--dur-fast) var(--ease-io),
     color var(--dur-fast) var(--ease-io),
     box-shadow var(--dur-fast) var(--ease-io),
-    transform var(--dur-fast) var(--ease-spring);
+    transform var(--dur-fast) var(--ease-out);
   user-select: none;
   -webkit-user-select: none;
   outline: none;
 }
 .btn svg { width: 15px; height: 15px; }
-.btn:active { transform: scale(0.97); }
+.btn:active { transform: translateY(1px); }
 
 .btn-sm {
   height: 30px;
@@ -651,8 +651,8 @@
   animation: modalIn var(--dur-normal) var(--ease-out);
 }
 @keyframes modalIn {
-  from { opacity:0; transform:scale(0.92) translateY(24px); }
-  to   { opacity:1; transform:scale(1) translateY(0); }
+  from { opacity:0; transform:translateY(6px); }
+  to   { opacity:1; transform:translateY(0); }
 }
 
 .modal-header {
@@ -1126,11 +1126,11 @@ body.reader-open .zoom-overlay-home { display: none; }
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background var(--dur-fast), color var(--dur-fast), transform var(--dur-fast) var(--ease-spring);
+  transition: background var(--dur-fast), color var(--dur-fast), transform var(--dur-fast) var(--ease-out);
 }
 .zoom-btn:hover:not(:disabled) {
   background: var(--bg-active);
-  transform: scale(1.08);
+  transform: translateY(-1px);
 }
-.zoom-btn:active:not(:disabled) { transform: scale(0.95); }
+.zoom-btn:active:not(:disabled) { transform: translateY(1px); }
 .zoom-btn:disabled { opacity: 0.35; cursor: not-allowed; }

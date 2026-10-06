@@ -111,21 +111,31 @@ const Library = (() => {
     return getViewState();
   }
 
+  let libraryInitialized = false;
+  let libraryInitPromise = null;
+
   async function init() {
-    await loadViewPrefs();
-    isListView = viewPrefs.view === 'list';
-    currentSort = viewPrefs.sortBy;
-    bindDropAndFileInput();
-    bindSearchAndSort();
-    bindModals();
-    // The Storage & Data controls live in the settings panel and are owned by
-    // SettingsUI, which needs to show progress, previews and confirmations that
-    // a plain listener callback cannot.
-    collections = await NoveraDB.getCollections();
-    renderCollectionOptions();
-    applyViewAttributes();
-    syncViewControls();
-    await loadAndRenderBooks();
+    let resolveInit;
+    libraryInitPromise = new Promise(r => { resolveInit = r; });
+    try {
+      await loadViewPrefs();
+      isListView = viewPrefs.view === 'list';
+      currentSort = viewPrefs.sortBy;
+      bindDropAndFileInput();
+      bindSearchAndSort();
+      bindModals();
+      // The Storage & Data controls live in the settings panel and are owned by
+      // SettingsUI, which needs to show progress, previews and confirmations that
+      // a plain listener callback cannot.
+      collections = await NoveraDB.getCollections();
+      renderCollectionOptions();
+      applyViewAttributes();
+      syncViewControls();
+      await loadAndRenderBooks();
+      libraryInitialized = true;
+    } finally {
+      resolveInit();
+    }
   }
 
   async function loadAndRenderBooks() {
@@ -199,29 +209,15 @@ const Library = (() => {
     renderBookCards(filtered);
   }
 
-  function renderContinueReading() {
-    const continueSection = document.getElementById('continue-section');
-    const continueCard = document.getElementById('continue-card');
-    if (!continueSection || !continueCard) return;
-
-    // Find the book with most recent lastReadDate > 0
-    const readBooks = allBooks.filter(b => b.lastReadDate && b.lastReadDate > 0);
-    if (readBooks.length === 0) {
-      continueSection.classList.remove('visible');
-      return;
-    }
-
-    readBooks.sort((a, b) => b.lastReadDate - a.lastReadDate);
-    const book = readBooks[0];
-
-    const pct = book.progressPercent || 0;
+  function createContinueCardHtml(book) {
+    const pct = Math.max(0, Math.min(100, Math.round(Number(book.progressPercent) || 0)));
     const coverHtml = book.coverDataUrl
       ? `<img src="${book.coverDataUrl}" alt="${Utils.escapeHTML(book.title)}" class="continue-cover">`
       : `<div class="continue-cover-fallback">
            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
          </div>`;
 
-    continueCard.innerHTML = `
+    return `
       ${coverHtml}
       <div class="continue-info">
         <div class="continue-title">${Utils.escapeHTML(book.title)}</div>
@@ -238,8 +234,60 @@ const Library = (() => {
         <button class="btn btn-accent btn-sm" aria-label="Resume reading">Resume</button>
       </div>
     `;
+  }
 
-    continueCard.onclick = () => App.openReader(book.id);
+  function renderContinueReading() {
+    const continueSection = document.getElementById('continue-section');
+    if (!continueSection) return;
+
+    // Find books with recent lastReadDate > 0
+    const readBooks = allBooks.filter(b => b.lastReadDate && b.lastReadDate > 0);
+    if (readBooks.length === 0) {
+      continueSection.classList.remove('visible');
+      return;
+    }
+
+    readBooks.sort((a, b) => (b.lastReadDate || 0) - (a.lastReadDate || 0));
+
+    // Deduplicate by book id and take up to 2 books
+    const seenIds = new Set();
+    const booksToDisplay = [];
+    for (const b of readBooks) {
+      if (!seenIds.has(b.id)) {
+        seenIds.add(b.id);
+        booksToDisplay.push(b);
+        if (booksToDisplay.length === 2) break;
+      }
+    }
+
+    const cardsWrapper = document.getElementById('continue-cards');
+    if (cardsWrapper) {
+      cardsWrapper.innerHTML = '';
+      booksToDisplay.forEach((b, idx) => {
+        const card = document.createElement('div');
+        card.className = 'continue-card';
+        if (idx === 0) card.id = 'continue-card';
+        card.tabIndex = 0;
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-label', `Continue reading ${b.title || 'current book'}`);
+        card.innerHTML = createContinueCardHtml(b);
+        card.onclick = () => App.openReader(b.id);
+        card.onkeydown = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            App.openReader(b.id);
+          }
+        };
+        cardsWrapper.appendChild(card);
+      });
+    } else {
+      const continueCard = document.getElementById('continue-card');
+      if (continueCard) {
+        continueCard.innerHTML = createContinueCardHtml(booksToDisplay[0]);
+        continueCard.onclick = () => App.openReader(booksToDisplay[0].id);
+      }
+    }
+
     continueSection.classList.add('visible');
   }
 
@@ -352,6 +400,9 @@ const RENDER_BATCH_SIZE = 50;
     const pct = book.progressPercent || 0;
     const unavailable = book.availability === 'unavailable';
     const formatLabel = BookFormat.describe(book.format || 'epub');
+    const chapterText = Number.isFinite(Number(book.chapterCount))
+      ? `${book.chapterCount} ${book.format === 'cbz' || book.format === 'pdf' ? (book.chapterCount === 1 ? 'page' : 'pages') : (book.chapterCount === 1 ? 'chapter' : 'chapters')}`
+      : (book.format === 'epub' ? 'Chapters' : 'Pages');
 
     const coverHtml = book.coverDataUrl
       ? `<img src="${book.coverDataUrl}" alt="${Utils.escapeHTML(book.title)}" class="card-cover" loading="lazy">`
@@ -364,45 +415,74 @@ const RENDER_BATCH_SIZE = 50;
       <div class="card-cover-wrap">
         ${coverHtml}
         ${unavailable ? '<div class="card-badge card-badge-warning">File unavailable</div>' : ''}
-          <button class="card-fav ${book.favorite ? 'visible' : ''}" type="button" aria-label="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}" title="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${book.favorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.8 8.8c0 5.5-8.8 10.2-8.8 10.2S3.2 14.3 3.2 8.8A4.6 4.6 0 0 1 12 6.1a4.6 4.6 0 0 1 8.8 2.7Z"/></svg>
-          </button>
+        <button class="card-fav ${book.favorite ? 'visible' : ''}" type="button" aria-label="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}" title="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${book.favorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.8 8.8c0 5.5-8.8 10.2-8.8 10.2S3.2 14.3 3.2 8.8A4.6 4.6 0 0 1 12 6.1a4.6 4.6 0 0 1 8.8 2.7Z"/></svg>
+        </button>
         ${pct > 0 ? `<div class="card-progress-bar"><div class="card-progress-fill" style="width:${pct}%"></div></div>` : ''}
         ${pct >= 100 ? '<div class="card-badge">Completed</div>' : (pct > 0 ? `<div class="card-badge">${pct}%</div>` : '')}
         <span class="card-format-badge" title="File format">${Utils.escapeHTML(formatLabel)}</span>
       </div>
       <div class="card-meta">
         <div class="card-title" title="${Utils.escapeHTML(book.title)}">${Utils.escapeHTML(book.title)}</div>
-        <div class="card-author">${Utils.escapeHTML(book.author || 'Unknown')}</div>
+        <div class="card-author-row">
+          <span class="card-author">${Utils.escapeHTML(book.author || 'Unknown')}</span>
+          <span class="card-format-pill">${Utils.escapeHTML(formatLabel)}</span>
+        </div>
+        <div class="card-progress-list">
+          <div class="card-progress-list-bar">
+            <div class="card-progress-list-fill" style="width:${pct}%"></div>
+          </div>
+          <span class="card-progress-pct">${pct > 0 ? `${pct}%` : 'Unread'}</span>
+        </div>
       </div>
-      ${isListView ? `<div class="card-chapter-count ${Number.isFinite(Number(book.chapterCount)) ? '' : 'is-loading'}">${Number.isFinite(Number(book.chapterCount)) ? `${book.chapterCount} ${book.format === 'cbz' || book.format === 'pdf' ? (book.chapterCount === 1 ? 'page' : 'pages') : (book.chapterCount === 1 ? 'chapter' : 'chapters')}` : (book.format === 'epub' ? 'Chapters' : 'Pages')}</div>` : ''}
+      <div class="card-chapter-count ${Number.isFinite(Number(book.chapterCount)) ? '' : 'is-loading'}">${chapterText}</div>
+      <div class="card-actions">
+        <button class="card-fav-btn ${book.favorite ? 'is-fav' : ''}" type="button" aria-label="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}" title="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${book.favorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.8 8.8c0 5.5-8.8 10.2-8.8 10.2S3.2 14.3 3.2 8.8A4.6 4.6 0 0 1 12 6.1a4.6 4.6 0 0 1 8.8 2.7Z"/></svg>
+        </button>
+        <button class="list-read-btn" type="button" aria-label="${pct > 0 ? 'Resume reading' : 'Read book'}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          <span>${pct > 0 ? 'Resume' : 'Read'}</span>
+        </button>
+        <button class="card-more-btn" type="button" aria-label="Book options" title="Book options">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+        </button>
+      </div>
     `;
 
-    const favoriteButton = card.querySelector('.card-fav');
-    favoriteButton?.addEventListener('click', async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      favoriteButton.disabled = true;
-      try {
-        const newFavorite = await NoveraDB.updateFavorite(book.id, !book.favorite);
-        if (newFavorite === null) return;
-        book.favorite = newFavorite;
-        updateFavoriteCard(card, newFavorite);
-        // The favourites view is built from the favourite flag, so clearing a
-        // favourite has to take the card out of it. Any other filter is
-        // unaffected, and re-rendering 300 cards for an unrelated view would
-        // be wasted work.
-        if (currentFilter === 'favorites') renderLibraryUI();
-      } catch (error) {
-        console.error('Failed to update favorite:', error);
-        Utils.toast('Could not update favorite', 'error');
-      } finally {
-        favoriteButton.disabled = false;
-      }
+    const favButtons = card.querySelectorAll('.card-fav, .card-fav-btn');
+    favButtons.forEach(btn => {
+      btn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        favButtons.forEach(b => { b.disabled = true; });
+        try {
+          const newFavorite = await NoveraDB.updateFavorite(book.id, !book.favorite);
+          if (newFavorite === null) return;
+          book.favorite = newFavorite;
+          updateFavoriteCard(card, newFavorite);
+          if (currentFilter === 'favorites') renderLibraryUI();
+        } catch (error) {
+          console.error('Failed to update favorite:', error);
+          Utils.toast('Could not update favorite', 'error');
+        } finally {
+          favButtons.forEach(b => { b.disabled = false; });
+        }
+      });
+    });
+
+    card.querySelector('.list-read-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      App.openReader(book.id);
+    });
+
+    card.querySelector('.card-more-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openContextMenu(e.clientX, e.clientY, book);
     });
 
     // Click to open book
-    card.addEventListener('click', (e) => {
+    card.addEventListener('click', () => {
       App.openReader(book.id);
     });
 
@@ -441,12 +521,21 @@ const RENDER_BATCH_SIZE = 50;
 
   function updateFavoriteCard(card, isFavorite) {
     const favBtn = card.querySelector('.card-fav');
-    if (!favBtn) return;
-    favBtn.classList.toggle('visible', isFavorite);
-    favBtn.setAttribute('aria-label', isFavorite ? 'Remove from favorites' : 'Add to favorites');
-    favBtn.setAttribute('title', isFavorite ? 'Remove from favorites' : 'Add to favorites');
-    const svg = favBtn.querySelector('svg');
-    if (svg) svg.setAttribute('fill', isFavorite ? 'currentColor' : 'none');
+    if (favBtn) {
+      favBtn.classList.toggle('visible', isFavorite);
+      favBtn.setAttribute('aria-label', isFavorite ? 'Remove from favorites' : 'Add to favorites');
+      favBtn.setAttribute('title', isFavorite ? 'Remove from favorites' : 'Add to favorites');
+      const svg = favBtn.querySelector('svg');
+      if (svg) svg.setAttribute('fill', isFavorite ? 'currentColor' : 'none');
+    }
+    const favListBtn = card.querySelector('.card-fav-btn');
+    if (favListBtn) {
+      favListBtn.classList.toggle('is-fav', isFavorite);
+      favListBtn.setAttribute('aria-label', isFavorite ? 'Remove from favorites' : 'Add to favorites');
+      favListBtn.setAttribute('title', isFavorite ? 'Remove from favorites' : 'Add to favorites');
+      const svg = favListBtn.querySelector('svg');
+      if (svg) svg.setAttribute('fill', isFavorite ? 'currentColor' : 'none');
+    }
   }
 
   /**
@@ -555,27 +644,87 @@ const RENDER_BATCH_SIZE = 50;
       });
     }
 
-    // Windows OS launch / Double-click EPUB file listener
-    if (window.noveraDesktop && window.noveraDesktop.onOpenFile) {
-      window.noveraDesktop.onOpenFile(async (filePath) => {
-        Utils.toast('Opening book from Windows...', 'info');
-        const existing = allBooks.find(b => b.sourcePath === filePath || b.diskPath === filePath);
+    async function openBookFromFilePath(filePath) {
+      if (!filePath) return;
+      if (!libraryInitialized && libraryInitPromise) {
+        await libraryInitPromise;
+      }
+      Utils.toast('Opening book...', 'info');
+
+      const normalizedTarget = String(filePath).toLowerCase();
+      // 1. Check if book already matches by path
+      let existing = allBooks.find(b =>
+        (b.sourcePath && b.sourcePath.toLowerCase() === normalizedTarget) ||
+        (b.diskPath && b.diskPath.toLowerCase() === normalizedTarget)
+      );
+
+      if (existing) {
+        App.openReader(existing.id);
+        return;
+      }
+
+      // 2. Read file to check fingerprint / import
+      try {
+        const file = await window.noveraDesktop.readBookFile(filePath);
+        if (!file?.data) throw new Error('Could not read file data');
+
+        const format = await BookFormat.detect(file.name, file.data);
+        if (!format.supported) {
+          Utils.toast(`${format.label} files are not supported.`, 'error');
+          return;
+        }
+
+        const fingerprint = await getFingerprint(file.data, file.size || file.data.byteLength, file.name);
+
+        // Check if book already exists in allBooks by fingerprint
+        existing = allBooks.find(b => b.fingerprint && b.fingerprint === fingerprint);
         if (existing) {
+          if (!existing.sourcePath) {
+            existing.sourcePath = filePath;
+            await NoveraDB.updateBook(existing.id, { sourcePath: filePath });
+          }
           App.openReader(existing.id);
           return;
         }
 
-        try {
-          const file = await window.noveraDesktop.readBookFile(filePath);
-          await processNativeFiles([file]);
-          await loadAndRenderBooks();
-          const imported = allBooks.find(b => b.sourcePath === file.path);
-          if (imported) App.openReader(imported.id);
-        } catch (err) {
-          console.error('Failed to open EPUB from Windows:', err);
-          Utils.toast('Could not open the selected EPUB', 'error');
+        // New book: import and open immediately
+        const bookData = await parseBookMetadata(file.data, file.name, file.size, format);
+        bookData.fingerprint = fingerprint;
+        bookData.format = format.id;
+        bookData.sourcePath = filePath;
+
+        if (window.noveraDesktop?.saveBookToStorage) {
+          const extension = BookFormat.extensionOf(file.name) || 'epub';
+          const res = await window.noveraDesktop.saveBookToStorage(file.name, file.data, storageIdFor(fingerprint, extension));
+          if (res?.success) {
+            bookData.storageId = res.storageId;
+          }
         }
+
+        const savedBook = await NoveraDB.saveBook(bookData);
+        allBooks.unshift(savedBook);
+        renderLibraryUI();
+        App.openReader(savedBook.id);
+      } catch (err) {
+        console.error('Failed to open book from OS:', err);
+        Utils.toast('Could not open the selected file', 'error');
+      }
+    }
+
+    // Windows OS launch / Double-click EPUB file listener
+    if (window.noveraDesktop && window.noveraDesktop.onOpenFile) {
+      window.noveraDesktop.onOpenFile((filePath) => {
+        openBookFromFilePath(filePath);
       });
+    }
+
+    if (window.noveraDesktop && window.noveraDesktop.signalRendererReady) {
+      window.noveraDesktop.signalRendererReady().then(async () => {
+        const pending = await window.noveraDesktop.getPendingOpenFile?.();
+        if (pending) {
+          openBookFromFilePath(pending);
+        }
+      }).catch(err => console.warn('Could not signal renderer ready:', err));
     }
 
     // Drag-and-drop on entire document
@@ -660,12 +809,27 @@ const RENDER_BATCH_SIZE = 50;
       try {
         const completed = Math.round((index / fileList.length) * 100);
         updateProgress?.(completed, `Importing ${index + 1} of ${fileList.length}: ${file.name}`);
-        const existing = allBooks.find(book => book.sourcePath === file.path || book.diskPath === file.path);
+        const normalized = (file.path || '').toLowerCase();
+        const existing = allBooks.find(book =>
+          (book.sourcePath && book.sourcePath.toLowerCase() === normalized) ||
+          (book.diskPath && book.diskPath.toLowerCase() === normalized)
+        );
         if (existing) {
           continue;
         }
 
-        const imported = await importOneFile(file.data, file.name, file.size, file.path);
+        let fileData = file.data;
+        if (!fileData && file.path && window.noveraDesktop?.readBookFile) {
+          const res = await window.noveraDesktop.readBookFile(file.path);
+          fileData = res?.data;
+        }
+        if (!fileData) {
+          errors.push({ name: file.name, error: 'Could not read file' });
+          continue;
+        }
+
+        const imported = await importOneFile(fileData, file.name, file.size, file.path);
+        fileData = null; // Release buffer immediately to free memory
         if (imported === 'duplicate') continue;
         if (imported === 'skipped') {
           errors.push({ name: file.name, error: 'Unsupported file type' });
@@ -814,6 +978,9 @@ const RENDER_BATCH_SIZE = 50;
         case 'fb2': return parseFb2Metadata(arrayBuffer, record);
         case 'cbz': return await parseCbzMetadata(arrayBuffer, record);
         case 'txt': return parseTextMetadata(arrayBuffer, record);
+        case 'docx': return await parseDocxMetadata(arrayBuffer, record);
+        case 'odt': return await parseOdtMetadata(arrayBuffer, record);
+        case 'rtf': return parseRtfMetadata(arrayBuffer, record);
         default: return record;
       }
     } catch (error) {
@@ -938,6 +1105,76 @@ const RENDER_BATCH_SIZE = 50;
     if (lines.length && lines[0].length <= 120) {
       record.title = lines[0].replace(/^(title|book)\s*:\s*/i, '');
       if (lines[1] && lines[1].length <= 120) record.author = lines[1].replace(/^(author|by)\s*:?\s*/i, '');
+    }
+    return record;
+  }
+
+  async function parseDocxMetadata(arrayBuffer, record) {
+    if (typeof JSZip === 'undefined') return record;
+    try {
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const coreFile = zip.file('docProps/core.xml');
+      if (coreFile) {
+        const xml = await coreFile.async('text');
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        const title = doc.querySelector('title')?.textContent?.trim();
+        const creator = doc.querySelector('creator')?.textContent?.trim();
+        const description = doc.querySelector('description')?.textContent?.trim();
+        if (title) record.title = title;
+        if (creator) record.author = creator;
+        if (description) record.description = description.slice(0, 400);
+      }
+      // Count headings for chapter count
+      const docFile = zip.file('word/document.xml');
+      if (docFile) {
+        const xml = await docFile.async('text');
+        const headings = (xml.match(/<w:pStyle w:val="Heading/g) || []).length;
+        record.chapterCount = headings || null;
+      }
+    } catch (e) {
+      console.warn('DOCX metadata extraction failed:', e);
+    }
+    return record;
+  }
+
+  async function parseOdtMetadata(arrayBuffer, record) {
+    if (typeof JSZip === 'undefined') return record;
+    try {
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const metaFile = zip.file('meta.xml');
+      if (metaFile) {
+        const xml = await metaFile.async('text');
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        const title = doc.querySelector('title')?.textContent?.trim();
+        const creator = doc.querySelector('initial-creator,creator')?.textContent?.trim();
+        const description = doc.querySelector('description')?.textContent?.trim();
+        if (title) record.title = title;
+        if (creator) record.author = creator;
+        if (description) record.description = description.slice(0, 400);
+      }
+      // Count headings in content.xml
+      const contentFile = zip.file('content.xml');
+      if (contentFile) {
+        const xml = await contentFile.async('text');
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        record.chapterCount = doc.querySelectorAll('h').length || null;
+      }
+    } catch (e) {
+      console.warn('ODT metadata extraction failed:', e);
+    }
+    return record;
+  }
+
+  function parseRtfMetadata(arrayBuffer, record) {
+    try {
+      const raw = new TextDecoder('windows-1252', { fatal: false }).decode(new Uint8Array(arrayBuffer));
+      // RTF stores the title inside {\info{\title ...}} groups
+      const titleMatch = /\\title\s+([^\\{}]+)/i.exec(raw);
+      const authorMatch = /\\author\s+([^\\{}]+)/i.exec(raw);
+      if (titleMatch) record.title = titleMatch[1].trim().slice(0, 200);
+      if (authorMatch) record.author = authorMatch[1].trim().slice(0, 200);
+    } catch (e) {
+      console.warn('RTF metadata extraction failed:', e);
     }
     return record;
   }
@@ -2617,10 +2854,12 @@ a { color: inherit; text-decoration: underline; }
       };
 
       if (window.noveraDesktop?.saveBookToStorage) {
-        const storageId = `${await getFingerprint(arrayBuffer, arrayBuffer.byteLength, 'sample')}.epub`;
+        const fingerprint = await getFingerprint(arrayBuffer, arrayBuffer.byteLength, 'sample');
+        const storageId = `${fingerprint}.epub`;
         const result = await window.noveraDesktop.saveBookToStorage('welcome-to-lirune.epub', arrayBuffer, storageId);
         if (!result?.success) throw new Error(result?.error || 'Could not save sample book');
         sampleBook.storageId = result.storageId;
+        sampleBook.fingerprint = fingerprint;
       }
       await NoveraDB.saveBook(sampleBook);
       Utils.toast('Sample book added! Opening now...', 'success');

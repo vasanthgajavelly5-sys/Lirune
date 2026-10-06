@@ -84,6 +84,12 @@
   margin-bottom: var(--sp-4);
 }
 
+.continue-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+
 .continue-card {
   display: flex;
   align-items: center;
@@ -93,6 +99,7 @@
   border-radius: var(--r-xl);
   padding: var(--sp-4);
   cursor: pointer;
+  flex: 1 1 320px;
   transition:
     background var(--dur-fast),
     border-color var(--dur-fast),
@@ -597,8 +604,10 @@
 #books-grid[data-metadata='hidden'] .card-meta { padding: var(--sp-2) var(--sp-1) 0; }
 
 #books-grid.list-view {
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   gap: var(--sp-2);
+  grid-template-columns: none;
 }
 
 /* ── Book Card (grid mode) ───────────────────────────────── */
@@ -607,13 +616,13 @@
   animation: cardIn var(--dur-normal) var(--ease-out);
 }
 @keyframes cardIn {
-  from { opacity:0; transform:translateY(16px) scale(0.97); }
-  to   { opacity:1; transform:translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .book-card:hover .card-cover-wrap {
-  transform: translateY(-6px) scale(1.01);
-  box-shadow: var(--shadow-xl), var(--shadow-glow);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card), var(--shadow-sm);
 }
 
 .card-cover-wrap {
@@ -624,8 +633,8 @@
   overflow: hidden;
   box-shadow: var(--shadow-card);
   transition:
-    transform var(--dur-normal) var(--ease-out),
-    box-shadow var(--dur-normal) var(--ease-io);
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-io);
   background: var(--bg-elevated);
 }
 .card-cover {
@@ -633,9 +642,9 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform var(--dur-slow) var(--ease-io);
+  transition: opacity var(--dur-fast) var(--ease-io);
 }
-.book-card:hover .card-cover { transform: scale(1.04); }
+.book-card:hover .card-cover { transform: none; }
 
 .card-cover-fallback {
   width: 100%;
@@ -782,7 +791,23 @@
 }
 
 /* ── Book Card (list mode) ───────────────────────────────── */
-.books-grid.list-view .book-card {
+/* ── Grid mode isolation (hide list-specific elements) ─────── */
+#books-grid:not(.list-view) .card-actions,
+#books-grid:not(.list-view) .card-chapter-count,
+#books-grid:not(.list-view) .card-progress-list,
+#books-grid:not(.list-view) .card-author-row .card-format-pill {
+  display: none !important;
+}
+
+/* ── Book Card (list mode) — True Horizontal Row List ─────── */
+#books-grid.list-view {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--sp-2) !important;
+  padding: var(--sp-2) var(--sp-6) var(--sp-8) !important;
+}
+
+#books-grid.list-view .book-card {
   display: flex;
   align-items: center;
   gap: var(--sp-4);
@@ -790,45 +815,93 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-lg);
   padding: var(--sp-3) var(--sp-4);
-  transition: border-color var(--dur-fast), background var(--dur-fast);
+  transition: border-color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast);
+  cursor: pointer;
+  box-sizing: border-box;
+  width: 100%;
+  animation: cardIn var(--dur-fast) var(--ease-out);
 }
-.books-grid.list-view .book-card:hover {
+
+#books-grid.list-view .book-card:hover {
   border-color: var(--border-default);
   background: var(--bg-hover);
-  transform: none;
+  transform: translateY(-1px);
 }
-.books-grid.list-view .card-cover-wrap {
+
+#books-grid.list-view .card-cover-wrap {
   width: 44px;
   height: 60px;
   flex-shrink: 0;
   aspect-ratio: unset;
   border-radius: var(--r-sm);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  background: var(--bg-elevated);
 }
-.books-grid.list-view .card-overlay  { display: none; }
-.books-grid.list-view .card-progress { display: none; }
-.books-grid.list-view .card-more     { display: none; }
-.books-grid.list-view .card-meta     { flex: 1; padding: 0; min-width: 0; }
-.books-grid.list-view .card-title    { -webkit-line-clamp: 1; font-size: 0.9375rem; }
-.books-grid.list-view .card-author   { margin-top: 2px; }
-.books-grid.list-view .card-chapter-count {
-  flex: 0 0 96px;
-  min-width: 96px;
-  text-align: right;
-  font-size: 0.78rem;
-  font-weight: 500;
-  color: var(--text-tertiary);
+
+#books-grid.list-view .card-cover-wrap .card-fav,
+#books-grid.list-view .card-cover-wrap .card-progress-bar,
+#books-grid.list-view .card-cover-wrap .card-badge,
+#books-grid.list-view .card-cover-wrap .card-format-badge {
+  display: none !important;
+}
+
+#books-grid.list-view .card-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#books-grid.list-view .card-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: 1;
 }
-.books-grid.list-view .card-chapter-count.is-loading {
-  opacity: 0.55;
-}
-.books-grid.list-view .card-progress-list {
+
+#books-grid.list-view .card-author-row {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  margin-top: 6px;
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  min-width: 0;
 }
-.books-grid.list-view .card-progress-list-bar {
+
+#books-grid.list-view .card-author {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 0;
+}
+
+#books-grid.list-view .card-format-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+#books-grid.list-view .card-progress-list {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: 4px;
+}
+
+#books-grid.list-view .card-progress-list-bar {
   width: 80px;
   height: 3px;
   background: var(--border-default);
@@ -836,15 +909,66 @@
   overflow: hidden;
   flex-shrink: 0;
 }
-.books-grid.list-view .card-progress-list-fill {
+
+#books-grid.list-view .card-progress-list-fill {
   height: 100%;
   background: var(--gradient-accent);
 }
-.books-grid.list-view .card-progress-pct {
-  font-size: 0.73rem;
+
+#books-grid.list-view .card-progress-pct {
+  font-size: 0.72rem;
   color: var(--text-tertiary);
+  font-weight: 500;
 }
-.books-grid.list-view .list-read-btn {
+
+#books-grid.list-view .card-chapter-count {
+  flex: 0 0 100px;
+  min-width: 80px;
+  text-align: right;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+#books-grid.list-view .card-chapter-count.is-loading {
+  opacity: 0.55;
+}
+
+#books-grid.list-view .card-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+#books-grid.list-view .card-fav-btn,
+#books-grid.list-view .card-more-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--dur-fast);
+}
+
+#books-grid.list-view .card-fav-btn:hover,
+#books-grid.list-view .card-more-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+#books-grid.list-view .card-fav-btn.is-fav {
+  color: var(--status-warning, #f59e0b);
+}
+
+#books-grid.list-view .list-read-btn {
   flex-shrink: 0;
   height: 32px;
   padding: 0 var(--sp-3);
@@ -857,10 +981,45 @@
   font-family: var(--font-ui);
   cursor: pointer;
   transition: all var(--dur-fast);
-  display: flex; align-items: center; gap: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
-.books-grid.list-view .list-read-btn:hover {
+
+#books-grid.list-view .list-read-btn:hover {
   background: var(--accent-subtle-h);
+}
+
+/* Compact density list mode */
+#books-grid[data-density='compact'].list-view {
+  gap: 4px !important;
+}
+
+#books-grid[data-density='compact'].list-view .book-card {
+  padding: var(--sp-2) var(--sp-3);
+  gap: var(--sp-3);
+}
+
+#books-grid[data-density='compact'].list-view .card-cover-wrap {
+  width: 34px;
+  height: 46px;
+}
+
+#books-grid[data-density='compact'].list-view .card-title {
+  font-size: 0.85rem;
+}
+
+/* Responsive list view */
+@media (max-width: 720px) {
+  #books-grid.list-view .card-chapter-count {
+    display: none;
+  }
+  #books-grid.list-view .list-read-btn span {
+    display: none;
+  }
+  #books-grid.list-view .list-read-btn {
+    padding: 0 var(--sp-2);
+  }
 }
 
 /* ── Empty search state ──────────────────────────────────── */

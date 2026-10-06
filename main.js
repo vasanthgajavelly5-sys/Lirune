@@ -8,14 +8,20 @@ const { fingerprintBuffer, storageIdForFingerprint, isStorageId } = require('./s
 
 // Formats the application can open. Kept in sync with js/formats.js; the
 // renderer performs the authoritative content-based detection.
-const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz'];
-const OPENABLE_EXTENSIONS = [...SUPPORTED_EXTENSIONS, 'mobi', 'azw', 'azw3', 'cbr'];
+const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf'];
+const OPENABLE_EXTENSIONS = [...SUPPORTED_EXTENSIONS, 'mobi', 'azw', 'azw3', 'cbr', 'doc'];
 
 let mainWindow = null;
 let pendingOpenFile = null;
+let isRendererReady = false;
 const pendingBookReadPaths = new Set();
 const EXPECTED_SHELL_PATH = path.resolve(__dirname, 'index.html');
 const EXPECTED_SHELL_URL = pathToFileURL(EXPECTED_SHELL_PATH).toString();
+
+function normalizePath(p) {
+  if (typeof p !== 'string' || !p) return '';
+  return path.resolve(p).toLowerCase();
+}
 
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -39,22 +45,35 @@ if (!gotTheLock) {
 }
 
 function extractBookArg(args) {
-  for (const arg of args) {
-    if (typeof arg !== 'string') continue;
+  if (!Array.isArray(args)) return null;
+  for (const rawArg of args) {
+    if (typeof rawArg !== 'string') continue;
+    let arg = rawArg.trim();
+    if ((arg.startsWith('"') && arg.endsWith('"')) || (arg.startsWith("'") && arg.endsWith("'"))) {
+      arg = arg.slice(1, -1).trim();
+    }
+    if (!arg || arg.startsWith('--') || arg.startsWith('-')) continue;
     const ext = path.extname(arg).slice(1).toLowerCase();
     if (!OPENABLE_EXTENSIONS.includes(ext)) continue;
-    if (fs.existsSync(arg)) return path.resolve(arg);
+    try {
+      if (fs.existsSync(arg) && fs.statSync(arg).isFile()) {
+        return path.resolve(arg);
+      }
+    } catch (_) {}
   }
   return null;
 }
 
 function dispatchOpenFile(filePath) {
-  if (!mainWindow || mainWindow.webContents.isLoading()) {
-    pendingOpenFile = filePath;
+  if (!filePath) return;
+  const resolved = path.resolve(filePath);
+  pendingBookReadPaths.add(normalizePath(resolved));
+  pendingBookReadPaths.add(resolved);
+  if (!mainWindow || !isRendererReady) {
+    pendingOpenFile = resolved;
     return;
   }
-  pendingBookReadPaths.add(path.resolve(filePath));
-  mainWindow.webContents.send('open-file-from-os', filePath);
+  mainWindow.webContents.send('open-file-from-os', resolved);
 }
 
 function isManagedBookPath(filePath) {
@@ -187,11 +206,16 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
 
-    // If a book was passed at launch, dispatch it now
+    // If a book was passed at launch, store it in pendingOpenFile so renderer receives it once ready
     const initialFile = pendingOpenFile || extractBookArg(process.argv);
     if (initialFile) {
-      pendingOpenFile = null;
-      dispatchOpenFile(initialFile);
+      pendingOpenFile = path.resolve(initialFile);
+      pendingBookReadPaths.add(normalizePath(pendingOpenFile));
+      pendingBookReadPaths.add(pendingOpenFile);
+      if (isRendererReady) {
+        dispatchOpenFile(pendingOpenFile);
+        pendingOpenFile = null;
+      }
     }
   });
 
@@ -258,29 +282,30 @@ ipcMain.handle('dialog:open-files', async (event) => {
     return { canceled: true, files: [] };
   }
 
-  const loadedFiles = [];
+  const descriptors = [];
   const errors = [];
   for (const filePath of result.filePaths) {
     try {
-      const buffer = fs.readFileSync(filePath);
-      await validateBookBuffer(buffer, path.extname(filePath).slice(1).toLowerCase());
-      const name = path.basename(filePath);
-      loadedFiles.push({
-        name,
-        path: filePath,
-        data: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
-        size: buffer.length
-      });
+      const resolved = path.resolve(filePath);
+      if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+        pendingBookReadPaths.add(normalizePath(resolved));
+        pendingBookReadPaths.add(resolved);
+        descriptors.push({
+          name: path.basename(resolved),
+          path: resolved,
+          size: fs.statSync(resolved).size
+        });
+      }
     } catch (e) {
-      console.error('Error reading file:', filePath, e);
+      console.error('Error reading file info:', filePath, e);
       errors.push({ name: path.basename(filePath), error: e.message });
     }
   }
 
-  return { canceled: false, files: loadedFiles, errors };
+  return { canceled: false, files: descriptors, errors };
 });
 
-// Native Windows Folder Dialog (batch import)
+// Native Windows Folder Dialog (batch import with controlled streaming memory)
 ipcMain.handle('dialog:open-folder', async (event) => {
   requireTrustedSender(event);
   if (!mainWindow) return { canceled: true, files: [] };
@@ -296,40 +321,43 @@ ipcMain.handle('dialog:open-folder', async (event) => {
   }
 
   const dirPath = result.filePaths[0];
-  const loadedFiles = [];
+  const descriptors = [];
   const errors = [];
 
-  async function scanDir(dir) {
+  function scanDir(dir) {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         if (entry.name.startsWith('.')) continue;
-        await scanDir(full);
-      } else if (entry.isFile() && SUPPORTED_EXTENSIONS.includes(path.extname(entry.name).slice(1).toLowerCase())) {
-        try {
-          const buffer = fs.readFileSync(full);
-          await validateBookBuffer(buffer, path.extname(entry.name).slice(1).toLowerCase());
-          loadedFiles.push({
-            name: entry.name,
-            path: full,
-            data: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
-            size: buffer.length
-          });
-        } catch (e) {
-          errors.push({ name: full, error: e.message });
+        scanDir(full);
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).slice(1).toLowerCase();
+        if (SUPPORTED_EXTENSIONS.includes(ext)) {
+          try {
+            const resolved = path.resolve(full);
+            pendingBookReadPaths.add(normalizePath(resolved));
+            pendingBookReadPaths.add(resolved);
+            descriptors.push({
+              name: entry.name,
+              path: resolved,
+              size: fs.statSync(resolved).size
+            });
+          } catch (e) {
+            errors.push({ name: full, error: e.message });
+          }
         }
       }
     }
   }
 
   try {
-    await scanDir(dirPath);
+    scanDir(dirPath);
   } catch (e) {
     console.error('Folder scan error:', e);
   }
 
-  return { canceled: false, files: loadedFiles, errors };
+  return { canceled: false, files: descriptors, errors };
 });
 
 /**
@@ -448,6 +476,31 @@ ipcMain.handle('app:get-version', (event) => {
   return app.getVersion();
 });
 
+ipcMain.handle('app:signal-renderer-ready', (event) => {
+  requireTrustedSender(event);
+  isRendererReady = true;
+  if (pendingOpenFile && mainWindow) {
+    const file = pendingOpenFile;
+    pendingOpenFile = null;
+    pendingBookReadPaths.add(normalizePath(file));
+    pendingBookReadPaths.add(file);
+    mainWindow.webContents.send('open-file-from-os', file);
+  }
+  return true;
+});
+
+ipcMain.handle('app:get-pending-file', (event) => {
+  requireTrustedSender(event);
+  const file = pendingOpenFile;
+  pendingOpenFile = null;
+  if (file) {
+    pendingBookReadPaths.add(normalizePath(file));
+    pendingBookReadPaths.add(file);
+    return file;
+  }
+  return null;
+});
+
 ipcMain.handle('fs:read-book', (event, filePath) => {
   requireTrustedSender(event);
   const extension = typeof filePath === 'string' ? path.extname(filePath).slice(1).toLowerCase() : '';
@@ -456,7 +509,8 @@ ipcMain.handle('fs:read-book', (event, filePath) => {
   }
 
   const resolvedPath = path.resolve(filePath);
-  if (!pendingBookReadPaths.delete(resolvedPath)) {
+  const normalized = normalizePath(resolvedPath);
+  if (!pendingBookReadPaths.delete(normalized) && !pendingBookReadPaths.delete(resolvedPath)) {
     throw new Error('This file was not opened by the operating system');
   }
   if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {

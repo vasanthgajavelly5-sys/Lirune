@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('noveraDesktop', {
   onOpenFile: (callback) => {
     ipcRenderer.on('open-file-from-os', (_event, filePath) => callback(filePath));
   },
+  signalRendererReady: () => ipcRenderer.invoke('app:signal-renderer-ready'),
+  getPendingOpenFile: () => ipcRenderer.invoke('app:get-pending-file'),
   onNativeFullscreenChanged: (callback) => {
     ipcRenderer.on('native-fullscreen-changed', (_event, isFullscreen) => callback(Boolean(isFullscreen)));
   }

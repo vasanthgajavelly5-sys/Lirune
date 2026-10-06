@@ -40,10 +40,12 @@ const EpubReaderAdapter = (() => {
    * close/reopen cycle exactly and lands in the same place every time.
    */
   async _alignWithSavedProgress() {
+    const recordId = this.record.id;
     const savedPercent = Number(this.record.progressPercent);
     if (!Number.isFinite(savedPercent) || savedPercent <= 0 || savedPercent >= 100) return;
     try {
       await EpubLoader.waitForLocations();
+      if (this.record.id !== recordId || !EpubLoader.isLoaded()) return;
       const cfi = EpubLoader.cfiFromPercentage(savedPercent);
       if (cfi) await EpubLoader.goTo(cfi);
     } catch (error) {

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "lint": "node scripts/lint.js",
-    "test": "node --test",
+    "test": "node --test \"test/*.test.js\"",
     "audit": "npm audit --omit=dev",
     "pack": "electron-builder --dir",
     "validate:corpus": "node scripts/validate-corpus.js",
@@ -115,7 +115,8 @@
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
       "installerHeaderIcon": "assets/icon.ico",
-      "license": "LICENSE"
+      "license": "LICENSE",
+      "include": "build/installer.nsh"
     }
   },
   "dependencies": {

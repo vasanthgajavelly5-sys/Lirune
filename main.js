@@ -1,10 +1,15 @@
 const { app, BrowserWindow, dialog, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
 const JSZip = require('jszip');
 const crypto = require('crypto');
 const { fingerprintBuffer, storageIdForFingerprint, isStorageId } = require('./scripts/storage-contract');
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.novera.reader');
+}
 
 // Formats the application can open. Kept in sync with js/formats.js; the
 // renderer performs the authoritative content-based detection.
@@ -30,12 +35,18 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', (event, argv, workingDirectory) => {
-    // Focus existing window
-    if (mainWindow) {
+    // Focus existing window or recreate if window was closed
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
       mainWindow.focus();
 
-      // Check if a book file path was passed in the arguments
+      const filePath = extractBookArg(argv);
+      if (filePath) {
+        dispatchOpenFile(filePath);
+      }
+    } else {
+      createWindow();
       const filePath = extractBookArg(argv);
       if (filePath) {
         dispatchOpenFile(filePath);
@@ -62,6 +73,14 @@ function extractBookArg(args) {
     } catch (_) {}
   }
   return null;
+}
+
+// Extract initial book argument at cold launch as early as possible
+const coldLaunchArg = extractBookArg(process.argv);
+if (coldLaunchArg) {
+  pendingOpenFile = path.resolve(coldLaunchArg);
+  pendingBookReadPaths.add(normalizePath(pendingOpenFile));
+  pendingBookReadPaths.add(pendingOpenFile);
 }
 
 function dispatchOpenFile(filePath) {
@@ -203,7 +222,15 @@ function createWindow() {
   // Load the application
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
+  // Safety fallback: ensure window becomes visible even if ready-to-show is delayed by GPU/system
+  const showFallbackTimer = setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 3000);
+
   mainWindow.once('ready-to-show', () => {
+    clearTimeout(showFallbackTimer);
     mainWindow.show();
 
     // If a book was passed at launch, store it in pendingOpenFile so renderer receives it once ready
@@ -635,9 +662,34 @@ ipcMain.on('window:close', (event) => {
   mainWindow?.close();
 });
 
+function ensureWindowsRegistryAssociation() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  const exe = process.execPath;
+  const regCommands = [
+    ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe', '/v', 'FriendlyAppName', '/d', 'Lirune Reader', '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe\\shell\\open\\command', '/ve', '/d', `"${exe}" "%1"`, '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe\\SupportedTypes', '/v', '.epub', '/d', '', '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Lirune.epub', '/ve', '/d', 'EPUB Electronic Publication', '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Lirune.epub\\DefaultIcon', '/ve', '/d', `"${exe}",0`, '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Lirune.epub\\shell\\open\\command', '/ve', '/d', `"${exe}" "%1"`, '/f'],
+    ['add', 'HKCU\\Software\\Classes\\.epub', '/ve', '/d', 'Lirune.epub', '/f'],
+    ['add', 'HKCU\\Software\\Classes\\.epub\\OpenWithProgids', '/v', 'Lirune.epub', '/d', '', '/f'],
+    ['add', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.epub\\OpenWithProgids', '/v', 'Lirune.epub', '/d', '', '/f'],
+    ['add', 'HKCU\\Software\\Lirune Reader\\Capabilities', '/v', 'ApplicationName', '/d', 'Lirune Reader', '/f'],
+    ['add', 'HKCU\\Software\\Lirune Reader\\Capabilities\\FileAssociations', '/v', '.epub', '/d', 'Lirune.epub', '/f'],
+    ['add', 'HKCU\\Software\\RegisteredApplications', '/v', 'Lirune Reader', '/d', 'Software\\Lirune Reader\\Capabilities', '/f']
+  ];
+  for (const cmdArgs of regCommands) {
+    try {
+      spawn('reg', cmdArgs, { stdio: 'ignore', windowsHide: true });
+    } catch (_) {}
+  }
+}
+
 // Application Lifecycle
 app.whenReady().then(() => {
   createWindow();
+  ensureWindowsRegistryAssociation();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

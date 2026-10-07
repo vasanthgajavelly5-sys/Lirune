@@ -9,7 +9,7 @@
  * - Batch selection and progress reporting
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -37,7 +37,6 @@ import {
 } from '@/services/import/ZipInspectionService';
 import {
   RarInspectionService,
-  RarBookEntry,
 } from '@/services/import/RarInspectionService';
 import { ZipInspectionModal } from '@/components/ZipInspectionModal';
 import { getFormatFromExtension, BookFormat } from '@/models/Book';
@@ -176,7 +175,6 @@ export default function FilesScreen() {
   const { openBook } = useReaderStore();
   const {
     authorizedFolderUris,
-    setLastAuthorizedFolderUri,
     addAuthorizedFolderUri,
     scanAccessDismissed,
     setScanAccessDismissed,
@@ -539,7 +537,7 @@ export default function FilesScreen() {
         setScanNotice(describeScanAccess('limited'));
       }
     },
-    [handleScanPhone, scanAccessDismissed]
+    [handleScanPhone, setScanAccessDismissed]
   );
 
   /**
@@ -978,7 +976,7 @@ export default function FilesScreen() {
    * cleaned file name, which is what `DiscoveryMetadata` decides.
    */
   const handleViewableFilesChanged = useCallback(
-    ({ viewableItems }: { viewableItems: Array<{ item: DiscoveredFile }> }) => {
+    ({ viewableItems }: { viewableItems: { item: DiscoveredFile }[] }) => {
       const targets = viewableItems
         .map(({ item }) => item)
         .filter((item) => !item.title && !item.author && item.format !== 'zip' && item.format !== 'rar');

@@ -3,7 +3,7 @@
  * Detects format using file extension, MIME types, and binary magic bytes signatures.
  */
 
-import { BookFormat, FormatInfo, getFormatFromExtension, SUPPORTED_FORMATS } from '@/models/Book';
+import { FormatInfo, getFormatFromExtension, SUPPORTED_FORMATS } from '@/models/Book';
 
 export class FormatDetector {
   /**

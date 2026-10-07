@@ -9,7 +9,7 @@
  */
 
 import { create } from 'zustand';
-import { Bookmark, Highlight, Note, Book } from '@/models/Book';
+import { Book } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
 import { useLibraryStore } from '@/state/libraryStore';
 import { logger } from '@/utils/logger';

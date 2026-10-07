@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Lirune Reader Mobile — Edge Brightness Control & Keep Screen Awake
  *
  * Swipe up or down along the left or right screen edge to dim or brighten the

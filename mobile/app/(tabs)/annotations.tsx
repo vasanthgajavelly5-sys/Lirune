@@ -3,7 +3,7 @@
  * View, search, sort, and jump to all highlights, notes, and bookmarks across all books.
  */
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,

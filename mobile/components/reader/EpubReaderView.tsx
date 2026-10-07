@@ -794,6 +794,7 @@ export function EpubReaderView({
   // Release the archive on unmount and on every book switch.
   useEffect(() => {
     mountedRef.current = true;
+    const chapterCache = chapterCacheRef.current;
     return () => {
       mountedRef.current = false;
       drainTokenRef.current += 1;
@@ -813,7 +814,7 @@ export function EpubReaderView({
         archiveRef.current.dispose();
         archiveRef.current = null;
       }
-      chapterCacheRef.current.clear();
+      chapterCache.clear();
       packageRef.current = null;
     };
   }, [book.filePath, book.uri]);

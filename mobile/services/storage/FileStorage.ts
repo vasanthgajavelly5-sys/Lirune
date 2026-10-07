@@ -5,8 +5,7 @@
 
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { getContentUriAsync } from 'expo-file-system';
-import { File as ExpoFile } from 'expo-file-system';
+import { getContentUriAsync, File as ExpoFile } from 'expo-file-system';
 import { logger } from '@/utils/logger';
 import { nativeStorage } from './NativeStorageBridge';
 

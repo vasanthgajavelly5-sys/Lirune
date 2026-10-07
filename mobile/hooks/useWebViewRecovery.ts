@@ -15,12 +15,12 @@
 import { useCallback, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import type { WebViewProps } from 'react-native-webview';
+import { logger } from '@/utils/logger';
 
 type RecoveryProps = Pick<
   WebViewProps,
   'onRenderProcessGone' | 'onContentProcessDidTerminate' | 'onError' | 'onHttpError'
 >;
-import { logger } from '@/utils/logger';
 
 const TAG = 'WebViewRecovery';
 

@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
+import { Book, ReaderSettings, SearchResult } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { DocParser } from '@/services/doc/DocParser';
 import { SELECTION_WATCHER_JS, SelectionPayload } from '@/services/reader/selectionBridge';

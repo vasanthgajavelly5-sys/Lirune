@@ -7,7 +7,12 @@ import { create } from 'zustand';
 import {
   ReaderSettings,
   DEFAULT_READER_SETTINGS,
-  clampReaderBrightness,
+  AccessibilitySettings,
+  DEFAULT_ACCESSIBILITY,
+  AppThemeOption,
+  validateReaderSettings,
+  validateAccessibilitySettings,
+  validateAppTheme,
 } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
@@ -15,23 +20,8 @@ import { ttsService } from '@/services/tts/TtsService';
 
 const TAG = 'SettingsStore';
 
-export type AppThemeOption = 'dark' | 'light' | 'system';
-
-export interface AccessibilitySettings {
-  highContrast: boolean;
-  largeTouchTargets: boolean;
-  reduceMotion: boolean;
-  readerFontScaling: number;
-  screenReaderOptimized: boolean;
-}
-
-export const DEFAULT_ACCESSIBILITY: AccessibilitySettings = {
-  highContrast: false,
-  largeTouchTargets: false,
-  reduceMotion: false,
-  readerFontScaling: 1.0,
-  screenReaderOptimized: false,
-};
+export type { AppThemeOption, AccessibilitySettings };
+export { DEFAULT_ACCESSIBILITY, validateReaderSettings, validateAccessibilitySettings, validateAppTheme };
 
 interface SettingsState {
   appTheme: AppThemeOption;
@@ -99,24 +89,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       ]);
 
       const folderUris: string[] = Array.isArray(savedFolderUris) ? savedFolderUris.filter(Boolean) : [];
-
-      // A settings blob written before brightness/keep-awake existed has no such
-      // keys, and one written by an older build can hold a value outside the
-      // supported range; both are normalised rather than trusted.
-      const mergedReaderSettings: ReaderSettings = {
-        ...DEFAULT_READER_SETTINGS,
-        ...savedReaderSettings,
-      };
-      mergedReaderSettings.brightness = clampReaderBrightness(mergedReaderSettings.brightness);
-      if (typeof mergedReaderSettings.keepScreenAwake !== 'boolean') {
-        mergedReaderSettings.keepScreenAwake = DEFAULT_READER_SETTINGS.keepScreenAwake === true;
-      }
+      const validatedReaderSettings = validateReaderSettings(savedReaderSettings);
+      const validatedAccessibility = validateAccessibilitySettings(savedAccessibility);
+      const validatedTheme = validateAppTheme(savedAppTheme);
 
       set({
-        appTheme: savedAppTheme || 'light',
-        accentColor: savedAccent || '#EEECF8',
-        readerSettings: mergedReaderSettings,
-        accessibility: { ...DEFAULT_ACCESSIBILITY, ...savedAccessibility },
+        appTheme: validatedTheme,
+        accentColor: typeof savedAccent === 'string' && savedAccent.trim() ? savedAccent : '#EEECF8',
+        readerSettings: validatedReaderSettings,
+        accessibility: validatedAccessibility,
         lastAuthorizedFolderUri: savedFolderUri || folderUris[0] || null,
         authorizedFolderUris: folderUris,
         scanAccessDismissed: !!savedScanAccessDismissed,
@@ -131,10 +112,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setAppTheme: async (appTheme: AppThemeOption) => {
-    set({ appTheme });
+    const valid = validateAppTheme(appTheme);
+    set({ appTheme: valid });
     const repo = getBookRepository() as any;
     try {
-      await repo.setPreference?.('appTheme', appTheme);
+      await repo.setPreference?.('appTheme', valid);
     } catch (err) {
       logger.warn(TAG, 'Failed to persist appTheme', err);
     }
@@ -151,8 +133,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   updateReaderSettings: async (partial: Partial<ReaderSettings>) => {
-    const merged: ReaderSettings = { ...get().readerSettings, ...partial };
-    merged.brightness = clampReaderBrightness(merged.brightness);
+    const merged: ReaderSettings = validateReaderSettings({ ...get().readerSettings, ...partial });
     set({ readerSettings: merged });
 
     const repo = getBookRepository() as any;

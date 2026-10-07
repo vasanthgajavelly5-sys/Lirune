@@ -17,8 +17,6 @@ test('Format Matrix: Supported formats extension resolution', () => {
     { input: 'page.htm', expected: 'html' },
     { input: 'story.fb2', expected: 'fb2' },
     { input: 'comic.cbz', expected: 'cbz' },
-    { input: 'archive.zip', expected: 'zip' },
-    { input: 'archive.rar', expected: 'rar' },
     { input: 'book.mobi', expected: 'mobi' },
     { input: 'novel.azw', expected: 'azw' },
     { input: 'novel.azw3', expected: 'azw3' },
@@ -38,6 +36,18 @@ test('Format Matrix: Supported formats extension resolution', () => {
     const res = getFormatFromExtension(input);
     assert.equal(res.supported, true, `Expected ${input} to be supported`);
     assert.equal(res.id, expected, `Expected format id to be ${expected}`);
+  }
+
+  // Container archives are identified for import inspection, but unsupported as direct reading formats
+  const containerCases = [
+    { input: 'archive.zip', expected: 'zip' },
+    { input: 'archive.rar', expected: 'rar' },
+  ];
+  for (const { input, expected } of containerCases) {
+    const res = getFormatFromExtension(input);
+    assert.equal(res.supported, false, `Container ${input} must not be advertised as a direct book format`);
+    assert.equal(res.id, expected, `Expected format id to be ${expected}`);
+    assert.ok(res.reason?.includes('container'), `Expected container reason for ${input}`);
   }
 });
 

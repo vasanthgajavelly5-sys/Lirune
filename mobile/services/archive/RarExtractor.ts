@@ -82,30 +82,14 @@ export class RarExtractor {
           }
         }
 
-        offset += headerSize + addSize;
+        const advance = headerSize + addSize;
+        if (advance <= 0) break;
+        offset += advance;
       }
     } else {
-      // RAR 5.x signature found — scan for embedded image chunks or headers
-      // Extract entries where filename strings appear
-      const str = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-      const imageMatches = str.match(/([a-zA-Z0-9_\-/\\]+\.(jpg|jpeg|png|webp|gif))/gi) || [];
-      const seenNames = new Set<string>();
-
-      for (const rawName of imageMatches) {
-        const clean = rawName.replace(/\\/g, '/');
-        if (!seenNames.has(clean)) {
-          seenNames.add(clean);
-          entries.push({
-            name: clean,
-            size: 0,
-            packedSize: 0,
-            isStored: true,
-            offset: 0,
-            headerSize: 0,
-            data: new Uint8Array(),
-          });
-        }
-      }
+      // RAR 5.x signature found. RAR 5 uses a proprietary compression/header format
+      // that is not supported in this pure-TypeScript build without native unrar bindings.
+      throw new Error('Unsupported archive format: RAR5 format is not supported. Only RAR4 uncompressed (stored) archives are supported.');
     }
 
     return entries;

@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useStableInsets } from '@/hooks/useStableInsets';
 import * as FileSystem from 'expo-file-system/legacy';
+import { fileStorage } from '@/services/storage/FileStorage';
 import { Book, ReaderSettings } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { RarExtractor } from '@/services/archive/RarExtractor';
@@ -24,6 +25,17 @@ import { logger } from '@/utils/logger';
 const TAG = 'CbrReaderView';
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
 const TAP_SLOP = 12;
+const MAX_CBR_BYTES = 150 * 1024 * 1024; // 150MB safeguard
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  const CHUNK_SIZE = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+}
 
 interface CbrReaderViewProps {
   book: Book;
@@ -63,25 +75,30 @@ export function CbrReaderView({
       setCurrentPageIndex(0);
       try {
         const filePath = book.filePath || book.uri || '';
-        const base64 = await FileSystem.readAsStringAsync(filePath, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
+        const fileInfo = await FileSystem.getInfoAsync(filePath);
+        if (fileInfo.exists && fileInfo.size && fileInfo.size > MAX_CBR_BYTES) {
+          throw new Error(`Comic archive is too large (${Math.round(fileInfo.size / (1024 * 1024))} MB). Maximum supported size is 150 MB.`);
         }
 
+        const buffer = await fileStorage.readAsArrayBuffer(filePath);
+        const bytes = new Uint8Array(buffer);
+
         const entries = RarExtractor.inspect(bytes);
-        const imageEntries = entries
-          .filter((e) => {
-            const ext = e.name.split('.').pop()?.toLowerCase();
-            return ext && IMAGE_EXTENSIONS.includes(ext);
-          })
+        const allCandidates = entries.filter((e) => {
+          const ext = e.name.split('.').pop()?.toLowerCase();
+          return ext && IMAGE_EXTENSIONS.includes(ext);
+        });
+
+        if (allCandidates.length === 0) {
+          throw new Error('No images found in CBR archive.');
+        }
+
+        const imageEntries = allCandidates
+          .filter((e) => e.isStored && e.data && e.data.length > 0)
           .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
         if (imageEntries.length === 0) {
-          throw new Error('No images found in CBR archive.');
+          throw new Error('Compressed RAR/CBR archives are not supported. Only uncompressed (store-only) CBR archives or CBZ archives are supported.');
         }
 
         const cacheRoot = `${FileSystem.cacheDirectory || ''}cbr-${book.id}/`;
@@ -99,11 +116,8 @@ export function CbrReaderView({
 
           const info = await FileSystem.getInfoAsync(destPath);
           if (!info.exists && entry.data.length > 0) {
-            let b64 = '';
-            for (let b = 0; b < entry.data.length; b++) {
-              b64 += String.fromCharCode(entry.data[b]);
-            }
-            await FileSystem.writeAsStringAsync(destPath, btoa(b64), {
+            const b64 = uint8ArrayToBase64(entry.data);
+            await FileSystem.writeAsStringAsync(destPath, b64, {
               encoding: FileSystem.EncodingType.Base64,
             });
           }
@@ -117,7 +131,11 @@ export function CbrReaderView({
       } catch (err: any) {
         logger.error(TAG, 'Failed to extract CBR archive', err);
         if (!cancelled && isMountedRef.current) {
-          setLoadError(err?.message || 'Unable to open comic archive.');
+          let userMsg = err?.message || 'Unable to open comic archive.';
+          if (/RAR5/i.test(userMsg)) {
+            userMsg = 'RAR5 archives are not supported. Please convert to CBZ or uncompressed CBR.';
+          }
+          setLoadError(userMsg);
           setIsLoading(false);
         }
       }

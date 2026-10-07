@@ -23,7 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { AndroidConfig, withAppBuildGradle } = require('@expo/config-plugins');
+const { withAppBuildGradle } = require('@expo/config-plugins');
 
 const SIGNING_MARKER = 'LIRUNE_RELEASE_SIGNING';
 
@@ -44,6 +44,8 @@ function releaseSigningBlock() {
                 storePassword ${credentialExpressions('STORE_PASSWORD')}
                 keyAlias ${credentialExpressions('KEY_ALIAS')}
                 keyPassword ${credentialExpressions('KEY_PASSWORD')}
+            } else if (gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }) {
+                throw new GradleException("Release build failed: Missing release signing credentials (${CREDENTIAL_PREFIXES[0]}_* or ${CREDENTIAL_PREFIXES[1]}_*). Production release builds must fail closed when credentials are absent.")
             }
         }`;
 }

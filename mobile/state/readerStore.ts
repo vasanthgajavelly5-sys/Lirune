@@ -71,6 +71,12 @@ interface ReaderState {
   setAnnotationsVisible: (visible: boolean) => void;
 }
 
+let activeOpenSession = 0;
+
+export function getActiveOpenSession(): number {
+  return activeOpenSession;
+}
+
 export const useReaderStore = create<ReaderState>((set, get) => ({
   currentBook: null,
   progressPercent: 0,
@@ -95,8 +101,19 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   isAnnotationsVisible: false,
 
   openBook: async (book: Book) => {
-    logger.info(TAG, `Opening book: ${book.title}`);
+    const sessionId = ++activeOpenSession;
+    logger.info(TAG, `Opening book: ${book.title} [session #${sessionId}]`);
     const repo = getBookRepository();
+
+    const prevBook = get().currentBook;
+    if (prevBook && prevBook.id !== book.id) {
+      await get().flushPendingProgress();
+    }
+
+    if (sessionId !== activeOpenSession) {
+      logger.info(TAG, `Aborted opening book ${book.title}: superseded before query [session #${sessionId} vs active #${activeOpenSession}]`);
+      return;
+    }
 
     const [bookmarks, highlights, notes, savedProgress] = await Promise.all([
       repo.getBookmarks(book.id),
@@ -104,6 +121,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       repo.getNotes(book.id),
       repo.getReadingProgress(book.id),
     ]);
+
+    if (sessionId !== activeOpenSession) {
+      logger.info(TAG, `Discarded loaded state for ${book.title}: superseded after query [session #${sessionId} vs active #${activeOpenSession}]`);
+      return;
+    }
 
     set({
       currentBook: book,
@@ -127,6 +149,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   closeBook: async () => {
+    activeOpenSession++;
     const { currentBook } = get();
     if (currentBook) {
       await get().flushPendingProgress();

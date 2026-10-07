@@ -62,7 +62,12 @@ test('QA Real-File Corpus: Manifest and 54 Artifact Verification', async (t) => 
 
     // Verify format detection
     const detected = getFormatFromExtension(item.local_filename);
-    assert.equal(detected.supported, true, `Format of ${item.local_filename} must be recognized`);
+    if (item.format === 'ZIP' || item.format === 'RAR') {
+      assert.equal(detected.id, item.format.toLowerCase());
+      assert.equal(detected.supported, false, `Containers must not be advertised as direct book formats`);
+    } else {
+      assert.equal(detected.supported, true, `Format of ${item.local_filename} must be recognized`);
+    }
 
     // Execute engine parser verification per format family
     const uint8 = new Uint8Array(fileBytes);
@@ -89,8 +94,16 @@ test('QA Real-File Corpus: Manifest and 54 Artifact Verification', async (t) => 
         const chmDoc = ChmParser.parse(uint8);
         assert.ok(chmDoc.html.length > 0, `CHM HTML should be produced for ${item.local_filename}`);
       } else if (item.format === 'RAR' || item.format === 'CBR') {
-        const rarEntries = RarExtractor.inspect(uint8);
-        assert.ok(Array.isArray(rarEntries), `RAR entries list should be extracted for ${item.local_filename}`);
+        try {
+          const rarEntries = RarExtractor.inspect(uint8);
+          assert.ok(Array.isArray(rarEntries), `RAR entries list should be extracted for ${item.local_filename}`);
+        } catch (err: any) {
+          if (item.local_filename.includes('rar5')) {
+            assert.match(err.message, /RAR5/i, `RAR5 must be honestly identified as unsupported for ${item.local_filename}`);
+          } else {
+            throw err;
+          }
+        }
       }
     } catch (err) {
       assert.fail(`Parser failed for ${item.local_filename} (${item.format}): ${err}`);

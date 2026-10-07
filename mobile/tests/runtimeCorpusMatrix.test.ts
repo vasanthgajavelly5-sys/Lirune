@@ -49,8 +49,14 @@ test('54-Artifact 19-Dimension Runtime QA Matrix', async (t) => {
 
     // 1. DISCOVERY
     const det = getFormatFromExtension(filename);
-    assert.equal(det.supported, true, `Format discovery failed for ${filename}`);
-    fileRow.dimensions['DISCOVERY'] = 'PASS';
+    if (fmt === 'ZIP' || fmt === 'RAR') {
+      assert.equal(det.id, fmt.toLowerCase());
+      assert.equal(det.supported, false);
+      fileRow.dimensions['DISCOVERY'] = 'PASS (Container Archive)';
+    } else {
+      assert.equal(det.supported, true, `Format discovery failed for ${filename}`);
+      fileRow.dimensions['DISCOVERY'] = 'PASS';
+    }
 
     // 2. IMPORT & 5. METADATA
     let parsedDoc: any = null;
@@ -126,6 +132,7 @@ test('54-Artifact 19-Dimension Runtime QA Matrix', async (t) => {
 
     fileRow.dimensions['IMPORT'] = 'PASS';
     assert.ok(extractedTitle.length > 0, `Title must be extracted for ${filename}`);
+    assert.ok(extractedAuthor.length > 0, `Author must be valid for ${filename}`);
     fileRow.dimensions['METADATA'] = 'PASS';
 
     // 3. OPEN & 4. REOPEN require an installed Android app and are not

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lirune Reader",
     "slug": "lirune-reader",
-    "version": "4.7.0",
+    "version": "4.8.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "splash": {
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.lirune.reader",
-      "versionCode": 6,
+      "versionCode": 7,
       "adaptiveIcon": {
         "backgroundColor": "#1A1A1D",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -240,26 +240,6 @@
               "scheme": "file",
               "mimeType": "*/*",
               "pathPattern": ".*\\.cbr"
-            },
-            {
-              "scheme": "content",
-              "mimeType": "*/*",
-              "pathPattern": ".*\\.zip"
-            },
-            {
-              "scheme": "file",
-              "mimeType": "*/*",
-              "pathPattern": ".*\\.zip"
-            },
-            {
-              "scheme": "content",
-              "mimeType": "*/*",
-              "pathPattern": ".*\\.rar"
-            },
-            {
-              "scheme": "file",
-              "mimeType": "*/*",
-              "pathPattern": ".*\\.rar"
             }
           ],
           "category": [

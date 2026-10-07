@@ -1303,7 +1303,7 @@
       "size": 128,
       "sha256": "05a76d40987ca906718459170510cacf388a87fa08fcf349e008faa2dc3de5f4",
       "dimensions": {
-        "DISCOVERY": "PASS",
+        "DISCOVERY": "PASS (Container Archive)",
         "IMPORT": "PASS",
         "METADATA": "PASS",
         "OPEN": "NOT_RUN (Parser Matrix)",
@@ -1330,7 +1330,7 @@
       "size": 432,
       "sha256": "71a9d12168fc4ba7e58818d7d55f922d6fed1eb0ec24a5ead9f0de81a233a6fb",
       "dimensions": {
-        "DISCOVERY": "PASS",
+        "DISCOVERY": "PASS (Container Archive)",
         "IMPORT": "PASS",
         "METADATA": "PASS",
         "OPEN": "NOT_RUN (Parser Matrix)",
@@ -1357,7 +1357,7 @@
       "size": 576,
       "sha256": "cfcd094cf64c985be0ff4680838965aef64aafd47190219bceaf9402a0729830",
       "dimensions": {
-        "DISCOVERY": "PASS",
+        "DISCOVERY": "PASS (Container Archive)",
         "IMPORT": "PASS",
         "METADATA": "PASS",
         "OPEN": "NOT_RUN (Parser Matrix)",
@@ -1384,7 +1384,7 @@
       "size": 221,
       "sha256": "0944932546b994f282cdb3ac724112c312d406b4c1aecfe1eaf9e734e8f96aa2",
       "dimensions": {
-        "DISCOVERY": "PASS",
+        "DISCOVERY": "PASS (Container Archive)",
         "IMPORT": "PASS",
         "METADATA": "PASS",
         "OPEN": "NOT_RUN (Parser Matrix)",
@@ -1411,7 +1411,7 @@
       "size": 2285,
       "sha256": "9e42359428fe8d6c364536a3fe2ff4b705b4af63dfe0f56bd5cac8d042abd803",
       "dimensions": {
-        "DISCOVERY": "PASS",
+        "DISCOVERY": "PASS (Container Archive)",
         "IMPORT": "PASS",
         "METADATA": "PASS",
         "OPEN": "NOT_RUN (Parser Matrix)",
@@ -1438,7 +1438,7 @@
       "size": 300,
       "sha256": "224a3f0aacab5cbb140b72dde616280a871589f251b9147bdb55b49651661813",
       "dimensions": {
-        "DISCOVERY": "PASS",
+        "DISCOVERY": "PASS (Container Archive)",
         "IMPORT": "PASS",
         "METADATA": "PASS",
         "OPEN": "NOT_RUN (Parser Matrix)",

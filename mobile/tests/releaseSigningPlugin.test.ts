@@ -133,3 +133,11 @@ test('the plugin refuses a Kotlin build script instead of silently ignoring it',
     'the plugin states the one language it can patch'
   );
 });
+
+test('the release block fails closed with GradleException if credentials are missing on release tasks', () => {
+  const patched = addReleaseSigning(TEMPLATE);
+  assert.match(patched, /throw new GradleException/);
+  assert.match(patched, /Missing release signing credentials/);
+  assert.match(patched, /Production release builds must fail closed when credentials are absent/);
+});
+

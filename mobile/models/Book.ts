@@ -150,14 +150,16 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
     label: 'ZIP Container Archive',
     extensions: ['zip'],
     mime: 'application/zip',
-    supported: true,
+    supported: false,
+    reason: 'Archive container. Unpacks supported book formats upon import.',
   },
   rar: {
     id: 'rar',
     label: 'RAR Container Archive',
     extensions: ['rar'],
     mime: 'application/x-rar-compressed',
-    supported: true,
+    supported: false,
+    reason: 'Archive container. Unpacks supported book formats upon import.',
   },
 };
 
@@ -334,3 +336,93 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   brightness: 100,
   keepScreenAwake: true,
 };
+
+const VALID_THEMES = new Set([
+  'neutral', 'sepia', 'night', 'paper', 'contrast1', 'contrast2', 'contrast3', 'contrast4'
+]);
+const VALID_FLOWS = new Set(['paginated', 'scrolled']);
+const VALID_ALIGNMENTS = new Set(['left', 'center', 'right', 'justify']);
+const VALID_COLUMNS = new Set(['auto', 1, 2]);
+
+export function validateReaderSettings(raw: any): ReaderSettings {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_READER_SETTINGS };
+
+  const theme = VALID_THEMES.has(raw.theme) ? raw.theme : DEFAULT_READER_SETTINGS.theme;
+  const fontSize = typeof raw.fontSize === 'number' && Number.isFinite(raw.fontSize) && raw.fontSize >= 10 && raw.fontSize <= 48
+    ? Math.round(raw.fontSize)
+    : DEFAULT_READER_SETTINGS.fontSize;
+  const fontFamily = typeof raw.fontFamily === 'string' && raw.fontFamily.trim().length > 0
+    ? raw.fontFamily.trim()
+    : DEFAULT_READER_SETTINGS.fontFamily;
+  const lineHeight = typeof raw.lineHeight === 'number' && Number.isFinite(raw.lineHeight) && raw.lineHeight >= 1.0 && raw.lineHeight <= 2.8
+    ? Number(raw.lineHeight.toFixed(2))
+    : DEFAULT_READER_SETTINGS.lineHeight;
+  const paragraphSpacing = typeof raw.paragraphSpacing === 'number' && Number.isFinite(raw.paragraphSpacing) && raw.paragraphSpacing >= 0.2 && raw.paragraphSpacing <= 3.0
+    ? Number(raw.paragraphSpacing.toFixed(2))
+    : DEFAULT_READER_SETTINGS.paragraphSpacing;
+  const margin = typeof raw.margin === 'number' && Number.isFinite(raw.margin) && raw.margin >= 2 && raw.margin <= 48
+    ? Math.round(raw.margin)
+    : DEFAULT_READER_SETTINGS.margin;
+  const flow = VALID_FLOWS.has(raw.flow) ? raw.flow : DEFAULT_READER_SETTINGS.flow;
+  const alignment = VALID_ALIGNMENTS.has(raw.alignment) ? raw.alignment : DEFAULT_READER_SETTINGS.alignment;
+  const pageGap = typeof raw.pageGap === 'number' && Number.isFinite(raw.pageGap) && raw.pageGap >= 0 && raw.pageGap <= 48
+    ? Math.round(raw.pageGap)
+    : DEFAULT_READER_SETTINGS.pageGap;
+  const columns = VALID_COLUMNS.has(raw.columns) ? raw.columns : DEFAULT_READER_SETTINGS.columns;
+  const brightness = clampReaderBrightness(raw.brightness);
+  const keepScreenAwake = typeof raw.keepScreenAwake === 'boolean' ? raw.keepScreenAwake : (DEFAULT_READER_SETTINGS.keepScreenAwake ?? true);
+
+  return {
+    theme,
+    fontSize,
+    fontFamily,
+    lineHeight,
+    paragraphSpacing,
+    margin,
+    flow,
+    alignment,
+    pageGap,
+    columns,
+    brightness,
+    keepScreenAwake,
+  };
+}
+
+export interface AccessibilitySettings {
+  highContrast: boolean;
+  largeTouchTargets: boolean;
+  reduceMotion: boolean;
+  readerFontScaling: number;
+  screenReaderOptimized: boolean;
+}
+
+export const DEFAULT_ACCESSIBILITY: AccessibilitySettings = {
+  highContrast: false,
+  largeTouchTargets: false,
+  reduceMotion: false,
+  readerFontScaling: 1.0,
+  screenReaderOptimized: false,
+};
+
+export function validateAccessibilitySettings(raw: any): AccessibilitySettings {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_ACCESSIBILITY };
+
+  const scaling = typeof raw.readerFontScaling === 'number' && Number.isFinite(raw.readerFontScaling) && raw.readerFontScaling >= 0.5 && raw.readerFontScaling <= 2.5
+    ? raw.readerFontScaling
+    : DEFAULT_ACCESSIBILITY.readerFontScaling;
+
+  return {
+    highContrast: typeof raw.highContrast === 'boolean' ? raw.highContrast : DEFAULT_ACCESSIBILITY.highContrast,
+    largeTouchTargets: typeof raw.largeTouchTargets === 'boolean' ? raw.largeTouchTargets : DEFAULT_ACCESSIBILITY.largeTouchTargets,
+    reduceMotion: typeof raw.reduceMotion === 'boolean' ? raw.reduceMotion : DEFAULT_ACCESSIBILITY.reduceMotion,
+    readerFontScaling: scaling,
+    screenReaderOptimized: typeof raw.screenReaderOptimized === 'boolean' ? raw.screenReaderOptimized : DEFAULT_ACCESSIBILITY.screenReaderOptimized,
+  };
+}
+
+export type AppThemeOption = 'dark' | 'light' | 'system';
+
+export function validateAppTheme(raw: any): AppThemeOption {
+  if (raw === 'dark' || raw === 'light' || raw === 'system') return raw;
+  return 'light';
+}

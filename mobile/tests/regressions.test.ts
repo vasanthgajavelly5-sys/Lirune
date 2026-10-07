@@ -25,6 +25,9 @@ import {
 import { allowReaderNavigation } from '../services/security/webviewPolicy.ts';
 import { validateArchiveBudget } from '../services/security/archiveBudget.ts';
 import { sanitizeHtml } from '../services/security/sanitizeHtml.ts';
+import { RarExtractor } from '../services/archive/RarExtractor.ts';
+import { validateReaderSettings, validateAccessibilitySettings, validateAppTheme } from '../models/Book.ts';
+
 
 // ---------------------------------------------------------------------------
 // Document sanitization
@@ -461,5 +464,121 @@ test('deleteBookSync: removes deleted book ID from all collections', () => {
   assert.deepEqual(collections[0].bookIds, ['book-keep']);
   assert.deepEqual(collections[1].bookIds, []);
 });
+
+// ---------------------------------------------------------------------------
+// openBook Async State Race Condition Regression
+// ---------------------------------------------------------------------------
+
+test('openBookAsyncRace: stale async operation from earlier book does not overwrite active book', async () => {
+  let activeSessionId = 0;
+  let activeBookState: any = null;
+
+  async function mockOpenBook(bookId: string, delayMs: number) {
+    const sessionId = ++activeSessionId;
+    
+    // Simulate async database fetches
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    // Stale check
+    if (sessionId !== activeSessionId) {
+      return; // Discarded!
+    }
+
+    activeBookState = {
+      bookId,
+      sessionId,
+      openedAt: Date.now(),
+    };
+  }
+
+  // Open Book A with a slow query (50ms)
+  const promiseA = mockOpenBook('book-A', 50);
+
+  // Rapidly open Book B with a fast query (5ms) before Book A finishes
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const promiseB = mockOpenBook('book-B', 10);
+
+  await Promise.all([promiseA, promiseB]);
+
+  // Book B must remain the active book state!
+  assert.ok(activeBookState !== null);
+  assert.equal(activeBookState.bookId, 'book-B');
+});
+
+// ---------------------------------------------------------------------------
+// Settings Validation & Corrupted State Fallbacks
+// ---------------------------------------------------------------------------
+
+test('validateReaderSettings: safely falls back to valid defaults on corrupted persisted state', () => {
+  const corrupted = {
+    theme: 'hacked_dark_rainbow',
+    fontSize: -999,
+    fontFamily: 12345,
+    lineHeight: NaN,
+    paragraphSpacing: 'wide',
+    margin: 99999,
+    flow: 'infinite_3d',
+    alignment: 'diagonal',
+    pageGap: -50,
+    columns: 'four',
+    brightness: -200,
+    keepScreenAwake: 'yes_please',
+  };
+
+  const validated = validateReaderSettings(corrupted);
+
+  assert.equal(validated.theme, 'sepia');
+  assert.equal(validated.fontSize, 18);
+  assert.equal(validated.fontFamily, 'Serif');
+  assert.equal(validated.lineHeight, 1.6);
+  assert.equal(validated.paragraphSpacing, 1.0);
+  assert.equal(validated.margin, 20); // Default Standard margin
+  assert.equal(validated.flow, 'paginated');
+  assert.equal(validated.alignment, 'left');
+  assert.equal(validated.pageGap, 16);
+  assert.equal(validated.columns, 'auto');
+  assert.equal(validated.brightness, 10); // Clamped to MIN_READER_BRIGHTNESS
+  assert.equal(validated.keepScreenAwake, true);
+});
+
+test('validateAccessibilitySettings: bounds scaling and sanitizes booleans', () => {
+  const corrupted = {
+    highContrast: 'invalid',
+    readerFontScaling: 50.0,
+  };
+
+  const validated = validateAccessibilitySettings(corrupted);
+  assert.equal(validated.highContrast, false);
+  assert.equal(validated.readerFontScaling, 1.0);
+});
+
+test('validateAppTheme: enforces valid theme options', () => {
+  assert.equal(validateAppTheme('dark'), 'dark');
+  assert.equal(validateAppTheme('light'), 'light');
+  assert.equal(validateAppTheme('system'), 'system');
+  assert.equal(validateAppTheme('cyberpunk'), 'light');
+});
+
+// ---------------------------------------------------------------------------
+// RAR5 & Archive Truth in Support
+// ---------------------------------------------------------------------------
+
+test('RarExtractor: explicitly rejects RAR5 archives with clear unsupported error', () => {
+  // RAR5 signature: 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00
+  const rar5Bytes = new Uint8Array([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00, 0x00, 0x00]);
+
+  assert.throws(
+    () => RarExtractor.inspect(rar5Bytes),
+    (err: any) => {
+      return /RAR5/i.test(err?.message) && /not supported/i.test(err?.message);
+    }
+  );
+});
+
+test('RarExtractor: rejects invalid signatures', () => {
+  const badBytes = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
+  assert.throws(() => RarExtractor.inspect(badBytes), /Invalid RAR signature/);
+});
+
 
 

@@ -6,12 +6,10 @@
 import React, { useEffect, useRef } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { LogBox, AppState } from 'react-native';
+import { AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 
-// Suppress React Native dev overlay floating toasts (yellow/red boxes).
-// Console logs still appear in logcat; the app uses its own LiruneToast for user feedback.
-LogBox.ignoreAllLogs();
+
 import { ThemeProvider } from '@/theme/ThemeContext';
 import { useSettingsStore } from '@/state/settingsStore';
 import { useLibraryStore } from '@/state/libraryStore';

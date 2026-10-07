@@ -114,18 +114,6 @@ export function cleanTitleFromFilename(fileName: string): string {  const withou
   return withoutExt.replace(/[_-]+/g, ' ').trim() || 'Untitled Book';
 }
 
-function base64ToUint8(base64: string): Uint8Array {
-  if (typeof Buffer !== 'undefined') {
-    return new Uint8Array(Buffer.from(base64, 'base64'));
-  }
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
 
 function uint8ToBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== 'undefined') {
@@ -461,8 +449,8 @@ export class MetadataExtractor {
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
     try {
-      const base64 = await fileStorage.readAsBase64(filePath);
-      const zip = await JSZip.loadAsync(base64, { base64: true });
+      const buffer = await fileStorage.readAsArrayBuffer(filePath);
+      const zip = await JSZip.loadAsync(buffer);
 
       const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
       const imageFiles = Object.keys(zip.files)
@@ -628,8 +616,8 @@ export class MetadataExtractor {
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
     try {
-      const base64 = await fileStorage.readAsBase64(filePath);
-      const bytes = base64ToUint8(base64);
+      const buffer = await fileStorage.readAsArrayBuffer(filePath);
+      const bytes = new Uint8Array(buffer);
       const parsed = MobiParser.parse(bytes);
 
       let coverUrl: string | undefined;
@@ -760,8 +748,8 @@ export class MetadataExtractor {
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
     try {
-      const base64 = await fileStorage.readAsBase64(filePath);
-      const bytes = base64ToUint8(base64);
+      const buffer = await fileStorage.readAsArrayBuffer(filePath);
+      const bytes = new Uint8Array(buffer);
       const parsed = DocParser.parse(bytes);
       const title = parsed.metadata.title && parsed.metadata.title !== 'Untitled Word Document'
         ? parsed.metadata.title
@@ -787,8 +775,8 @@ export class MetadataExtractor {
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
     try {
-      const base64 = await fileStorage.readAsBase64(filePath);
-      const bytes = base64ToUint8(base64);
+      const buffer = await fileStorage.readAsArrayBuffer(filePath);
+      const bytes = new Uint8Array(buffer);
       const parsed = ChmParser.parse(bytes);
       const title = parsed.metadata.title && parsed.metadata.title !== 'Compiled HTML Help'
         ? parsed.metadata.title
@@ -814,8 +802,8 @@ export class MetadataExtractor {
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
     try {
-      const base64 = await fileStorage.readAsBase64(filePath);
-      const bytes = base64ToUint8(base64);
+      const buffer = await fileStorage.readAsArrayBuffer(filePath);
+      const bytes = new Uint8Array(buffer);
       const parsed = DjvuParser.parse(bytes);
       const title = parsed.metadata.title && parsed.metadata.title !== 'DjVu Document'
         ? parsed.metadata.title
@@ -842,14 +830,14 @@ export class MetadataExtractor {
   ): Promise<ExtractedMetadata> {
     const fallbackTitle = cleanTitleFromFilename(originalName);
     try {
-      const base64 = await fileStorage.readAsBase64(filePath);
-      const bytes = base64ToUint8(base64);
+      const buffer = await fileStorage.readAsArrayBuffer(filePath);
+      const bytes = new Uint8Array(buffer);
       const entries = RarExtractor.inspect(bytes);
 
       const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
       const imageEntries = entries.filter((e) => {
         const ext = e.name.split('.').pop()?.toLowerCase();
-        return ext && imageExtensions.includes(ext) && e.data && e.data.length > 0;
+        return ext && imageExtensions.includes(ext) && e.isStored && e.data && e.data.length > 0;
       });
 
       let coverUrl: string | undefined;

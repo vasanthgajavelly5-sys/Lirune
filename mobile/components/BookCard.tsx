@@ -53,6 +53,11 @@ export function BookCard({
   const badgeText = formatLabels[book.format] || book.format.toUpperCase();
 
   const [imageError, setImageError] = React.useState(false);
+
+  React.useEffect(() => {
+    setImageError(false);
+  }, [book.coverUrl, book.id]);
+
   const coverUri = book.coverUrl
     ? book.coverUrl.startsWith('file://') || book.coverUrl.startsWith('http') || book.coverUrl.startsWith('data:')
       ? book.coverUrl

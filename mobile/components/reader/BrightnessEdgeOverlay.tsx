@@ -125,6 +125,8 @@ export function BrightnessEdgeOverlay({
   // Built once, in an effect: creating a PanResponder during render would run
   // the gesture callbacks in the render phase.
   const [panHandlers, setPanHandlers] = useState<GestureResponderHandlers | null>(null);
+  const startBrightnessRef = useRef<number>(brightness);
+
   useEffect(() => {
     const responder = PanResponder.create({
       // A tap in the edge zone still belongs to the reader (it turns the page),
@@ -137,12 +139,15 @@ export function BrightnessEdgeOverlay({
         Math.abs(gesture.dy) > GESTURE_SLOP &&
         Math.abs(gesture.dy) > Math.abs(gesture.dx) * VERTICAL_BIAS,
       onPanResponderGrant: () => {
+        startBrightnessRef.current = readLive().brightness;
         showPill();
       },
       onPanResponderMove: (_event, gesture) => {
         const current = readLive();
+        // Drag UP: gesture.dy < 0 -> delta > 0 -> increases brightness
+        // Drag DOWN: gesture.dy > 0 -> delta < 0 -> decreases brightness
         const delta = Math.round(-gesture.dy / DP_PER_PERCENT);
-        const next = Math.min(100, Math.max(10, current.brightness - delta));
+        const next = Math.min(100, Math.max(10, startBrightnessRef.current + delta));
         if (next !== current.brightness) current.onBrightnessChange(next);
       },
       onPanResponderRelease: () => hidePill(PILL_HIDE_DELAY_MS),

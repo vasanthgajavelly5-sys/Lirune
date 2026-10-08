@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import * as DocumentPicker from 'expo-document-picker';
 import {
   useSettingsStore,
@@ -234,22 +235,6 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               );
             })}
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
-
-          {/* Active Accent Color */}
-          <View style={styles.infoRow}>
-            <View>
-              <Text style={[styles.rowLabel, { color: colors.text }]}>Active Lirune Accent</Text>
-              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
-                {isDark ? 'Signature Lilac-Glow (#EEECF8)' : 'Deep Amethyst (#4C4666)'}
-              </Text>
-            </View>
-            <View style={styles.accentBadge}>
-              <View style={[styles.accentDot, { backgroundColor: colors.accent }]} />
-              <Text style={[styles.accentCode, { color: colors.text }]}>{colors.accent}</Text>
-            </View>
           </View>
         </View>
 
@@ -787,7 +772,9 @@ export default function SettingsScreen() {
 
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Version</Text>
-            <Text style={[styles.rowValue, { color: colors.textSecondary }]}>4.0.4 (Android)</Text>
+            <Text style={[styles.rowValue, { color: colors.textSecondary }]}>
+              {Constants.expoConfig?.version ?? '4.9.0'} (Android)
+            </Text>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
@@ -963,20 +950,6 @@ const styles = StyleSheet.create({
   },
   segmentOptionText: {
     fontSize: 12,
-  },
-  accentBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  accentDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-  },
-  accentCode: {
-    fontSize: 13,
-    fontWeight: '600',
   },
   fontGrid: {
     flexDirection: 'row',

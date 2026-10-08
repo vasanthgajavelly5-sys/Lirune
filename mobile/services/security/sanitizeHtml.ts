@@ -35,6 +35,38 @@ const REMOVED_CONTENT_TAGS = new Set([
 /** Tags removed but whose children are kept. */
 const REMOVED_TAGS = new Set(['meta', 'base', 'link', 'head', 'html', 'body']);
 
+/** HTML void elements that have no end tag. */
+const HTML_VOID_ELEMENTS = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr',
+]);
+
+/** SVG elements that are allowed to be self-closing in XML/SVG. */
+const SVG_SELF_CLOSING_ELEMENTS = new Set([
+  'circle',
+  'ellipse',
+  'line',
+  'path',
+  'polygon',
+  'polyline',
+  'rect',
+  'stop',
+  'use',
+  'image',
+]);
+
 /**
  * SVG/SMIL elements that can act rather than draw.
  *
@@ -296,7 +328,18 @@ function sanitizeOnce(html: string, depth: number): string {
       continue;
     }
 
-    output += `${sanitizeAttributes(opening[2], opening[1])}${selfClosing ? ' />' : '>'}`;
+    if (selfClosing) {
+      if (HTML_VOID_ELEMENTS.has(name) || SVG_SELF_CLOSING_ELEMENTS.has(name)) {
+        output += `${sanitizeAttributes(opening[2], opening[1])} />`;
+      } else {
+        // In HTML5, non-void elements like <a id="..."/> or <span id="..."/> cannot be self-closing.
+        // If emitted as `<a ... />`, HTML5 treats them as unclosed start tags, causing the rest
+        // of the document to be accidentally wrapped inside them.
+        output += `${sanitizeAttributes(opening[2], opening[1])}></${opening[1]}>`;
+      }
+    } else {
+      output += `${sanitizeAttributes(opening[2], opening[1])}>`;
+    }
   }
 
   // Append remaining text after the last token

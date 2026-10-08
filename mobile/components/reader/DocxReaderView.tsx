@@ -99,6 +99,21 @@ export function DocxReaderView({
     };
   }, [book.filePath, book.uri, onContentTextChange, onTOCLoaded]);
 
+  useEffect(() => {
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        var el = document.getElementById('reader-theme-override');
+        if (el) {
+          el.textContent = 'html, body { background-color: ${palette.bg} !important; color: ${palette.text} !important; } p, div, span, h1, h2, h3, h4, li, blockquote { color: ${palette.text} !important; background-color: transparent !important; } a { color: ${palette.link} !important; }';
+        }
+        if (document.body) {
+          document.body.style.setProperty('background-color', '${palette.bg}', 'important');
+          document.body.style.setProperty('color', '${palette.text}', 'important');
+        }
+      })(); true;
+    `);
+  }, [palette.bg, palette.text, palette.link]);
+
   const handleMessage = useCallback(
     (e: WebViewMessageEvent) => {
       try {
@@ -176,6 +191,11 @@ export function DocxReaderView({
           margin-bottom: ${settings.paragraphSpacing || 1.0}em;
           text-indent: 1em;
         }
+      </style>
+      <style id="reader-theme-override">
+        html, body { background-color: ${palette.bg} !important; color: ${palette.text} !important; }
+        p, div, span, h1, h2, h3, h4, li, blockquote { color: ${palette.text} !important; background-color: transparent !important; }
+        a { color: ${palette.link} !important; }
       </style>
     </head>
     <body>

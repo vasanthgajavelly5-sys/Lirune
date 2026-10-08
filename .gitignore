@@ -67,4 +67,12 @@ mobile/internal/inspect_epub.js
 mobile/internal/test_extract.js
 mobile/internal/query_qa_db.py
 Screenshot_*.png
+*.png
+mobile/*.png
+mobile/run_adb.ps1
+mobile/capture_screen.ps1
+mobile/current_state
+mobile/qa-screenshots/
+launch_emulator.bat
+start_visible_emulator.ps1
 

@@ -66,15 +66,24 @@ export function ReaderControls({
   const iconColor = activeTheme.text;
   const accentColor = activeTheme.link || (isDark ? '#C9B8FF' : '#4C4666');
 
-  // One label, one source: the number is the same one the reader footer shows,
-  // so the header can never disagree with it about which chapter this is.
-  const chapterLabel =
-    chapterNumber > 0
-      ? chapterCount > 0
-        ? `Chapter ${chapterNumber} of ${chapterCount}`
-        : `Chapter ${chapterNumber}`
-      : '';
-  const chapterSubtitle = [chapterLabel, currentChapter].filter(Boolean).join(' · ');
+  // One label, one source: the header respects honest chapter numbering and section titles.
+  // When currentChapter already contains "Chapter X" or is front matter (e.g. "Synopsis", "Cover", "Introduction"),
+  // we do not prepend a redundant or fabricated "Chapter N of M".
+  const isCurrentChapterExplicit = /^(?:chapter|ch\.|synopsis|cover|title|introduction|preface|foreword|contents|toc|copyright|dedication|acknowledg)/i.test(
+    (currentChapter || '').trim()
+  );
+
+  let chapterSubtitle = '';
+  if (chapterNumber > 0 && chapterCount > 0) {
+    if (isCurrentChapterExplicit) {
+      chapterSubtitle = currentChapter;
+    } else {
+      const label = `Chapter ${chapterNumber} of ${chapterCount}`;
+      chapterSubtitle = currentChapter ? `${label} · ${currentChapter}` : label;
+    }
+  } else {
+    chapterSubtitle = currentChapter || (chapterNumber > 0 ? `Chapter ${chapterNumber}` : '');
+  }
 
   return (
     <>

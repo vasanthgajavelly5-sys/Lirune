@@ -150,6 +150,21 @@ export function Fb2ReaderView({
     };
   }, [book.filePath, book.uri, onTOCLoaded]);
 
+  useEffect(() => {
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        var el = document.getElementById('reader-theme-override');
+        if (el) {
+          el.textContent = 'html, body { background-color: ${palette.bg} !important; color: ${palette.text} !important; } p, div, span, h1, h2, h3, h4, h5, h6, li, blockquote { color: ${palette.text} !important; background-color: transparent !important; } a { color: ${palette.link} !important; }';
+        }
+        if (document.body) {
+          document.body.style.setProperty('background-color', '${palette.bg}', 'important');
+          document.body.style.setProperty('color', '${palette.text}', 'important');
+        }
+      })(); true;
+    `);
+  }, [palette.bg, palette.text, palette.link]);
+
   const styledHtml = `
     <!DOCTYPE html>
     <html>
@@ -199,6 +214,11 @@ export function Fb2ReaderView({
           padding-left: 16px;
           color: ${palette.muted};
         }
+      </style>
+      <style id="reader-theme-override">
+        html, body { background-color: ${palette.bg} !important; color: ${palette.text} !important; }
+        p, div, span, h1, h2, h3, h4, h5, h6, li, blockquote { color: ${palette.text} !important; background-color: transparent !important; }
+        a { color: ${palette.link} !important; }
       </style>
     </head>
     <body>

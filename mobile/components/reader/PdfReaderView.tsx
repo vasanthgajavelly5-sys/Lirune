@@ -121,6 +121,14 @@ export function PdfReaderView({
     searchQueryRef.current = searchQuery || '';
   }, [searchQuery]);
 
+  useEffect(() => {
+    if (!webViewReady) return;
+    webViewRef.current?.injectJavaScript(`
+      if (document.body) document.body.style.backgroundColor = ${JSON.stringify(palette.bg)};
+      true;
+    `);
+  }, [palette.bg, webViewReady]);
+
   const isLoading = !webViewReady || loadProgress < 1;
 
   const goToPage = useCallback((page: number) => {

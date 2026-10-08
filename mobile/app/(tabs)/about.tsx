@@ -1,5 +1,4 @@
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
@@ -94,6 +93,27 @@ export default function AboutScreen() {
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          <View style={styles.cardHeaderRow}>
+            <Ionicons name="cafe" size={20} color="#FF813F" style={{ marginRight: 8 }} />
+            <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>Support the Project</Text>
+          </View>
+          <Text style={[styles.bodyText, { color: colors.textSecondary, marginTop: 8 }]}>
+            Lirune Reader is free, open source, and ad-free. If you enjoy reading with Lirune, consider buying a coffee to support development!
+          </Text>
+          <TouchableOpacity
+            style={styles.coffeeButton}
+            onPress={() => Linking.openURL('https://buymeacoffee.com/vasanthgajavelly')}
+            activeOpacity={0.85}
+            accessibilityRole="link"
+            accessibilityLabel="Buy Me a Coffee"
+          >
+            <Ionicons name="cafe" size={19} color="#000000" style={{ marginRight: 8 }} />
+            <Text style={styles.coffeeButtonText}>Buy Me a Coffee</Text>
+            <Ionicons name="open-outline" size={16} color="#000000" style={{ marginLeft: 8 }} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>License</Text>
           <Text style={[styles.bodyText, { color: colors.textSecondary }]}>GNU General Public License v3.0 (GPL-3.0). Free and open-source software.</Text>
         </View>
@@ -124,4 +144,26 @@ const styles = StyleSheet.create({
   formatDesc: { fontSize: 11, marginTop: 2 },
   featureItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 10 },
   featureText: { fontSize: 13, lineHeight: 19, flex: 1 },
+  cardHeaderRow: { flexDirection: 'row', alignItems: 'center' },
+  coffeeButton: {
+    backgroundColor: '#FFDD00',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginTop: 10,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  coffeeButtonText: {
+    color: '#000000',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
 });

@@ -47,7 +47,7 @@ import { TtsControlsSheet } from '@/components/reader/TtsControlsSheet';
 import { DictionaryModal } from '@/components/reader/DictionaryModal';
 import { ThumbnailsSheet } from '@/components/reader/ThumbnailsSheet';
 import { ttsService } from '@/services/tts/TtsService';
-import { parseSpineTarget } from '@/services/epub/navigation';
+import { parseSpineTarget, classifyReadingUnitType, extractExplicitChapterNumber } from '@/services/epub/navigation';
 import { READER_THEMES } from '@/theme/Colors';
 import { Bookmark, TOCItem, SearchResult, Book, clampReaderBrightness } from '@/models/Book';
 import type { SelectionPayload } from '@/services/reader/selectionBridge';
@@ -543,16 +543,22 @@ export default function ReaderScreen() {
   /**
    * The one chapter position every surface reads from.
    *
-   * Header, footer and TOC all used to derive a number independently — the
-   * header from the published chapter *title* and the footer from the reader's
-   * own spine index — so a book whose navigation document skips numbering
-   * reported two different chapters at once. Both are now derived from the
-   * published CFI, which is the single value the engines agree on.
+   * Header, footer and TOC respect logical reading units.
+   * Front matter (Cover, Synopsis, Intro) does not falsely report as "Chapter 6 of 1923".
    */
   const spineTarget = currentCfi ? parseSpineTarget(currentCfi) : null;
-  const chapterNumber = spineTarget ? spineTarget.spineIndex + 1 : 0;
+  const isFrontOrBackMatter =
+    spineTarget !== null &&
+    (classifyReadingUnitType(currentChapter) !== 'chapter' ||
+      /^(?:cover|title|copyright|synopsis|info|intro|preface|foreword|contents|toc)/i.test(
+        (currentChapter || '').trim()
+      ));
+
+  const explicitNumber = currentChapter ? extractExplicitChapterNumber(currentChapter) : null;
+  const rawChapterNumber = spineTarget ? spineTarget.spineIndex + 1 : 0;
+  const chapterNumber = isFrontOrBackMatter ? 0 : (explicitNumber ?? rawChapterNumber);
   const chapterCount = Math.max(activeBook.chapterCount || 0, spineTarget ? spineTarget.spineIndex + 1 : 0);
-  const hasChapterNumber = spineTarget !== null && chapterCount > 0;
+  const hasChapterNumber = !isFrontOrBackMatter && chapterNumber > 0 && chapterCount > 0;
 
   const isBookmarked = bookmarks.some((b) => b.cfi === currentCfi);
   const brightness = clampReaderBrightness(readerSettings.brightness);

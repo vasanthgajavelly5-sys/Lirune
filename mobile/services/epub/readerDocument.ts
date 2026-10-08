@@ -105,7 +105,7 @@ export function paginatedColumnGeometry(
   return { columnStep, columnWidth: columnStep, sideInset };
 }
 
-function readerCss(input: ReaderDocumentInput): string {
+export function readerCss(input: ReaderDocumentInput): string {
   const { palette, layout } = input;
   const border = palette.border || 'rgba(128,128,128,0.2)';
   const { columnStep, sideInset } = paginatedColumnGeometry(layout, input.twoColumn);
@@ -245,8 +245,10 @@ function readerCss(input: ReaderDocumentInput): string {
     }
     a {
       color: ${palette.link};
-      text-decoration: none;
-      pointer-events: none;
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      cursor: pointer;
     }
 
     /* --- MathML ----------------------------------------------------------
@@ -357,6 +359,42 @@ function readerCss(input: ReaderDocumentInput): string {
       min-height: 40vh;
     }
     [data-lirune-hidden] { display: none !important; }
+
+    /* High-priority theme overrides to ensure selected theme always wins over publisher styles */
+    ${readerThemeOverrideCss(palette, input.fontFamily)}
+  `;
+}
+
+/**
+ * High-priority theme and font enforcement stylesheet.
+ * Placed at the end of <head> to ensure reader theme choices (Sepia, Night, Pure Black, etc.)
+ * consistently win over publisher hardcoded background-colors (e.g. white body/div) and text colors.
+ */
+export function readerThemeOverrideCss(palette: ReaderPalette, fontFamily?: string): string {
+  const fontRule = fontFamily ? `font-family: ${fontFamily} !important;` : '';
+  return `
+    html, body, #viewport, #book-content, .epub-content, .epub-chapter-content, .chapter-body, .chapter-section, #continuous-container, .chapter, div[class*="chapter"], div[class*="calibre"] {
+      background-color: ${palette.bg} !important;
+      color: ${palette.text} !important;
+      ${fontRule}
+    }
+    p, div:not(#viewport):not(#book-content):not(.epub-content):not(.epub-chapter-content):not(.chapter-body):not(.chapter-section):not(#continuous-container):not(.chapter),
+    span, li, blockquote, dd, dt, td, th, figcaption, aside, section, em, strong, b, i, pre, code {
+      color: ${palette.text} !important;
+      background-color: transparent !important;
+      ${fontRule}
+    }
+    h1, h2, h3, h4, h5, h6, .chapter-marker, .chapter-heading {
+      color: ${palette.text} !important;
+      background-color: transparent !important;
+      ${fontRule}
+    }
+    a, a * {
+      color: ${palette.link} !important;
+    }
+    img, svg, image, canvas, video {
+      background-color: transparent !important;
+    }
   `;
 }
 
@@ -600,6 +638,55 @@ function continuousScript(input: ReaderDocumentInput): string {
     }
 
     /**
+     * Injects chapters while compensating viewport scroll position so that content
+     * above the current viewport does not shift what the user is reading.
+     */
+    window.__liruneInjectChaptersConfirmed = function (payload, requestId) {
+      var oldScrollY = window.pageYOffset;
+      var insertedAboveHeight = 0;
+      var insertedIndices = [];
+
+      for (var i = 0; i < payload.length; i++) {
+        var chapter = payload[i];
+        var body = document.getElementById('chapter-body-' + chapter.index);
+        var section = document.getElementById('chapter-' + chapter.index);
+        if (!body || !section || section.getAttribute('data-loaded') === 'true') continue;
+
+        var prevHeight = section.offsetHeight;
+        var sectionTop = section.getBoundingClientRect().top + oldScrollY;
+
+        if (window.__liruneInjectStyles) window.__liruneInjectStyles(chapter.index, chapter.sheets);
+        body.innerHTML = chapter.body;
+        section.setAttribute('data-loaded', 'true');
+        if (window.__liruneChapterHeader) {
+          window.__liruneChapterHeader(chapter.index, chapter.hasHeading, chapter.title);
+        }
+
+        var newHeight = section.offsetHeight;
+        var delta = newHeight - prevHeight;
+        // If the section is completely above the current viewport, compensate scroll
+        if (sectionTop + prevHeight <= oldScrollY && delta !== 0) {
+          insertedAboveHeight += delta;
+        }
+        insertedIndices.push(chapter.index);
+      }
+
+      if (insertedAboveHeight !== 0) {
+        window.scrollTo(0, oldScrollY + insertedAboveHeight);
+      }
+
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'chaptersConfirmed',
+          requestId: requestId,
+          indices: insertedIndices
+        }));
+      } catch (e) {}
+
+      if (window.__liruneScanPending) window.__liruneScanPending(true);
+    };
+
+    /**
      * Asks the host to hydrate the chapters the reader can see.
      *
      * Continuous mode used to inline every chapter before revealing the first
@@ -737,6 +824,8 @@ export interface ContinuousShellOptions {
    * `__liruneChapterHeader` once its chapter is hydrated.
    */
   activeHasLeadingHeading?: boolean;
+  /** Optional standalone cover image HTML to render before chapter 0 */
+  coverHtml?: string;
 }
 
 /**
@@ -756,6 +845,13 @@ export function buildContinuousShell(
   options: ContinuousShellOptions = {}
 ): string {
   const sections: string[] = [];
+  if (options.coverHtml) {
+    sections.push(
+      `<section id="chapter-cover" data-chapter-index="cover" class="chapter-section chapter-cover-section" data-loaded="true">` +
+        `<div class="chapter-body">${options.coverHtml}</div>` +
+      `</section>`
+    );
+  }
   for (let index = 0; index < chapterCount; index++) {
     const isActive = index === activeIndex;
     const title = chapterTitles[index] || '';
@@ -800,6 +896,48 @@ const FIRST_PAINT_JS = `
 })();
 `;
 
+/**
+ * Intercepts internal EPUB links safely without allowing arbitrary external web navigation.
+ */
+const LINK_INTERCEPTOR_JS = `
+(function () {
+  document.addEventListener('click', function (e) {
+    var target = e.target;
+    while (target && target.tagName !== 'A') {
+      target = target.parentElement;
+    }
+    if (!target) return;
+    var href = target.getAttribute('href');
+    if (!href) return;
+
+    // Block dangerous or external URLs
+    if (/^(?:javascript|data|file|intent|about):/i.test(href)) {
+      e.preventDefault();
+      return;
+    }
+    if (/^https?:/i.test(href)) {
+      e.preventDefault();
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'externalLink',
+          url: href
+        }));
+      } catch (err) {}
+      return;
+    }
+
+    // Internal EPUB navigation (#fragment or relative *.xhtml#fragment)
+    e.preventDefault();
+    try {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'internalLink',
+        href: href
+      }));
+    } catch (err) {}
+  }, true);
+})();
+`;
+
 /** Builds the complete reader document for either mode. */
 export function buildReaderDocument(input: ReaderDocumentInput): string {
   const bookCss = input.bookCss ? `<style id="book-css">${input.bookCss}</style>` : '';
@@ -810,6 +948,9 @@ export function buildReaderDocument(input: ReaderDocumentInput): string {
 <html>
 <head>
   ${VIEWPORT_META}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,700;1,400&family=Bitter:ital,wght@0,400;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,700;1,7..72,400&family=Lora:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,700;1,8..60,400&family=Vollkorn:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
   ${bookCss}
   <style id="reader-css">${readerCss(input)}</style>
 </head>
@@ -823,6 +964,7 @@ export function buildReaderDocument(input: ReaderDocumentInput): string {
     ${script}
     ${readingPositionScript(input.mode)}
     ${SELECTION_WATCHER_JS}
+    ${LINK_INTERCEPTOR_JS}
     ${FIRST_PAINT_JS}
   </script>
 </body>

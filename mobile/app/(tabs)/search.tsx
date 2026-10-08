@@ -189,12 +189,23 @@ export default function FilesScreen() {
   const [scanNotice, setScanNotice] = useState<string>('');
   const [includeArchives, setIncludeArchives] = useState(false);
   const [pendingScanAccessPrompt, setPendingScanAccessPrompt] = useState(false);
+  const [currentAccess, setCurrentAccess] = useState<ScanAccess>('limited');
   const [importProgress, setImportProgress] = useState<{
     total: number;
     current: number;
     currentFile: string;
   } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    void resolveScanAccess().then((acc) => {
+      if (isMounted) setCurrentAccess(acc);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Archive Container Inspection State (ZIP & RAR)
   const [zipModalVisible, setZipModalVisible] = useState(false);
@@ -390,6 +401,7 @@ export default function FilesScreen() {
       let access: ScanAccess = 'limited';
       if (nativeStorage.isAvailable()) {
         access = await resolveScanAccess();
+        setCurrentAccess(access);
 
         if (access === 'limited' && shouldExplainScanAccess(scanAccessDismissed)) {
           setPendingScanAccessPrompt(true);
@@ -530,6 +542,7 @@ export default function FilesScreen() {
       if (allow) {
         setScanAccessDismissed(false);
         const access = await openAllFilesAccessSettings();
+        setCurrentAccess(access);
         setScanNotice(access === 'full' ? '' : describeScanAccess(access));
         void handleScanPhone();
       } else {
@@ -888,27 +901,55 @@ export default function FilesScreen() {
     );
   };
 
+  // Filtered displayed files
+  const q = searchFilter.toLowerCase().trim();
+  const displayedFiles = discoveredFiles.filter((f) => {
+    if (selectedFormat !== 'all') {
+      if (selectedFormat === 'mobi' && !['mobi', 'azw', 'azw3'].includes(f.format)) return false;
+      else if (selectedFormat === 'cbz' && !['cbz', 'cbr'].includes(f.format)) return false;
+      else if (selectedFormat === 'docx' && !['docx', 'doc', 'odt', 'rtf'].includes(f.format)) return false;
+      else if (selectedFormat === 'archives' && !['zip', 'rar'].includes(f.format)) return false;
+      else if (!['mobi', 'cbz', 'docx', 'archives'].includes(selectedFormat) && f.format !== selectedFormat) return false;
+    }
+    if (
+      q &&
+      !f.name.toLowerCase().includes(q) &&
+      !f.folderName.toLowerCase().includes(q) &&
+      !f.format.toLowerCase().includes(q) &&
+      !(f.title || '').toLowerCase().includes(q) &&
+      !(f.author || '').toLowerCase().includes(q)
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  const displayedNewFiles = displayedFiles.filter((f) => !f.inLibrary);
+  const displayedSelectedFiles = displayedFiles.filter((f) => f.selected && !f.inLibrary);
+  const selectedCount = displayedSelectedFiles.length;
+  const newCount = displayedNewFiles.length;
+
   /**
-   * Select or Deselect all new files
+   * Select or Deselect all new files matching currently displayed criteria
    */
   const handleToggleSelectAll = () => {
-    const allSelected = displayedFiles
-      .filter((f) => !f.inLibrary)
-      .every((f) => f.selected);
+    const displayedNewIds = new Set(displayedNewFiles.map((f) => f.id));
+    if (displayedNewIds.size === 0) return;
+    const allSelected = displayedNewFiles.every((f) => f.selected);
 
     setDiscoveredFiles((prev) =>
       prev.map((f) => {
-        if (f.inLibrary) return f;
+        if (!displayedNewIds.has(f.id)) return f;
         return { ...f, selected: !allSelected };
       })
     );
   };
 
   /**
-   * Import all selected files
+   * Import all selected files matching currently displayed criteria
    */
   const handleImportSelected = async () => {
-    const toImport = discoveredFiles.filter((f) => f.selected && !f.inLibrary);
+    const toImport = displayedSelectedFiles;
     if (toImport.length === 0) {
       setToastMessage('No new files selected for import.');
       return;
@@ -944,31 +985,6 @@ export default function FilesScreen() {
     setToastMessage(`Successfully imported ${successCount} book${successCount === 1 ? '' : 's'}.`);
   };
 
-  // Filtered displayed files
-  const q = searchFilter.toLowerCase().trim();
-  const displayedFiles = discoveredFiles.filter((f) => {
-    if (selectedFormat !== 'all') {
-      if (selectedFormat === 'mobi' && !['mobi', 'azw', 'azw3'].includes(f.format)) return false;
-      else if (selectedFormat === 'cbz' && !['cbz', 'cbr'].includes(f.format)) return false;
-      else if (selectedFormat === 'docx' && !['docx', 'doc', 'odt', 'rtf'].includes(f.format)) return false;
-      else if (selectedFormat === 'archives' && !['zip', 'rar'].includes(f.format)) return false;
-      else if (!['mobi', 'cbz', 'docx', 'archives'].includes(selectedFormat) && f.format !== selectedFormat) return false;
-    }
-    if (
-      q &&
-      !f.name.toLowerCase().includes(q) &&
-      !f.folderName.toLowerCase().includes(q) &&
-      !f.format.toLowerCase().includes(q) &&
-      // A search for an author should find their books even when every file is
-      // named after a download artefact.
-      !(f.title || '').toLowerCase().includes(q) &&
-      !(f.author || '').toLowerCase().includes(q)
-    ) {
-      return false;
-    }
-    return true;
-  });
-
   /**
    * Fills in real titles and authors for the rows the user can actually see.
    *
@@ -994,9 +1010,6 @@ export default function FilesScreen() {
     []
   );
 
-  const selectedCount = discoveredFiles.filter((f) => f.selected && !f.inLibrary).length;
-  const newCount = discoveredFiles.filter((f) => !f.inLibrary).length;
-
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
@@ -1013,7 +1026,11 @@ export default function FilesScreen() {
           </View>
         </View>
         <Text style={[styles.bookCountBadge, { color: colors.textSecondary }]}>
-          {hasScanned ? `${discoveredFiles.length} found` : 'Not scanned yet'}
+          {hasScanned
+            ? selectedFormat !== 'all' || searchFilter.trim()
+              ? `${displayedFiles.length} of ${discoveredFiles.length} found`
+              : `${discoveredFiles.length} found`
+            : 'Not scanned yet'}
         </Text>
       </View>
 
@@ -1102,13 +1119,15 @@ export default function FilesScreen() {
         </View>
       )}
 
-      {/* Storage Guidance Note */}
-      <View style={[styles.guidanceBox, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]}>
-        <Ionicons name="shield-checkmark-outline" size={16} color={colors.accent} style={{ marginRight: 8, marginTop: 1 }} />
-        <Text style={[styles.guidanceText, { color: colors.textSecondary }]}>
-          Android Storage: &ldquo;Scan Phone&rdquo; walks the whole device when you allow &ldquo;All files access&rdquo;, and otherwise falls back to downloaded files and the folders you have opened. Android blocks picking the storage root or the whole Download folder, so use Scan Phone for those. &ldquo;Scan File&rdquo; picks any single file.
-        </Text>
-      </View>
+      {/* Storage Guidance Note - hidden if full access is already given */}
+      {currentAccess !== 'full' && (
+        <View style={[styles.guidanceBox, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]}>
+          <Ionicons name="shield-checkmark-outline" size={16} color={colors.accent} style={{ marginRight: 8, marginTop: 1 }} />
+          <Text style={[styles.guidanceText, { color: colors.textSecondary }]}>
+            Android Storage: &ldquo;Scan Phone&rdquo; walks the whole device when you allow &ldquo;All files access&rdquo;, and otherwise falls back to downloaded files and the folders you have opened. Android blocks picking the storage root or the whole Download folder, so use Scan Phone for those. &ldquo;Scan File&rdquo; picks any single file.
+          </Text>
+        </View>
+      )}
 
       {/* Search Filter Input */}
       <View style={styles.searchBoxContainer}>

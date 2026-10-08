@@ -15,6 +15,8 @@ import {
   Animated,
   useWindowDimensions,
   Pressable,
+  Platform,
+  StatusBar,
 } from 'react-native';
 import { useStableInsets } from '@/hooks/useStableInsets';
 import { Ionicons } from '@expo/vector-icons';
@@ -38,8 +40,14 @@ export function SettingsSheet({
   onResetSettings,
 }: SettingsSheetProps) {
   const insets = useStableInsets();
+  const statusBarHeight = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 32) : 0;
+  const safeTop = Math.max(insets.top, statusBarHeight, 28);
+  const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 36 : 16);
   const { width: screenWidth } = useWindowDimensions();
   const panelWidth = Math.min(360, Math.floor(screenWidth * 0.88));
+
+  const [showAllFontsModal, setShowAllFontsModal] = useState(false);
+  const [fontCategoryFilter, setFontCategoryFilter] = useState<'all' | 'serif' | 'sans' | 'slab' | 'special'>('all');
 
   // Dynamic theme matching reader's active theme
   const activeTheme = READER_THEMES[settings.theme] || READER_THEMES.neutral;
@@ -91,6 +99,14 @@ export function SettingsSheet({
     { label: 'Two', value: 2 },
   ];
 
+  const primaryFontIds = ['serif', 'sans-serif', 'cormorant', 'merriweather'];
+  const displayedPrimaryFonts = READER_FONTS.filter((f) => {
+    const isSelected =
+      settings.fontFamily.toLowerCase() === f.name.toLowerCase() ||
+      settings.fontFamily.toLowerCase() === f.id.toLowerCase();
+    return primaryFontIds.includes(f.id.toLowerCase()) || isSelected;
+  }).slice(0, 4);
+
   const translateX = anim.interpolate({
     inputRange: [0, 1],
     outputRange: [panelWidth, 0],
@@ -102,6 +118,7 @@ export function SettingsSheet({
   });
 
   return (
+    <>
     <Modal
       visible={visible}
       transparent={true}
@@ -109,7 +126,7 @@ export function SettingsSheet({
       statusBarTranslucent={true}
       onRequestClose={onClose}
     >
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, { paddingTop: safeTop + 4, paddingBottom: safeBottom + 4 }]}>
         {/* Backdrop */}
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
@@ -117,18 +134,14 @@ export function SettingsSheet({
 
         {/* Right-Side Panel */}
         <Animated.View
-          // The panel claims touches in the capture phase. Without this the
-          // backdrop underneath can win the race on Android and a tap on a
-          // control closes the sheet instead of applying the change.
-          onStartShouldSetResponderCapture={() => true}
           style={[
             styles.panel,
             {
               width: panelWidth,
               backgroundColor: panelBg,
               borderLeftColor: borderColor,
-              paddingTop: Math.max(insets.top, 16) + 6,
-              paddingBottom: Math.max(insets.bottom, 16) + 10,
+              borderTopColor: borderColor,
+              borderBottomColor: borderColor,
               transform: [{ translateX }],
             },
           ]}
@@ -156,7 +169,11 @@ export function SettingsSheet({
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.content}
+            contentContainerStyle={{ paddingBottom: safeBottom + 24 }}
+            showsVerticalScrollIndicator={false}
+          >
             {/* 1. THEME PALETTE */}
             <Text style={[styles.sectionTitle, { color: mutedColor }]}>Theme Palette</Text>
             <View style={styles.themeGrid}>
@@ -398,9 +415,9 @@ export function SettingsSheet({
               Typeface
             </Text>
 
-            {/* Full Font Choice Cards */}
+            {/* Primary Font Choice Cards */}
             <View style={styles.fontList}>
-              {READER_FONTS.map((font) => {
+              {displayedPrimaryFonts.map((font) => {
                 const isSelected =
                   settings.fontFamily === font.name ||
                   settings.fontFamily.toLowerCase() === font.id.toLowerCase() ||
@@ -474,6 +491,34 @@ export function SettingsSheet({
                   </TouchableOpacity>
                 );
               })}
+
+              {/* More Fonts Button */}
+              <TouchableOpacity
+                style={[
+                  styles.moreFontsBtn,
+                  {
+                    backgroundColor: surfaceBg,
+                    borderColor: borderColor,
+                  },
+                ]}
+                onPress={() => setShowAllFontsModal(true)}
+                activeOpacity={0.75}
+              >
+                <View style={styles.moreFontsLeft}>
+                  <View style={[styles.moreFontsIconBg, { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}>
+                    <Ionicons name="text-outline" size={16} color={activeAccent} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.moreFontsTitle, { color: textColor }]}>
+                      More Fonts ({READER_FONTS.length} available)…
+                    </Text>
+                    <Text style={[styles.moreFontsSubtitle, { color: mutedColor }]}>
+                      Browse all freely licensed reading typefaces
+                    </Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={17} color={mutedColor} />
+              </TouchableOpacity>
             </View>
 
             {/* Font Size Stepper */}
@@ -622,6 +667,168 @@ export function SettingsSheet({
         </Animated.View>
       </View>
     </Modal>
+
+    {/* Dedicated All Fonts Popup Modal */}
+    <Modal
+      visible={showAllFontsModal}
+      transparent={true}
+      animationType="fade"
+      statusBarTranslucent={true}
+      onRequestClose={() => setShowAllFontsModal(false)}
+    >
+      <View style={styles.fontsModalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAllFontsModal(false)} />
+        <View
+          style={[
+            styles.fontsModalContainer,
+            {
+              backgroundColor: panelBg,
+              borderColor: borderColor,
+            },
+          ]}
+        >
+          {/* Modal Header */}
+          <View style={[styles.fontsModalHeader, { borderBottomColor: borderColor }]}>
+            <View>
+              <Text style={[styles.fontsModalTitle, { color: textColor }]}>Choose Typeface</Text>
+              <Text style={[styles.fontsModalSubtitle, { color: mutedColor }]}>
+                {READER_FONTS.length} freely usable reading typefaces
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowAllFontsModal(false)}
+              style={[styles.closeBtn, { backgroundColor: surfaceBg }]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close" size={20} color={textColor} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Category filter pills */}
+          <View style={styles.categoryPillsRow}>
+            {(['all', 'serif', 'sans', 'slab', 'special'] as const).map((cat) => {
+              const isCatActive = fontCategoryFilter === cat;
+              const catLabel =
+                cat === 'all'
+                  ? 'All'
+                  : cat === 'special'
+                    ? 'Dyslexic'
+                    : cat.charAt(0).toUpperCase() + cat.slice(1);
+              return (
+                <TouchableOpacity
+                  key={cat}
+                  style={[
+                    styles.categoryFilterPill,
+                    isCatActive
+                      ? { backgroundColor: activeAccent }
+                      : { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 },
+                  ]}
+                  onPress={() => setFontCategoryFilter(cat)}
+                >
+                  <Text
+                    style={[
+                      styles.categoryFilterPillText,
+                      { color: isCatActive ? activeAccentFg : mutedColor },
+                    ]}
+                  >
+                    {catLabel}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Full list of fonts */}
+          <ScrollView
+            style={styles.fontsModalList}
+            contentContainerStyle={{ paddingBottom: 24 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {READER_FONTS.filter((f) => fontCategoryFilter === 'all' || f.category === fontCategoryFilter).map((font) => {
+              const isSelected =
+                settings.fontFamily === font.name ||
+                settings.fontFamily.toLowerCase() === font.id.toLowerCase() ||
+                (font.id === 'serif' && settings.fontFamily.toLowerCase() === 'serif') ||
+                (font.id === 'sans' && settings.fontFamily.toLowerCase() === 'sans-serif') ||
+                (font.id === 'mono' && settings.fontFamily.toLowerCase() === 'monospace');
+              const nativeFamily = getNativeFontFamily(font.name);
+
+              return (
+                <TouchableOpacity
+                  key={font.id}
+                  style={[
+                    styles.fontCard,
+                    {
+                      backgroundColor: isSelected
+                        ? isThemeDark
+                          ? 'rgba(201, 184, 255, 0.15)'
+                          : 'rgba(76, 70, 102, 0.12)'
+                        : surfaceBg,
+                      borderColor: isSelected ? activeAccent : borderColor,
+                      borderWidth: isSelected ? 1.5 : 1,
+                      marginBottom: 8,
+                    },
+                  ]}
+                  onPress={() => {
+                    onUpdateSettings({ fontFamily: font.name });
+                    setShowAllFontsModal(false);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={styles.fontCardLeft}>
+                    <View style={styles.fontHeaderRow}>
+                      <Text
+                        style={[
+                          styles.fontCardName,
+                          {
+                            color: isSelected ? activeAccent : textColor,
+                            fontFamily: nativeFamily,
+                            fontWeight: isSelected ? '700' : '500',
+                          },
+                        ]}
+                      >
+                        {font.name}
+                      </Text>
+                      <View
+                        style={[
+                          styles.categoryBadge,
+                          { backgroundColor: isThemeDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' },
+                        ]}
+                      >
+                        <Text style={[styles.categoryBadgeText, { color: mutedColor }]}>
+                          {font.category?.toUpperCase() || 'SERIF'}
+                        </Text>
+                      </View>
+                      {font.license && (
+                        <Text style={[styles.licenseBadgeText, { color: mutedColor }]}>
+                          • {font.license}
+                        </Text>
+                      )}
+                    </View>
+                    <Text
+                      style={[
+                        styles.fontPreview,
+                        {
+                          color: mutedColor,
+                          fontFamily: nativeFamily,
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {font.subtitle}
+                    </Text>
+                  </View>
+                  {isSelected && (
+                    <Ionicons name="checkmark-circle" size={18} color={activeAccent} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
@@ -637,7 +844,12 @@ const styles = StyleSheet.create({
   },
   panel: {
     height: '100%',
-    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 1,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderTopLeftRadius: 20,
+    borderBottomLeftRadius: 20,
+    overflow: 'hidden',
     elevation: 16,
     shadowColor: '#000',
     shadowOffset: { width: -4, height: 0 },
@@ -681,6 +893,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   content: {
+    flex: 1,
     paddingHorizontal: 16,
     paddingTop: 8,
   },
@@ -850,5 +1063,98 @@ const styles = StyleSheet.create({
   resetBtnText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  moreFontsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 2,
+  },
+  moreFontsLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    marginRight: 8,
+  },
+  moreFontsIconBg: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moreFontsTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  moreFontsSubtitle: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  fontsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  fontsModalContainer: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '82%',
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+    elevation: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+  },
+  fontsModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  fontsModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  fontsModalSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  categoryPillsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  categoryFilterPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
+  },
+  categoryFilterPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  fontsModalList: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+  },
+  licenseBadgeText: {
+    fontSize: 9,
+    fontStyle: 'italic',
   },
 });

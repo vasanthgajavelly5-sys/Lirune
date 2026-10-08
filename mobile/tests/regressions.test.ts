@@ -10,7 +10,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveZipPath, safeDecode } from '../services/epub/zipPaths.ts';
+import { resolveZipPath, resolveZipHref, safeDecode } from '../services/epub/zipPaths.ts';
+import {
+  buildLogicalNavigationModel,
+  classifyReadingUnitType,
+  extractExplicitChapterNumber,
+} from '../services/epub/navigation.ts';
 import {
   appendChunkCuts,
   byteLengthOf,
@@ -143,6 +148,11 @@ test('sanitizeHtml: preserves normal EPUB markup and relative links', () => {
     '<article class="chapter"><h1 id="start">Title</h1><p>Readable <em>text</em>.</p>' +
       '<a href="#start">Back</a><img src="images/cover.jpg" alt="Cover"></article>'
   );
+});
+
+test('sanitizeHtml: expands self-closing non-void elements like <a id="..."/> to prevent tag leaking', () => {
+  const result = sanitizeHtml('<h2><a id="chap01"/>Heading</h2><p>Normal text</p>');
+  assert.equal(result, '<h2><a id="chap01"></a>Heading</h2><p>Normal text</p>');
 });
 
 // ---------------------------------------------------------------------------
@@ -579,6 +589,101 @@ test('RarExtractor: rejects invalid signatures', () => {
   const badBytes = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
   assert.throws(() => RarExtractor.inspect(badBytes), /Invalid RAR signature/);
 });
+
+// ---------------------------------------------------------------------------
+// EPUB Logical Chapter Model & Front Matter
+// ---------------------------------------------------------------------------
+
+test('classifyReadingUnitType: correctly identifies front and back matter', () => {
+  assert.equal(classifyReadingUnitType('Cover', 'OEBPS/Text/cover.xhtml'), 'cover');
+  assert.equal(classifyReadingUnitType('Title Page', 'OEBPS/Text/title.xhtml'), 'titlepage');
+  assert.equal(classifyReadingUnitType('Table of Contents', 'OEBPS/Text/toc.xhtml'), 'toc');
+  assert.equal(classifyReadingUnitType('Synopsis', 'OEBPS/Text/synopsis.xhtml'), 'frontmatter');
+  assert.equal(classifyReadingUnitType('Information', 'OEBPS/Text/info.xhtml'), 'frontmatter');
+  assert.equal(classifyReadingUnitType('Introduction', 'OEBPS/Text/intro.xhtml'), 'frontmatter');
+  assert.equal(classifyReadingUnitType('About the Author', 'OEBPS/Text/author.xhtml'), 'backmatter');
+  assert.equal(classifyReadingUnitType('Chapter 1: The Awakening', 'OEBPS/Text/chapter1.xhtml'), 'chapter');
+});
+
+test('extractExplicitChapterNumber: extracts chapter numbers accurately', () => {
+  assert.equal(extractExplicitChapterNumber('Chapter 1: I Have The System'), 1);
+  assert.equal(extractExplicitChapterNumber('Ch. 42 - The Truth'), 42);
+  assert.equal(extractExplicitChapterNumber('Chap. 1923'), 1923);
+  assert.equal(extractExplicitChapterNumber('Introduction'), null);
+});
+
+test('buildLogicalNavigationModel: prevents front matter from corrupting Chapter 1 numbering', () => {
+  const spine = [
+    { path: 'OEBPS/Text/cover.xhtml' },
+    { path: 'OEBPS/Text/title.xhtml' },
+    { path: 'OEBPS/Text/synopsis.xhtml' },
+    { path: 'OEBPS/Text/info.xhtml' },
+    { path: 'OEBPS/Text/toc.xhtml' },
+    { path: 'OEBPS/Text/chapter1.xhtml' },
+    { path: 'OEBPS/Text/chapter2.xhtml' },
+  ];
+  const titles = [
+    'Cover',
+    'Title Page',
+    'Synopsis',
+    'Information',
+    'Table of Contents',
+    'Chapter 1: I Have The System, I’m The Best',
+    'Chapter 2: The Next Step',
+  ];
+
+  const model = buildLogicalNavigationModel(spine, titles);
+  assert.equal(model.length, 7);
+
+  // Front matter items must NOT be labeled as "Chapter N"
+  assert.equal(model[0].type, 'cover');
+  assert.equal(model[0].chapterNumber, null);
+  assert.equal(model[0].headerSubtitle, 'Cover');
+
+  assert.equal(model[2].type, 'frontmatter');
+  assert.equal(model[2].chapterNumber, null);
+  assert.equal(model[2].headerSubtitle, 'Synopsis');
+
+  // Story chapter must start at Chapter 1, NOT Chapter 6!
+  assert.equal(model[5].type, 'chapter');
+  assert.equal(model[5].chapterNumber, 1);
+  assert.equal(model[5].totalChapters, 2);
+  assert.match(model[5].headerSubtitle, /Chapter 1 of 2/);
+
+  assert.equal(model[6].type, 'chapter');
+  assert.equal(model[6].chapterNumber, 2);
+  assert.equal(model[6].totalChapters, 2);
+  assert.match(model[6].headerSubtitle, /Chapter 2 of 2/);
+});
+
+// ---------------------------------------------------------------------------
+// EPUB Internal Link Resolution
+// ---------------------------------------------------------------------------
+
+test('resolveZipHref: resolves internal relative and cross-document targets', () => {
+  const baseDir = 'OEBPS/Text/';
+
+  // Same document anchor
+  const sameDoc = resolveZipHref(baseDir, '#section5');
+  assert.equal(sameDoc.path, 'OEBPS/Text');
+  assert.equal(sameDoc.fragment, 'section5');
+
+  // Cross-document internal target with anchor
+  const crossDoc = resolveZipHref(baseDir, 'chapter2.xhtml#section5');
+  assert.equal(crossDoc.path, 'OEBPS/Text/chapter2.xhtml');
+  assert.equal(crossDoc.fragment, 'section5');
+
+  // Relative with .. segments
+  const relativeDoc = resolveZipHref(baseDir, '../Text/chapter3.xhtml#ref1');
+  assert.equal(relativeDoc.path, 'OEBPS/Text/chapter3.xhtml');
+  assert.equal(relativeDoc.fragment, 'ref1');
+
+  // Percent-encoded filename
+  const encodedDoc = resolveZipHref(baseDir, 'Chapter%204.xhtml#note%201');
+  assert.equal(encodedDoc.path, 'OEBPS/Text/Chapter 4.xhtml');
+  assert.equal(encodedDoc.fragment, 'note 1');
+});
+
 
 
 

@@ -31,8 +31,9 @@ import {
 import { EpubArchive } from '@/services/epub/archive';
 import { readEpubPackage, type EpubPackage } from '@/services/epub/package';
 import { extractChapterDocument, type ChapterDocument } from '@/services/epub/chapter';
-import { buildContinuousShell, buildReaderDocument } from '@/services/epub/readerDocument';
+import { buildContinuousShell, buildReaderDocument, readerCss } from '@/services/epub/readerDocument';
 import { createSpineTarget, parseSpineTarget } from '@/services/epub/navigation';
+import { resolveZipHref, archiveDirname } from '@/services/epub/zipPaths';
 import { toPlainText } from '@/services/epub/markup';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { READER_THEMES } from '@/theme/Colors';
@@ -54,20 +55,19 @@ const CHAPTER_CACHE_LIMIT = 40;
  * Smaller than the on-demand batch because this work happens while the reader
  * is scrolling: it must yield often enough that a fling never waits on it.
  */
-const BACKGROUND_BATCH_SIZE = 3;
+const BACKGROUND_BATCH_SIZE = 2;
 
 /** ms between background hydration batches. */
-const BACKGROUND_YIELD_MS = 24;
+const BACKGROUND_YIELD_MS = 32;
 
 /**
  * Chapters the background drain will inline, nearest the reader first.
  *
- * Continuous mode keeps the whole book in one DOM, so an unbounded drain turns
- * a 900-chapter anthology into a memory problem on a mid-range phone. Past this
- * point the document's own demand-driven hydration takes over — it fills a
- * chapter within a scroll of it being needed anyway.
+ * Demand-driven viewport hydration is primary; the background drain only warms up
+ * the immediate vicinity (within ~18 chapters) rather than turning the DOM into an
+ * unbounded memory hazard.
  */
-const BACKGROUND_CHAPTER_LIMIT = 120;
+const BACKGROUND_CHAPTER_LIMIT = 18;
 
 /**
  * Fallback reveal timer for the first painted frame.
@@ -162,7 +162,12 @@ const STYLE_INJECTOR_JS = `
       element.setAttribute('data-lirune-sheet', key);
       element.setAttribute('data-lirune-chapter', String(index));
       element.textContent = sheet.css;
-      (document.head || document.getElementsByTagName('head')[0]).appendChild(element);
+      var readerCss = document.getElementById('reader-css');
+      if (readerCss && readerCss.parentNode) {
+        readerCss.parentNode.insertBefore(element, readerCss);
+      } else {
+        (document.head || document.getElementsByTagName('head')[0]).appendChild(element);
+      }
     }
   };
   window.injectChapterStyles = window.__liruneInjectStyles;
@@ -343,6 +348,7 @@ export function EpubReaderView({
    * built once and every later chapter is injected into the live DOM.
    */
   const [continuousSeed, setContinuousSeed] = useState<{ body: string; css: string; index: number } | null>(null);
+  const [coverHtml, setCoverHtml] = useState<string | undefined>(undefined);
   /** Mirror of `continuousSeed` for callbacks that must not re-subscribe to it. */
   const continuousSeedRef = useRef(continuousSeed);
   useEffect(() => {
@@ -527,30 +533,51 @@ export function EpubReaderView({
 
   /* ---------------------------------------------------------------------- */
   /* WebView hydration                                                        */
-  /* ---------------------------------------------------------------------- */
+  const hydrationRequestSeqRef = useRef(0);
+  const pendingHydrationRequestsRef = useRef<Map<number, () => void>>(new Map());
 
   const injectChapters = useCallback((payload: ChapterPayload[]) => {
-    if (payload.length === 0) return;
-    webViewRef.current?.injectJavaScript(`
-      (function () {
-        var chapters = ${JSON.stringify(payload)};
-        for (var i = 0; i < chapters.length; i++) {
-          var chapter = chapters[i];
-          var body = document.getElementById('chapter-body-' + chapter.index);
-          var section = document.getElementById('chapter-' + chapter.index);
-          if (!body || !section || section.getAttribute('data-loaded') === 'true') continue;
-          window.__liruneInjectStyles(chapter.index, chapter.sheets);
-          body.innerHTML = chapter.body;
-          section.setAttribute('data-loaded', 'true');
-          if (window.__liruneChapterHeader) {
-            window.__liruneChapterHeader(chapter.index, chapter.hasHeading, chapter.title);
+    if (payload.length === 0) return Promise.resolve();
+    const reqId = ++hydrationRequestSeqRef.current;
+    return new Promise<void>((resolve) => {
+      // Timeout fallback if DOM acknowledgement fails
+      const timer = setTimeout(() => {
+        pendingHydrationRequestsRef.current.delete(reqId);
+        resolve();
+      }, 1500);
+
+      pendingHydrationRequestsRef.current.set(reqId, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+
+      webViewRef.current?.injectJavaScript(`
+        (function () {
+          var payload = ${JSON.stringify(payload)};
+          if (window.__liruneInjectChaptersConfirmed) {
+            window.__liruneInjectChaptersConfirmed(payload, ${reqId});
+          } else {
+            for (var i = 0; i < payload.length; i++) {
+              var chapter = payload[i];
+              var body = document.getElementById('chapter-body-' + chapter.index);
+              var section = document.getElementById('chapter-' + chapter.index);
+              if (!body || !section || section.getAttribute('data-loaded') === 'true') continue;
+              if (window.__liruneInjectStyles) window.__liruneInjectStyles(chapter.index, chapter.sheets);
+              body.innerHTML = chapter.body;
+              section.setAttribute('data-loaded', 'true');
+            }
+            if (window.__liruneScanPending) window.__liruneScanPending(true);
+            try {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'chaptersConfirmed',
+                requestId: ${reqId},
+                indices: payload.map(function(c) { return c.index; })
+              }));
+            } catch (e) {}
           }
-        }
-        // Filling a section changes the document height, so the document asks
-        // again whether anything new came into view.
-        if (window.__liruneScanPending) window.__liruneScanPending(true);
-      })(); true;
-    `);
+        })(); true;
+      `);
+    });
   }, []);
 
   /**
@@ -585,7 +612,7 @@ export function EpubReaderView({
         }
       }
       payload.sort((a, b) => a.index - b.index);
-      injectChapters(payload);
+      await injectChapters(payload);
     },
     [injectChapters, loadChapter]
   );
@@ -755,6 +782,14 @@ export function EpubReaderView({
           // the reader never paints once with fallback dimensions.
           if (liveGeometryRef.current && isMeasured) setAppliedGeometry(liveGeometryRef.current);
           if (settings.flow === 'scrolled') {
+            let resolvedCoverHtml: string | undefined = undefined;
+            if (epubPackage.coverPath) {
+              const coverUri = await archive.dataUri(epubPackage.coverPath);
+              if (coverUri) {
+                resolvedCoverHtml = `<div class="epub-cover-container"><img src="${coverUri}" alt="Cover" style="max-width:100%;max-height:85vh;object-fit:contain;margin:auto;display:block;" /></div>`;
+              }
+            }
+            setCoverHtml(resolvedCoverHtml);
             setContinuousSeed({ body: initialChapter.body, css: initialChapter.css, index: initialIdx });
             hydratedRef.current = new Set([initialIdx]);
           }
@@ -859,6 +894,73 @@ export function EpubReaderView({
     }, POSITION_CAPTURE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [appliedGeometry.key, liveGeometry.key]);
+
+  /* ---------------------------------------------------------------------- */
+  /* Real-time Theme & Font Synchronization                                   */
+  /* ---------------------------------------------------------------------- */
+
+  const applyThemeToWebView = useCallback(() => {
+    if (!webViewReadyRef.current) return;
+    try {
+      const newCss = readerCss({
+        mode: appliedGeometry.mode,
+        body: '',
+        bookCss: '',
+        startAtEnd: false,
+        initialScrollY: 0,
+        palette: { bg: palette.bg, text: palette.text, muted: palette.muted, link: palette.link },
+        fontFamily: getCssFontFamily(settings.fontFamily),
+        fontSize: settings.fontSize,
+        lineHeight: settings.lineHeight,
+        alignment: settings.alignment,
+        paragraphSpacing: settings.paragraphSpacing || 1.0,
+        layout: appliedGeometry.layout,
+        twoColumn: appliedGeometry.twoColumn,
+      });
+
+      const updateJs = `
+        (function() {
+          try {
+            var el = document.getElementById('reader-css');
+            if (el) {
+              el.textContent = ${JSON.stringify(newCss)};
+              if (el.parentNode && el.nextSibling) {
+                el.parentNode.appendChild(el);
+              }
+            }
+
+            if (document.documentElement) {
+              document.documentElement.style.setProperty('background-color', ${JSON.stringify(palette.bg)}, 'important');
+              document.documentElement.style.setProperty('color', ${JSON.stringify(palette.text)}, 'important');
+            }
+            if (document.body) {
+              document.body.style.setProperty('background-color', ${JSON.stringify(palette.bg)}, 'important');
+              document.body.style.setProperty('color', ${JSON.stringify(palette.text)}, 'important');
+              document.body.style.setProperty('font-family', ${JSON.stringify(getCssFontFamily(settings.fontFamily))}, 'important');
+            }
+          } catch(e) {}
+        })(); true;
+      `;
+      webViewRef.current?.injectJavaScript(updateJs);
+    } catch {}
+  }, [
+    appliedGeometry.mode,
+    appliedGeometry.layout,
+    appliedGeometry.twoColumn,
+    palette.bg,
+    palette.text,
+    palette.muted,
+    palette.link,
+    settings.fontFamily,
+    settings.fontSize,
+    settings.lineHeight,
+    settings.alignment,
+    settings.paragraphSpacing,
+  ]);
+
+  useEffect(() => {
+    applyThemeToWebView();
+  }, [applyThemeToWebView, settings.theme]);
 
   /* ---------------------------------------------------------------------- */
   /* Keep the active chapter loaded                                           */
@@ -1040,6 +1142,7 @@ if (!targetCfi || chapters.length === 0) return;
       geometryRequestRef.current = null;
     }
     webViewRef.current?.injectJavaScript(STYLE_INJECTOR_JS);
+    applyThemeToWebView();
 
     if (continuousDocumentRef.current) {
       const seedIndex = continuousSeedRef.current?.index ?? currentIndexRef.current;
@@ -1070,7 +1173,7 @@ if (!targetCfi || chapters.length === 0) return;
       positionToRestoreRef.current = null;
       webViewRef.current?.injectJavaScript(restorePositionScript('paginated', position, 140));
     }
-  }, [finishContinuousHydration, hydrateIndices]);
+  }, [applyThemeToWebView, finishContinuousHydration, hydrateIndices]);
 
   /* ---------------------------------------------------------------------- */
   /* Messages                                                                 */
@@ -1163,12 +1266,79 @@ const overallPercent = Math.min(
           nextChapter();
           break;
 
+        case 'chaptersConfirmed': {
+          if (typeof data.requestId === 'number') {
+            const cb = pendingHydrationRequestsRef.current.get(data.requestId);
+            if (cb) {
+              pendingHydrationRequestsRef.current.delete(data.requestId);
+              cb();
+            }
+          }
+          break;
+        }
+
+        case 'internalLink': {
+          const rawHref = data.href;
+          if (!rawHref || typeof rawHref !== 'string') break;
+
+          const currentSpineItem = chaptersRef.current[currentIndexRef.current];
+          const baseDir = currentSpineItem ? archiveDirname(currentSpineItem.itemPath) : '';
+          const resolved = resolveZipHref(baseDir, rawHref);
+
+          let targetSpineIdx = -1;
+          if (!resolved.path || resolved.path === currentSpineItem?.itemPath) {
+            targetSpineIdx = currentIndexRef.current;
+          } else {
+            const normPath = resolved.path.toLowerCase();
+            targetSpineIdx = chaptersRef.current.findIndex(
+              (ch) => ch.itemPath.toLowerCase() === normPath
+            );
+          }
+
+          if (targetSpineIdx !== -1) {
+            const targetCfi = createSpineTarget(targetSpineIdx, resolved.fragment);
+            lastAppliedCfiRef.current = null; // Ensure navigation takes effect
+            setCurrentChapterIndex(targetSpineIdx);
+
+            if (!continuousDocumentRef.current) {
+              setCurrentPage(0);
+              if (resolved.fragment) {
+                setTimeout(() => {
+                  webViewRef.current?.injectJavaScript(
+                    restorePositionScript('paginated', { anchorId: resolved.fragment, page: 0 }, 0)
+                  );
+                }, 100);
+              }
+            } else {
+              pendingChapterNavigationRef.current = targetSpineIdx;
+              void hydrateIndices([targetSpineIdx]).then(() => {
+                webViewRef.current?.injectJavaScript(`
+                  (function () {
+                    var section = document.getElementById('chapter-${targetSpineIdx}');
+                    if (!section) return;
+                    ${
+                      resolved.fragment
+                        ? `var anchor = document.getElementById(${JSON.stringify(resolved.fragment)});
+                         (anchor && section.contains(anchor) ? anchor : section).scrollIntoView({ behavior: 'smooth' });`
+                        : `section.scrollIntoView({ behavior: 'smooth' });`
+                    }
+                  })(); true;
+                `);
+              });
+            }
+          }
+          break;
+        }
+
         case 'readingPosition': {
-          const pending = geometryRequestRef.current;
-          if (!pending) break;
-          geometryRequestRef.current = null;
-          positionToRestoreRef.current = isReadingPosition(data.position) ? data.position : null;
-          setAppliedGeometry(pending);
+          if (isReadingPosition(data.position)) {
+            positionToRestoreRef.current = data.position;
+          }
+          if (geometryRequestRef.current) {
+            const nextGeo = geometryRequestRef.current;
+            geometryRequestRef.current = null;
+            setAppliedGeometry(nextGeo);
+          }
           break;
         }
 
@@ -1194,7 +1364,10 @@ const overallPercent = Math.min(
             chapters.map((chapter) => chapter.navTitle),
             continuousSeed.index,
             continuousSeed.body,
-            { activeHasLeadingHeading: activeChapter?.hasLeadingHeading === true }
+            {
+              activeHasLeadingHeading: activeChapter?.hasLeadingHeading === true,
+              coverHtml,
+            }
           )
         : '<p>Loading…</p>'
       : `<div class="epub-chapter-content">${activeChapter?.body ?? '<p>Loading…</p>'}</div>`;

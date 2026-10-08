@@ -11,7 +11,7 @@
 
 import type { EpubArchive } from './archive.ts';
 import { resolveZipHref, resolveZipPath } from './zipPaths.ts';
-import { createSpineTarget } from './navigation.ts';
+import { createSpineTarget, buildLogicalNavigationModel, type LogicalChapterInfo } from './navigation.ts';
 import { scanTokens, parseAttributes, toPlainText, elementInner, findElementEnd } from './markup.ts';
 import type { TOCItem } from '../../models/Book.ts';
 
@@ -40,6 +40,8 @@ export interface EpubPackage {
   toc: TOCItem[];
   /** Chapter title per spine index, already resolved from nav/NCX/headings. */
   chapterTitles: string[];
+  /** Logical reading unit and story chapter model per spine index. */
+  logicalChapters: LogicalChapterInfo[];
   publicationTitle: string;
   coverPath: string | null;
   /** Full Dublin Core metadata, shared with import and with the Files screen. */
@@ -441,6 +443,7 @@ export async function readEpubPackage(archive: EpubArchive): Promise<EpubPackage
    * falls back to a positional label when even that is empty.
    */
   const chapterTitles = spine.map((_, index) => chapterTitleByIndex.get(index) || '');
+  const logicalChapters = buildLogicalNavigationModel(spine, chapterTitles);
 
   return {
     opfPath,
@@ -449,6 +452,7 @@ export async function readEpubPackage(archive: EpubArchive): Promise<EpubPackage
     spine,
     toc,
     chapterTitles,
+    logicalChapters,
     publicationTitle: parseMetadataTitle(opfXml),
     coverPath: resolveCover(opfXml, opfDir, manifest),
     metadata: parseOpfMetadata(opfXml, opfPath),

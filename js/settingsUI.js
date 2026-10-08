@@ -83,7 +83,30 @@ const SettingsUI = (() => {
     'fs-restore-last': () => AppPrefs.set({ restoreLastBook: !AppPrefs.getAll().restoreLastBook }),
     'fs-focus-outlines': () => AppPrefs.set({ focusOutlines: !AppPrefs.getAll().focusOutlines }),
     'fs-large-controls': () => AppPrefs.set({ largeControls: !AppPrefs.getAll().largeControls }),
-    'fs-high-contrast': () => AppPrefs.set({ highContrast: !AppPrefs.getAll().highContrast })
+    'fs-high-contrast': () => AppPrefs.set({ highContrast: !AppPrefs.getAll().highContrast }),
+    // General
+    'fs-save-progress': () => AppPrefs.set({ saveProgress: !AppPrefs.getAll().saveProgress }),
+    'fs-esc-to-library': () => AppPrefs.set({ escToLibrary: !AppPrefs.getAll().escToLibrary }),
+    'fs-title-progress': () => AppPrefs.set({ windowTitleProgress: !AppPrefs.getAll().windowTitleProgress }),
+    'fs-open-shelf': () => AppPrefs.set({ openShelfAfterImport: !AppPrefs.getAll().openShelfAfterImport }),
+    // Appearance
+    'fs-follow-system': () => AppPrefs.set({ followSystemTheme: !AppPrefs.getAll().followSystemTheme }),
+    'fs-glass-effect': () => AppPrefs.set({ glassEffect: !AppPrefs.getAll().glassEffect }),
+    'fs-rounded-covers': () => AppPrefs.set({ roundedCovers: !AppPrefs.getAll().roundedCovers }),
+    'fs-card-shadows': () => AppPrefs.set({ elevatedCardShadows: !AppPrefs.getAll().elevatedCardShadows }),
+    // Reading
+    'fs-tap-to-turn': () => AppPrefs.set({ tapToTurn: !AppPrefs.getAll().tapToTurn }),
+    'fs-reading-bar': () => AppPrefs.set({ readingFooterBar: !AppPrefs.getAll().readingFooterBar }),
+    'fs-smooth-scroll': () => AppPrefs.set({ smoothScroll: !AppPrefs.getAll().smoothScroll }),
+    'fs-auto-hyphenation': () => AppPrefs.set({ autoHyphenation: !AppPrefs.getAll().autoHyphenation }),
+    // Library
+    'fs-progress-badges': () => AppPrefs.set({ showProgressBadge: !AppPrefs.getAll().showProgressBadge }),
+    'fs-format-badges': () => AppPrefs.set({ showFormatBadge: !AppPrefs.getAll().showFormatBadge }),
+    'fs-continue-reading': () => AppPrefs.set({ showContinueReading: !AppPrefs.getAll().showContinueReading }),
+    // Accessibility
+    'fs-dyslexic-font': () => AppPrefs.set({ dyslexicFont: !AppPrefs.getAll().dyslexicFont }),
+    'fs-underline-links': () => AppPrefs.set({ underlineLinks: !AppPrefs.getAll().underlineLinks }),
+    'fs-keyboard-cues': () => AppPrefs.set({ keyboardNavCues: !AppPrefs.getAll().keyboardNavCues })
   };
 
   // ---------------------------------------------------------------
@@ -288,9 +311,14 @@ const SettingsUI = (() => {
     if (found === 'about') renderAbout();
   }
 
+  let activeShortcutCategory = 'all';
+  let shortcutSearchTerm = '';
+
   function buildStaticControls() {
     buildGeneralControls();
     buildAppThemeControls();
+    buildAppearanceAdvancedControls();
+    buildReadingAdvancedControls();
     buildLibraryControls();
     buildAccessibilityControls();
     renderShortcuts();
@@ -307,6 +335,38 @@ const SettingsUI = (() => {
     `).join('');
   }
 
+  function buildAppearanceAdvancedControls() {
+    const host = document.getElementById('appearance-advanced-controls');
+    if (!host) return;
+    const prefs = AppPrefs.getAll();
+    host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Interface &amp; styling</div>
+        <p class="setting-hint">Control visual effects, cover styling, and automatic theme adaptation.</p>
+      </div>
+      ${switchRow('fs-follow-system', 'Follow system theme', 'Automatically match light or dark mode to operating system appearance', prefs.followSystemTheme)}
+      ${switchRow('fs-glass-effect', 'Glassmorphism blur effects', 'Enable frosted translucent blur on sidebars, modals, and panel headers', prefs.glassEffect)}
+      ${switchRow('fs-rounded-covers', 'Smooth rounded book covers', 'Apply modern curvature to all book covers across the library shelf', prefs.roundedCovers)}
+      ${switchRow('fs-card-shadows', 'Elevated card depth shadows', 'Render subtle depth and ambient elevation under library book cards', prefs.elevatedCardShadows)}
+    `;
+  }
+
+  function buildReadingAdvancedControls() {
+    const host = document.getElementById('reading-advanced-controls');
+    if (!host) return;
+    const prefs = AppPrefs.getAll();
+    host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Reading interaction &amp; comfort</div>
+        <p class="setting-hint">Fine-tune page-turning, reading progress bars, and scrolling behavior.</p>
+      </div>
+      ${switchRow('fs-tap-to-turn', 'Tap edges to turn pages', 'Tap left or right screen borders to advance or go back in paginated mode', prefs.tapToTurn)}
+      ${switchRow('fs-reading-bar', 'Reading progress footer', 'Display chapter title, page indicators, and percentage at bottom of screen', prefs.readingFooterBar)}
+      ${switchRow('fs-smooth-scroll', 'Smooth momentum scrolling', 'Enable fluid continuous motion when scrolling through chapters', prefs.smoothScroll)}
+      ${switchRow('fs-auto-hyphenation', 'Automatic text hyphenation', 'Balance text margins with automatic word breaking at line ends', prefs.autoHyphenation)}
+    `;
+  }
+
   function buildGeneralControls() {
     const host = document.getElementById('general-controls');
     if (!host) return;
@@ -314,12 +374,17 @@ const SettingsUI = (() => {
     host.innerHTML = `
       ${switchRow('fs-confirm-delete', 'Confirm book removal', 'Show a confirmation dialog before deleting books from your library', prefs.confirmDelete)}
       ${switchRow('fs-restore-last', 'Reopen last book on startup', 'Automatically open the most recently read book when Lirune launches', prefs.restoreLastBook)}
+      ${switchRow('fs-save-progress', 'Auto-save reading position', 'Continuously record exact reading progress across reading sessions', prefs.saveProgress)}
+      ${switchRow('fs-esc-to-library', 'Press Escape to return to library', 'Close the active book and return to shelf using the Esc key', prefs.escToLibrary)}
+      ${switchRow('fs-title-progress', 'Show progress in window title', 'Display active book title and percentage completion in title bar', prefs.windowTitleProgress)}
+      ${switchRow('fs-open-shelf', 'Open library shelf after import', 'Immediately return to the shelf view whenever new books are imported', prefs.openShelfAfterImport)}
     `;
   }
 
   function buildLibraryControls() {
     const host = document.getElementById('library-view-controls');
     if (!host) return;
+    const prefs = AppPrefs.getAll();
     host.innerHTML = `
       ${segmentRow('fs-view', 'Default view', [
         { value: 'grid', label: 'Grid' },
@@ -336,6 +401,13 @@ const SettingsUI = (() => {
       ], Library.getViewState().density)}
       ${switchRow('fs-metadata', 'Show book metadata', 'Author and file format on every cover', Library.getViewState().showMetadata)}
       ${switchRow('fs-group-by-type', 'Group by type', 'Visually group books by file format (EPUB, PDF, TXT, CBZ, FB2, HTML)', Library.getViewState().groupByType)}
+      ${switchRow('fs-progress-badges', 'Show reading progress badges', 'Display completion percentage indicators on book cards', prefs.showProgressBadge)}
+      ${switchRow('fs-format-badges', 'Show format indicator chips', 'Display format tags (EPUB, PDF, etc.) on cover cards', prefs.showFormatBadge)}
+      ${switchRow('fs-continue-reading', 'Show Continue Reading shelf', 'Display recently opened books carousel at the top of the shelf', prefs.showContinueReading)}
+      ${segmentRow('fs-cover-fit', 'Cover image presentation', [
+        { value: 'cover', label: 'Fill card' },
+        { value: 'contain', label: 'Fit book' }
+      ], prefs.coverFit)}
     `;
   }
 
@@ -348,6 +420,9 @@ const SettingsUI = (() => {
       ${switchRow('fs-focus-outlines', 'Stronger focus visibility', 'Highlights active keyboard focus outlines prominently', prefs.focusOutlines)}
       ${switchRow('fs-large-controls', 'Larger UI controls', 'Increases touch and click target sizes for buttons and menus', prefs.largeControls)}
       ${switchRow('fs-high-contrast', 'High contrast mode', 'Increases text contrast and sharpens border dividers', prefs.highContrast)}
+      ${switchRow('fs-dyslexic-font', 'Dyslexic-friendly typeface', 'Override reading text with high-legibility letterforms', prefs.dyslexicFont)}
+      ${switchRow('fs-underline-links', 'Underline all hyperlinks', 'Enforce distinct visible underlines on every link and button', prefs.underlineLinks)}
+      ${switchRow('fs-keyboard-cues', 'Keyboard navigation cues', 'Display prominent shortcut badges and focus hints', prefs.keyboardNavCues)}
     `;
   }
 
@@ -355,7 +430,21 @@ const SettingsUI = (() => {
     const host = document.getElementById('shortcuts-list');
     if (!host) return;
     const context = typeof App !== 'undefined' ? App.getSettingsContext() : 'library';
-    const shortcuts = App.getShortcuts().filter(s => s.contexts.includes(context));
+    let shortcuts = typeof App !== 'undefined' ? App.getShortcuts() : [];
+
+    if (activeShortcutCategory === 'library') {
+      shortcuts = shortcuts.filter(s => s.contexts.includes('library') || !s.contexts.includes('reader'));
+    } else if (activeShortcutCategory === 'reader') {
+      shortcuts = shortcuts.filter(s => s.contexts.includes('reader'));
+    }
+
+    if (shortcutSearchTerm) {
+      const term = shortcutSearchTerm.toLowerCase();
+      shortcuts = shortcuts.filter(s =>
+        s.description.toLowerCase().includes(term) ||
+        s.keys.some(k => k.toLowerCase().includes(term))
+      );
+    }
 
     host.innerHTML = shortcuts.length
       ? shortcuts.map(shortcut => `
@@ -364,7 +453,7 @@ const SettingsUI = (() => {
             <span class="shortcut-keys">${shortcut.keys.map(key => `<kbd class="kbd">${Utils.escapeHTML(key)}</kbd>`).join('')}</span>
           </div>
         `).join('')
-      : '<p class="setting-hint">No shortcuts are available in this view.</p>';
+      : '<p class="setting-hint" style="padding: 16px; text-align: center;">No shortcuts matching search criteria.</p>';
   }
 
   let integrityReport = null;
@@ -741,10 +830,33 @@ const SettingsUI = (() => {
     const prefs = AppPrefs.getAll();
     setSwitch('fs-confirm-delete', prefs.confirmDelete);
     setSwitch('fs-restore-last', prefs.restoreLastBook);
+    setSwitch('fs-save-progress', prefs.saveProgress);
+    setSwitch('fs-esc-to-library', prefs.escToLibrary);
+    setSwitch('fs-title-progress', prefs.windowTitleProgress);
+    setSwitch('fs-open-shelf', prefs.openShelfAfterImport);
+
+    setSwitch('fs-follow-system', prefs.followSystemTheme);
+    setSwitch('fs-glass-effect', prefs.glassEffect);
+    setSwitch('fs-rounded-covers', prefs.roundedCovers);
+    setSwitch('fs-card-shadows', prefs.elevatedCardShadows);
+
+    setSwitch('fs-tap-to-turn', prefs.tapToTurn);
+    setSwitch('fs-reading-bar', prefs.readingFooterBar);
+    setSwitch('fs-smooth-scroll', prefs.smoothScroll);
+    setSwitch('fs-auto-hyphenation', prefs.autoHyphenation);
+
+    setSwitch('fs-progress-badges', prefs.showProgressBadge);
+    setSwitch('fs-format-badges', prefs.showFormatBadge);
+    setSwitch('fs-continue-reading', prefs.showContinueReading);
+    setSegment('fs-cover-fit', prefs.coverFit);
+
     setSwitch('fs-reduce-motion', prefs.reduceMotion);
     setSwitch('fs-focus-outlines', prefs.focusOutlines);
     setSwitch('fs-large-controls', prefs.largeControls);
     setSwitch('fs-high-contrast', prefs.highContrast);
+    setSwitch('fs-dyslexic-font', prefs.dyslexicFont);
+    setSwitch('fs-underline-links', prefs.underlineLinks);
+    setSwitch('fs-keyboard-cues', prefs.keyboardNavCues);
 
     document.querySelectorAll('#app-theme-grid [data-app-theme]').forEach(button => {
       const isActive = button.dataset.appTheme === ThemeManager.getAppTheme();
@@ -804,6 +916,36 @@ const SettingsUI = (() => {
   // Events
   // ---------------------------------------------------------------
 
+  async function exportCatalogJSON() {
+    try {
+      const books = await NoveraDB.getAllBooks();
+      const catalog = books.map(b => ({
+        id: b.id,
+        title: b.title || 'Untitled',
+        author: b.author || 'Unknown',
+        format: b.format || 'unknown',
+        progress: b.progress || 0,
+        dateAdded: b.dateAdded ? new Date(b.dateAdded).toISOString() : null,
+        lastRead: b.lastRead ? new Date(b.lastRead).toISOString() : null
+      }));
+      const blob = new Blob([JSON.stringify(catalog, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lirune-catalog-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (typeof Utils !== 'undefined' && Utils.toast) {
+        Utils.toast(`Exported ${catalog.length} books to catalog JSON`, 'success');
+      }
+    } catch (e) {
+      console.error('Failed to export catalog:', e);
+      if (typeof Utils !== 'undefined' && Utils.toast) {
+        Utils.toast('Could not export catalog', 'error');
+      }
+    }
+  }
+
   function bindEvents() {
     const panel = document.getElementById('settings-panel');
     if (!panel) return;
@@ -811,6 +953,18 @@ const SettingsUI = (() => {
     panel.addEventListener('click', event => {
       const segment = event.target.closest('.segment-opt');
       if (segment) {
+        const catBtn = segment.closest('[data-shortcut-cat]');
+        if (catBtn || segment.dataset.shortcutCat) {
+          activeShortcutCategory = segment.dataset.shortcutCat;
+          document.querySelectorAll('[data-shortcut-cat]').forEach(b => {
+            const isActive = b.dataset.shortcutCat === activeShortcutCategory;
+            b.classList.toggle('active', isActive);
+            b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+          });
+          renderShortcuts();
+          return;
+        }
+
         applySegment(segment.closest('[data-quick-segment]')?.dataset.quickSegment, segment.dataset.value);
         return;
       }
@@ -859,6 +1013,19 @@ const SettingsUI = (() => {
         return;
       }
 
+      if (event.target.closest('#clear-cache-btn')) {
+        sessionStorage.clear();
+        if (typeof Utils !== 'undefined' && Utils.toast) {
+          Utils.toast('Session cache cleared successfully', 'success');
+        }
+        return;
+      }
+
+      if (event.target.closest('#export-catalog-btn')) {
+        exportCatalogJSON();
+        return;
+      }
+
       if (event.target.closest('#integrity-check-btn')) {
         startIntegrityCheck();
         return;
@@ -884,6 +1051,14 @@ const SettingsUI = (() => {
     // The restore control is a file input, so it is handled on change rather
     // than on click, and only after the user has picked a file.
     document.getElementById('restore-library-input')?.addEventListener('change', handleRestoreFile);
+
+    const shortcutsSearch = document.getElementById('shortcuts-search');
+    if (shortcutsSearch) {
+      shortcutsSearch.addEventListener('input', event => {
+        shortcutSearchTerm = event.target.value.trim();
+        renderShortcuts();
+      });
+    }
 
     panel.addEventListener('change', event => {
       const select = event.target.closest('[data-quick-select]');
@@ -930,6 +1105,12 @@ const SettingsUI = (() => {
 
   function applySegment(id, value) {
     if (!id) return;
+
+    if (id === 'fs-cover-fit') {
+      AppPrefs.set({ coverFit: value });
+      refresh();
+      return;
+    }
 
     const readerKeys = {
       'qs-alignment': 'alignment',

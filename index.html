@@ -498,7 +498,8 @@
           <label class="color-control">Accent color<input type="color" id="app-accent-color" aria-label="Application accent color" value="#EEECF8"></label>
           <button class="btn btn-ghost reset-settings-btn" id="reset-accent-btn" type="button">Reset to Lirune default</button>
         </section>
-            <div class="full-settings-spacer"></div>
+        <section class="settings-group" id="appearance-advanced-controls" aria-label="Interface display preferences"></section>
+        <div class="full-settings-spacer"></div>
       <section class="settings-group" aria-labelledby="reading-theme-title">
         <div class="settings-section-heading">
           <div class="setting-section-title" id="reading-theme-title">Reading theme</div>
@@ -664,7 +665,8 @@
           <input type="range" id="margin-slider" min="2" max="24" step="2" value="10" class="glass-slider" aria-label="Page margins">
         </div>
       </section>
-            <div class="full-settings-spacer"></div>
+      <section class="settings-group" id="reading-advanced-controls" aria-label="Reading comfort controls"></section>
+      <div class="full-settings-spacer"></div>
       <button class="btn btn-ghost reset-settings-btn" id="reset-reader-settings-btn" type="button">Reset reading preferences</button>
           </section>
 
@@ -690,6 +692,14 @@
             <div class="settings-section-heading">
               <div class="setting-section-title">Keyboard shortcuts</div>
               <p>Every shortcut the application handles.</p>
+            </div>
+            <div class="shortcuts-toolbar">
+              <div class="segmented" id="shortcuts-category-filter" role="group" aria-label="Filter shortcuts by category">
+                <button type="button" class="segment-opt active" data-shortcut-cat="all">All</button>
+                <button type="button" class="segment-opt" data-shortcut-cat="library">Library</button>
+                <button type="button" class="segment-opt" data-shortcut-cat="reader">Reader</button>
+              </div>
+              <input type="search" class="glass-input shortcut-search-input" id="shortcut-search-input" placeholder="Search shortcuts…" aria-label="Search shortcuts">
             </div>
             <div class="settings-group" id="shortcuts-list"></div>
           </section>
@@ -723,17 +733,24 @@
             </div>
 
             <div class="settings-group">
-              <div class="setting-section-title">Backup</div>
+              <div class="setting-section-title">Backup &amp; Export</div>
               <p class="setting-hint">A backup holds your book details, collections, favourites, reading positions, highlights and notes. It does not contain the book files themselves, and nothing is uploaded anywhere.</p>
               <div class="storage-actions">
                 <button class="btn btn-ghost reset-settings-btn" id="backup-library-btn" type="button">Back up library</button>
                 <button class="btn btn-ghost reset-settings-btn" id="export-annotations-btn" type="button">Export annotations</button>
+                <button class="btn btn-ghost reset-settings-btn" id="export-catalog-btn" type="button">Export catalog (JSON)</button>
               </div>
               <div class="storage-actions">
                 <label class="btn btn-ghost reset-settings-btn" for="restore-library-input">Restore from a backup</label>
                 <input id="restore-library-input" type="file" accept="application/json,.json" hidden>
               </div>
               <div id="restore-preview"></div>
+            </div>
+
+            <div class="settings-group" id="storage-cache-group">
+              <div class="setting-section-title">Reader cache &amp; memory</div>
+              <p class="setting-hint">Frees memory blobs, layout calculations, and cached chapter DOM trees without altering any book files or progress.</p>
+              <button class="btn btn-ghost reset-settings-btn" id="clear-cache-btn" type="button">Clear reader rendering cache</button>
             </div>
 
             <div class="full-settings-spacer"></div>

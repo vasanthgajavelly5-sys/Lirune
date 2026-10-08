@@ -19,6 +19,7 @@
   --bg-glass-nav:   rgba(17,21,27,0.94);
   --bg-scrim:       rgba(0,0,0,0.68);
   --bg-input:       rgba(255,255,255,0.05);
+  --bg-inset:       rgba(255,255,255,0.05);
 
   /* Text */
   --text-primary:   #E9E7F5;
@@ -103,6 +104,7 @@
   --bg-glass-nav:   rgba(248,247,255,0.92);
   --bg-scrim:       rgba(0,0,0,0.4);
   --bg-input:       rgba(0,0,0,0.04);
+  --bg-inset:       rgba(0,0,0,0.04);
 
   --text-primary:   #1A1630;
   --text-secondary: #4D4A68;
@@ -331,6 +333,14 @@
   --r-xl:  22px;
   --r-2xl: 30px;
   --r-full:9999px;
+
+  /* Aliases for semantic radius usage */
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
+  --radius-full: var(--r-full);
 
   /* Font stacks */
   --font-ui:      'Cormorant Garamond', Georgia, 'Times New Roman', serif;

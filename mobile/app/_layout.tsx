@@ -15,6 +15,7 @@ import { useSettingsStore } from '@/state/settingsStore';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useReaderStore } from '@/state/readerStore';
 import { fileStorage } from '@/services/storage/FileStorage';
+import { nativeStorage } from '@/services/storage/NativeStorageBridge';
 import { ImportService } from '@/services/import/ImportService';
 import { logger } from '@/utils/logger';
 
@@ -68,6 +69,10 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
           }
 
           const res = await ImportService.importFile(targetUri, fileName);
+          // Immediately clear the native intent data on MainActivity so cold relaunches
+          // and multitasking do not repeatedly open this same book.
+          void nativeStorage.clearCurrentIntent();
+
           if (res.success && res.book) {
             await loadLibrary();
             await useReaderStore.getState().openBook(res.book);
@@ -78,16 +83,19 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
           }
         } catch (err) {
           logger.error(TAG, 'Failed processing incoming external file intent', err);
+          void nativeStorage.clearCurrentIntent();
         }
       }
     }
 
     // Cold launch check
-    Linking.getInitialURL().then(handleIncomingUri);
+    Linking.getInitialURL().then((url) => {
+      if (url) void handleIncomingUri(url);
+    });
 
     // Warm launch / foreground event listener
     const subscription = Linking.addEventListener('url', ({ url }) => {
-      handleIncomingUri(url);
+      if (url) void handleIncomingUri(url);
     });
 
     return () => subscription.remove();

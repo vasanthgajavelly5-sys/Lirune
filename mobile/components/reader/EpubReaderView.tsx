@@ -417,6 +417,7 @@ export function EpubReaderView({
   const mountedRef = useRef(true);
   const appliedGeometryRef = useRef<AppliedGeometry | null>(null);
   const liveGeometryRef = useRef<ReaderGeometry | null>(null);
+  const tocRef = useRef<TOCItem[]>([]);
   /** Last rendered column count; the hysteresis input for the next decision. */
   const [previousTwoColumn, setPreviousTwoColumn] = useState(false);
   const chaptersRef = useRef<ChapterItem[]>([]);
@@ -805,6 +806,7 @@ export function EpubReaderView({
             });
             hydratedRef.current = new Set([initialIdx]);
           }
+          tocRef.current = toc;
           if (onTOCLoaded) onTOCLoaded(toc);
           onChapterCountLoaded?.(loadedChapters.length);
           setIsLoading(false);
@@ -1034,8 +1036,22 @@ if (!targetCfi || chapters.length === 0) return;
 
     setCurrentChapterIndex(idx);
     if (!continuousDocumentRef.current) {
-      setCurrentPage(0);
-      setInitialScrollY(target.scrollY || 0);
+      if (target.anchor) {
+        setTimeout(() => {
+          webViewRef.current?.injectJavaScript(`
+            (function () {
+              var anchor = document.getElementById(${JSON.stringify(target.anchor)}) ||
+                           document.querySelector('[name=' + JSON.stringify(${JSON.stringify(target.anchor)}) + ']');
+              if (anchor && window.__lirunePager && typeof window.__lirunePager.goToElement === 'function') {
+                window.__lirunePager.goToElement(anchor);
+              }
+            })(); true;
+          `);
+        }, 120);
+      } else {
+        setCurrentPage(0);
+        setInitialScrollY(target.scrollY || 0);
+      }
       return;
     }
 
@@ -1049,8 +1065,10 @@ if (!targetCfi || chapters.length === 0) return;
           if (!section) return;
           ${
             target.anchor
-              ? `var anchor = document.getElementById(${JSON.stringify(target.anchor)});
-               (anchor && section.contains(anchor) ? anchor : section).scrollIntoView({ behavior: 'smooth' });`
+              ? `var anchor = document.getElementById(${JSON.stringify(target.anchor)}) ||
+                           document.querySelector('[name=' + JSON.stringify(${JSON.stringify(target.anchor)}) + ']');
+               var targetEl = (anchor && section.contains(anchor)) ? anchor : section;
+               targetEl.scrollIntoView({ behavior: 'smooth' });`
               : typeof target.scrollY === 'number'
                 ? `window.scrollTo(0, ${target.scrollY});`
                 : `section.scrollIntoView({ behavior: 'smooth' });`
@@ -1076,7 +1094,9 @@ if (!targetCfi || chapters.length === 0) return;
     }
     const cfi = `spine:${currentChapterIndex}`;
     lastPublishedCfiRef.current = cfi;
-    onProgressChange(percent, cfi, currentChapter?.title || `Chapter ${currentChapterIndex + 1}`);
+    const matchingToc = tocRef.current.find((t) => t.href?.startsWith(`spine:${currentChapterIndex}`));
+    const chapterLabel = matchingToc?.label || currentChapter?.navTitle || currentChapter?.title || `Chapter ${currentChapterIndex + 1}`;
+    onProgressChange(percent, cfi, chapterLabel);
   }, [currentChapterIndex, currentPage, totalPages, isPaginated, chapters, onProgressChange]);
 
   const nextChapter = useCallback(() => {
@@ -1256,7 +1276,10 @@ if (!targetCfi || chapters.length === 0) return;
             const first = publishedCfisRef.current.values().next().value;
             if (first) publishedCfisRef.current.delete(first);
           }
-          onProgressChange(overallPercent, scrollCfi, chaptersRef.current[chapterIndex]?.title || `Chapter ${chapterIndex + 1}`);
+          const matchingToc = tocRef.current.find((t) => t.href?.startsWith(`spine:${chapterIndex}`));
+          const chapterLabel =
+            matchingToc?.label || chaptersRef.current[chapterIndex]?.navTitle || chaptersRef.current[chapterIndex]?.title || `Chapter ${chapterIndex + 1}`;
+          onProgressChange(overallPercent, scrollCfi, chapterLabel);
           break;
         }
 

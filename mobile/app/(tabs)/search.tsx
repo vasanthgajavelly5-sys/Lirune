@@ -459,6 +459,7 @@ export default function FilesScreen() {
             allFound.push({
               id: nf.id,
               uri: nf.uri,
+              path: nf.path,
               name: nf.name,
               format: nf.format,
               size: nf.size,
@@ -957,6 +958,8 @@ export default function FilesScreen() {
 
     setImportProgress({ total: toImport.length, current: 0, currentFile: '' });
     let successCount = 0;
+    let duplicateCount = 0;
+    const failureList: { name: string; reason: string }[] = [];
 
     for (let i = 0; i < toImport.length; i++) {
       const file = toImport[i];
@@ -967,22 +970,51 @@ export default function FilesScreen() {
       });
 
       try {
-        const res = await ImportService.importFile(file.uri, file.name, file.size);
+        let res = await ImportService.importFile(file.uri, file.name, file.size);
+        // If URI import failed and a filesystem path exists, retry with direct file path
+        if (!res.success && file.path) {
+          const directUri = file.path.startsWith('/') ? `file://${file.path}` : file.path;
+          res = await ImportService.importFile(directUri, file.name, file.size);
+        }
+
         if (res.success) {
-          successCount++;
+          if (res.isDuplicate) {
+            duplicateCount++;
+          } else {
+            successCount++;
+          }
           // Mark as in library in state
           setDiscoveredFiles((prev) =>
             prev.map((f) => (f.id === file.id ? { ...f, inLibrary: true, selected: false } : f))
           );
+        } else {
+          failureList.push({
+            name: file.name,
+            reason: res.error?.message || 'Unsupported format or file could not be read',
+          });
         }
-      } catch (importErr) {
+      } catch (importErr: any) {
         logger.error(TAG, `Failed importing ${file.name}`, importErr);
+        failureList.push({
+          name: file.name,
+          reason: importErr?.message || 'Unexpected import error',
+        });
       }
     }
 
     await loadLibrary();
     setImportProgress(null);
-    setToastMessage(`Successfully imported ${successCount} book${successCount === 1 ? '' : 's'}.`);
+
+    if (failureList.length === 0) {
+      const msg = duplicateCount > 0
+        ? `Imported ${successCount} book${successCount === 1 ? '' : 's'} (${duplicateCount} already in library).`
+        : `Successfully imported ${successCount} book${successCount === 1 ? '' : 's'}.`;
+      setToastMessage(msg);
+    } else {
+      const summary = `Imported ${successCount} book${successCount === 1 ? '' : 's'}. ${failureList.length} could not be imported (${failureList[0].reason}).`;
+      setToastMessage(summary);
+      logger.warn(TAG, `Import completed with ${failureList.length} errors:`, failureList);
+    }
   };
 
   /**

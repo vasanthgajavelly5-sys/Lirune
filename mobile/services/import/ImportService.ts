@@ -39,6 +39,7 @@ export interface ImportResult {
   book?: Book;
   error?: AppError;
   cancelled?: boolean;
+  isDuplicate?: boolean;
 }
 
 export class ImportService {
@@ -173,7 +174,7 @@ export class ImportService {
       );
       if (duplicate) {
         logger.info(TAG, `Book already exists in library: ${duplicate.title}`);
-        return { success: true, book: duplicate };
+        return { success: true, book: duplicate, isDuplicate: true };
       }
 
       // 3. Generate unique stable ID & copy into application-managed storage

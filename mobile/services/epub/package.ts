@@ -10,7 +10,7 @@
  */
 
 import type { EpubArchive } from './archive.ts';
-import { resolveZipHref, resolveZipPath } from './zipPaths.ts';
+import { resolveZipHref, resolveZipPath, normalizeEntryPath } from './zipPaths.ts';
 import { createSpineTarget, buildLogicalNavigationModel, type LogicalChapterInfo } from './navigation.ts';
 import { scanTokens, parseAttributes, toPlainText, elementInner, findElementEnd } from './markup.ts';
 import type { TOCItem } from '../../models/Book.ts';
@@ -376,13 +376,24 @@ export async function readEpubPackage(archive: EpubArchive): Promise<EpubPackage
   // Spine index lookup, tolerant of case differences in publisher manifests.
   const spineIndexByPath = new Map<string, number>();
   spine.forEach((item, index) => {
-    const key = item.path.toLowerCase();
+    const key = normalizeEntryPath(item.path).toLowerCase();
     if (item.path && !spineIndexByPath.has(key)) spineIndexByPath.set(key, index);
   });
   const spineIndexFor = (archivePath: string): number | null => {
     if (!archivePath) return null;
-    const direct = spineIndexByPath.get(archivePath.toLowerCase());
-    return direct === undefined ? null : direct;
+    const normalized = normalizeEntryPath(archivePath).toLowerCase();
+    const direct = spineIndexByPath.get(normalized);
+    if (direct !== undefined) return direct;
+    // Fallback: match by filename if path prefix differed (e.g. OEBPS/ vs root)
+    const fileName = normalized.split('/').pop();
+    if (fileName) {
+      const match = spine.findIndex((item) => {
+        const p = normalizeEntryPath(item.path).toLowerCase();
+        return p.endsWith('/' + fileName) || p === fileName;
+      });
+      if (match !== -1) return match;
+    }
+    return null;
   };
 
   // Table of contents

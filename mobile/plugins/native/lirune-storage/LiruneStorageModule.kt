@@ -700,11 +700,21 @@ private fun getExtensionFromName(name: String): String {
                 val destFile = File(destPath)
                 destFile.parentFile?.mkdirs()
 
-                val inputStream = if (sourceUriString.startsWith("file://")) {
-                    File(sourceUri.path ?: sourceUriString.removePrefix("file://")).inputStream()
-                } else {
-                    reactContext.contentResolver.openInputStream(sourceUri)
-                        ?: throw IOException("Cannot open input stream for $sourceUriString")
+                val inputStream = when {
+                    sourceUriString.startsWith("file://") || sourceUriString.startsWith("/") -> {
+                        val rawPath = if (sourceUriString.startsWith("file://")) {
+                            sourceUri.path ?: sourceUriString.removePrefix("file://")
+                        } else {
+                            sourceUriString
+                        }
+                        val decodedPath = try { Uri.decode(rawPath) } catch (_: Exception) { rawPath }
+                        val f = File(decodedPath)
+                        if (f.exists() && f.isFile) f.inputStream() else File(rawPath).inputStream()
+                    }
+                    else -> {
+                        reactContext.contentResolver.openInputStream(sourceUri)
+                            ?: throw IOException("Cannot open input stream for $sourceUriString")
+                    }
                 }
 
                 val outputStream = FileOutputStream(destFile)
@@ -733,5 +743,25 @@ private fun getExtensionFromName(name: String): String {
                 promise.reject("COPY_STREAM_ERROR", e.message, e)
             }
         }.start()
+    }
+
+    /**
+     * Clears any active launch intent on MainActivity so cold/warm relaunches don't re-trigger.
+     */
+    @ReactMethod
+    fun clearCurrentIntent(promise: Promise) {
+        try {
+            val activity = reactContext.currentActivity
+            if (activity != null) {
+                val freshIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                }
+                activity.setIntent(freshIntent)
+            }
+            promise.resolve(true)
+        } catch (_: Exception) {
+            promise.resolve(false)
+        }
     }
 }

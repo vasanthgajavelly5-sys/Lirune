@@ -181,4 +181,16 @@ export const nativeStorage = {
       return null;
     }
   },
+
+  /**
+   * Resets MainActivity's launch intent to standard launcher so app relaunches don't re-trigger it.
+   */
+  async clearCurrentIntent(): Promise<boolean> {
+    if (!this.isAvailable()) return false;
+    try {
+      return await LiruneStorage.clearCurrentIntent();
+    } catch {
+      return false;
+    }
+  },
 };

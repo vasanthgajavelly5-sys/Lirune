@@ -534,6 +534,15 @@ function paginatedScript(input: ReaderDocumentInput): string {
       getPageCount: function () { return measurePages(); },
       getPageRatio: function () { return totalPages > 1 ? currentPage / (totalPages - 1) : 0; },
       getColumnStep: function () { return colStepPx; },
+      goToElement: function (el) {
+        if (!el) return;
+        measurePages();
+        var rect = el.getBoundingClientRect();
+        var naturalX = rect.left + (currentPage * colStepPx);
+        var targetPage = Math.max(0, Math.min(totalPages - 1, Math.floor(naturalX / Math.max(1, colStepPx))));
+        currentPage = targetPage;
+        updateTransform(false);
+      },
       measure: measurePages
     };
 
@@ -593,8 +602,8 @@ function paginatedScript(input: ReaderDocumentInput): string {
         return;
       }
 
-      // Tap: small movement within a short time window
-      if (Math.abs(deltaX) < 12 && Math.abs(deltaY) < 12 && elapsed < 350) {
+      // Tap: allow standard mobile tap slop (28px) and duration up to 450ms
+      if (Math.abs(deltaX) <= 28 && Math.abs(deltaY) <= 28 && elapsed <= 450) {
         var now = Date.now();
         if (now - lastTapTime < 320) {
           if (currentZoom !== 1.0) {

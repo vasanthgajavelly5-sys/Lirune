@@ -307,8 +307,17 @@ export default function ReaderScreen() {
       }
 
       ttsService.stop();
-      await closeBook();
-      router.replace({ pathname: '/(tabs)/library' });
+      try {
+        await closeBook();
+      } catch (closeErr) {
+        logger.warn(TAG, 'Error during closeBook on exit', closeErr);
+      }
+
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace({ pathname: '/(tabs)' });
+      }
       return true;
     } finally {
       setTimeout(() => {

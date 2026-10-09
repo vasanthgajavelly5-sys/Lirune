@@ -123,6 +123,9 @@ export class FileStorageService {
     const stagingPath = `${destPath}.part`;
 
     let normalizedSource = sourceUri;
+    if (normalizedSource.startsWith('/')) {
+      normalizedSource = `file://${normalizedSource}`;
+    }
     if (normalizedSource.startsWith('file:///sdcard/')) {
       normalizedSource = normalizedSource.replace('file:///sdcard/', 'file:///storage/emulated/0/');
     }

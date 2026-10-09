@@ -35,6 +35,7 @@ interface ReaderControlsProps {
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenAnnotations: () => void;
+  onOpenTabs?: () => void;
   onOpenTTS?: () => void;
   onOpenThumbnails?: () => void;
 }
@@ -53,6 +54,7 @@ export function ReaderControls({
   onOpenSearch,
   onOpenSettings,
   onOpenAnnotations,
+  onOpenTabs,
   onOpenTTS,
   onOpenThumbnails,
 }: ReaderControlsProps) {
@@ -129,6 +131,17 @@ export function ReaderControls({
                 color={isBookmarked ? accentColor : iconColor}
               />
             </TouchableOpacity>
+
+            {onOpenTabs && (
+              <TouchableOpacity
+                onPress={onOpenTabs}
+                style={styles.iconButton}
+                accessibilityRole="button"
+                accessibilityLabel="Reading tabs and open books"
+              >
+                <Ionicons name="albums-outline" size={21} color={iconColor} />
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               onPress={onOpenSearch}

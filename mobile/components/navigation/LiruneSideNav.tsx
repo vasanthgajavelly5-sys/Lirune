@@ -21,6 +21,8 @@ import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeContext } from '@/theme/ThemeContext';
 
+import { LiruneBottomTabBar } from '@/components/navigation/LiruneBottomTabBar';
+
 interface NavigationContextType {
   isDrawerOpen: boolean;
   openDrawer: () => void;
@@ -151,7 +153,10 @@ export function LiruneNavigationProvider({ children }: { children: React.ReactNo
     >
       <View style={styles.providerContainer}>
         {isWideScreen && <LiruneSideRail />}
-        <View style={styles.mainContentArea}>{children}</View>
+        <View style={styles.mainContentArea}>
+          {children}
+          {!isWideScreen && <LiruneBottomTabBar />}
+        </View>
         {!isWideScreen && (
           <LiruneSlideDrawer
             isOpen={isDrawerOpen}
@@ -164,11 +169,16 @@ export function LiruneNavigationProvider({ children }: { children: React.ReactNo
 }
 
 /**
- * Top bar burger button for opening the Lirune drawer on mobile
+ * Top bar burger button for opening the Lirune drawer on mobile.
+ * Hidden on tablets (wide screens) where the persistent side rail is visible.
  */
 export function LiruneNavButton({ style }: { style?: any }) {
-  const { toggleDrawer } = useLiruneNavigation();
+  const { toggleDrawer, isWideScreen } = useLiruneNavigation();
   const { colors } = useThemeContext();
+
+  if (isWideScreen) {
+    return null;
+  }
 
   return (
     <TouchableOpacity

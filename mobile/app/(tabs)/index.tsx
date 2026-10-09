@@ -16,6 +16,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -203,11 +204,30 @@ export default function LibraryScreen() {
     if (updated) setSelectedBook(updated);
   };
 
-  // Simplified filter tabs: ONLY All, Reading, Favorites
-  const filterChips: { id: FilterType; label: string }[] = [
-    { id: 'all', label: 'All' },
-    { id: 'reading', label: 'Reading' },
-    { id: 'favorites', label: 'Favorites' },
+  const { width: windowWidth } = useWindowDimensions();
+  const isTablet = windowWidth >= 680;
+  const gridColumns = useMemo(() => {
+    if (viewMode !== 'grid') return 1;
+    if (windowWidth >= 1200) return 5;
+    if (windowWidth >= 960) return 4;
+    if (windowWidth >= 680) return 3;
+    return 2;
+  }, [viewMode, windowWidth]);
+
+  const readingCount = useMemo(
+    () => books.filter((b) => b.progress > 0 && b.progress < 100).length,
+    [books]
+  );
+  const favoritesCount = useMemo(
+    () => books.filter((b) => b.isFavorite).length,
+    [books]
+  );
+
+  // Simplified filter tabs with dynamic counts: All, Reading, Favorites
+  const filterChips: { id: FilterType; label: string; count: number }[] = [
+    { id: 'all', label: 'All', count: books.length },
+    { id: 'reading', label: 'Reading', count: readingCount },
+    { id: 'favorites', label: 'Favorites', count: favoritesCount },
   ];
 
   return (
@@ -325,6 +345,28 @@ export default function LibraryScreen() {
                 >
                   {chip.label}
                 </Text>
+                <View
+                  style={[
+                    styles.chipCountBadge,
+                    {
+                      backgroundColor: isSelected
+                        ? isDark ? 'rgba(0, 0, 0, 0.25)' : 'rgba(255, 255, 255, 0.28)'
+                        : isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.chipCountText,
+                      {
+                        color: isSelected ? colors.accentForeground : colors.textSecondary,
+                        fontWeight: isSelected ? '700' : '600',
+                      },
+                    ]}
+                  >
+                    {chip.count}
+                  </Text>
+                </View>
               </TouchableOpacity>
             );
           })}
@@ -450,8 +492,8 @@ export default function LibraryScreen() {
       ) : (
         <FlatList
           data={filteredBooks}
-          key={viewMode === 'grid' ? 'grid_2_cols' : `single_col_${viewMode}`}
-          numColumns={viewMode === 'grid' ? 2 : 1}
+          key={viewMode === 'grid' ? `grid_${gridColumns}_cols` : `single_col_${viewMode}`}
+          numColumns={gridColumns}
           keyExtractor={(item) => item.id}
           columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
           contentContainerStyle={styles.listContent}
@@ -467,6 +509,8 @@ export default function LibraryScreen() {
             <BookCard
               book={item}
               viewMode={viewMode}
+              columnsCount={gridColumns}
+              availableWidth={isTablet ? windowWidth - 84 : windowWidth}
               onPress={() => handleOpenBook(item)}
               onLongPress={() => {
                 setSelectedBook(item);
@@ -657,6 +701,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     letterSpacing: 0.2,
   },
+  chipCountBadge: {
+    marginLeft: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 9,
+    minWidth: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipCountText: {
+    fontSize: 11,
+  },
   collectionsRow: {
     paddingBottom: 8,
   },
@@ -687,7 +743,8 @@ const styles = StyleSheet.create({
     paddingBottom: 36,
   },
   gridRow: {
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    gap: 12,
   },
   centered: {
     flex: 1,

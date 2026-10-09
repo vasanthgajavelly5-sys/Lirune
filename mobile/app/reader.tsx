@@ -46,6 +46,7 @@ import { AnnotationsSheet } from '@/components/reader/AnnotationsSheet';
 import { TtsControlsSheet } from '@/components/reader/TtsControlsSheet';
 import { DictionaryModal } from '@/components/reader/DictionaryModal';
 import { ThumbnailsSheet } from '@/components/reader/ThumbnailsSheet';
+import { ReaderTabsSheet } from '@/components/reader/ReaderTabsSheet';
 import { ttsService } from '@/services/tts/TtsService';
 import { parseSpineTarget, classifyReadingUnitType, extractExplicitChapterNumber } from '@/services/epub/navigation';
 import { READER_THEMES } from '@/theme/Colors';
@@ -124,6 +125,7 @@ export default function ReaderScreen() {
   const [isTtsVisible, setIsTtsVisible] = useState(false);
   const [isDictionaryVisible, setIsDictionaryVisible] = useState(false);
   const [isThumbnailsVisible, setIsThumbnailsVisible] = useState(false);
+  const [isTabsVisible, setIsTabsVisible] = useState(false);
 
   const handleSelectionChange = useCallback((next: SelectionPayload) => {
     setSelection((prev) => (prev.text === next.text ? prev : next));
@@ -298,6 +300,11 @@ export default function ReaderScreen() {
         isExitingRef.current = false;
         return true;
       }
+      if (isTabsVisible) {
+        setIsTabsVisible(false);
+        isExitingRef.current = false;
+        return true;
+      }
 
       ttsService.stop();
       await closeBook();
@@ -316,6 +323,7 @@ export default function ReaderScreen() {
     isTtsVisible,
     isDictionaryVisible,
     isThumbnailsVisible,
+    isTabsVisible,
     closeBook,
     router,
     setTOCVisible,
@@ -392,6 +400,24 @@ export default function ReaderScreen() {
       setIsSearching(false);
     },
     [setSearchResults, setIsSearching]
+  );
+
+  const handleSwitchBook = useCallback(
+    async (nextBook: Book) => {
+      setIsTabsVisible(false);
+      if (!currentBook || nextBook.id === currentBook.id) return;
+      try {
+        await useReaderStore.getState().flushPendingProgress();
+        await openBook(nextBook);
+        router.replace({
+          pathname: '/reader',
+          params: { bookId: nextBook.id },
+        });
+      } catch (err) {
+        logger.error(TAG, 'Failed switching reading tab to book', err);
+      }
+    },
+    [currentBook, openBook, router]
   );
 
   // Status Screen: Resolving / Loading
@@ -563,7 +589,7 @@ export default function ReaderScreen() {
   const isBookmarked = bookmarks.some((b) => b.cfi === currentCfi);
   const brightness = clampReaderBrightness(readerSettings.brightness);
   const isSheetOpen =
-    isTOCVisible || isSearchVisible || isSettingsVisible || isAnnotationsVisible;
+    isTOCVisible || isSearchVisible || isSettingsVisible || isAnnotationsVisible || isTabsVisible;
 
   return (
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
@@ -822,6 +848,7 @@ export default function ReaderScreen() {
           onOpenSearch={() => setSearchVisible(true)}
           onOpenSettings={() => setSettingsVisible(true)}
           onOpenAnnotations={() => setAnnotationsVisible(true)}
+          onOpenTabs={() => setIsTabsVisible(true)}
           onOpenTTS={
             ['epub', 'txt', 'html', 'fb2', 'mobi', 'azw', 'azw3', 'docx', 'odt', 'rtf', 'doc', 'chm'].includes(activeBook.format)
               ? handleOpenTTS
@@ -919,6 +946,16 @@ export default function ReaderScreen() {
           updateProgress(percent, `page:${pageNum}`);
         }}
         onClose={() => setIsThumbnailsVisible(false)}
+      />
+
+      {/* Reading Tabs Sheet (Fast switching between books) */}
+      <ReaderTabsSheet
+        visible={isTabsVisible}
+        onClose={() => setIsTabsVisible(false)}
+        currentBook={activeBook}
+        onSelectBook={handleSwitchBook}
+        onExitToLibrary={handleExitReader}
+        themeName={readerSettings.theme}
       />
     </View>
   );

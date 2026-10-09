@@ -20,6 +20,8 @@ import { useThemeContext } from '@/theme/ThemeContext';
 export interface BookCardProps {
   book: Book;
   viewMode: ViewMode;
+  columnsCount?: number;
+  availableWidth?: number;
   onPress: () => void;
   onLongPress?: () => void;
   onToggleFavorite: () => void;
@@ -29,17 +31,21 @@ export interface BookCardProps {
 export function BookCard({
   book,
   viewMode,
+  columnsCount = 2,
+  availableWidth,
   onPress,
   onLongPress,
   onToggleFavorite,
 }: BookCardProps) {
   const { colors, scheme } = useThemeContext();
   const isDark = scheme === 'dark';
-  // Measured, not module-level: a module-level `Dimensions.get('window')` is read
-  // once at import time, so the grid kept the launch orientation's card width
-  // after a rotation until the app was restarted.
+  // Measured responsive width: adapts to tablet side rail and dynamic column counts.
   const { width: windowWidth } = useWindowDimensions();
-  const gridCardWidth = (windowWidth - 44) / 2;
+  const isTablet = windowWidth >= 680;
+  const contentWidth = availableWidth ?? (isTablet ? windowWidth - 84 : windowWidth);
+  const cols = Math.max(1, columnsCount);
+  const totalHorizontalGaps = 32 + (cols - 1) * 12;
+  const gridCardWidth = Math.max(120, Math.floor((contentWidth - totalHorizontalGaps) / cols));
 
   const formatLabels: Record<string, string> = {
     epub: 'EPUB',

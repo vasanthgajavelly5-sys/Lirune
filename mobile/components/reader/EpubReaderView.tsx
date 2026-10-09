@@ -347,7 +347,12 @@ export function EpubReaderView({
    * Continuous mode never re-renders its document while reading: the shell is
    * built once and every later chapter is injected into the live DOM.
    */
-  const [continuousSeed, setContinuousSeed] = useState<{ body: string; css: string; index: number } | null>(null);
+  const [continuousSeed, setContinuousSeed] = useState<{
+    body: string;
+    css: string;
+    index: number;
+    hasLeadingHeading: boolean;
+  } | null>(null);
   const [coverHtml, setCoverHtml] = useState<string | undefined>(undefined);
   /** Mirror of `continuousSeed` for callbacks that must not re-subscribe to it. */
   const continuousSeedRef = useRef(continuousSeed);
@@ -390,6 +395,8 @@ export function EpubReaderView({
    * mistaken for a jump back to N. That feedback loop is an infinite render.
    */
   const lastPublishedCfiRef = useRef<string | null>(null);
+  /** Set of recent CFIs published through `onProgressChange` to absorb delayed echoes. */
+  const publishedCfisRef = useRef<Set<string>>(new Set());
   /** The last `targetCfi` this reader acted on, so one request runs exactly once. */
   const lastAppliedCfiRef = useRef<string | null>(null);
   const geometryRequestRef = useRef<AppliedGeometry | null>(null);
@@ -790,7 +797,12 @@ export function EpubReaderView({
               }
             }
             setCoverHtml(resolvedCoverHtml);
-            setContinuousSeed({ body: initialChapter.body, css: initialChapter.css, index: initialIdx });
+            setContinuousSeed({
+              body: initialChapter.body,
+              css: initialChapter.css,
+              index: initialIdx,
+              hasLeadingHeading: initialChapter.hasLeadingHeading === true,
+            });
             hydratedRef.current = new Set([initialIdx]);
           }
           if (onTOCLoaded) onTOCLoaded(toc);
@@ -971,8 +983,8 @@ export function EpubReaderView({
     let cancelled = false;
     loadChapter(currentChapterIndex).then((doc) => {
       if (cancelled || !doc) return;
-      setActiveChapter((previous) => (previous === doc ? previous : doc));
       if (!continuousDocumentRef.current) {
+        setActiveChapter((previous) => (previous === doc ? previous : doc));
         setCurrentPage(0);
       } else if (!hydratedRef.current.has(currentChapterIndex)) {
         // Continuous mode has its own DOM: the chapter has to be injected, not
@@ -1000,6 +1012,7 @@ if (!targetCfi || chapters.length === 0) return;
     const decision = decideNavigation({
       targetCfi,
       lastPublishedCfi: lastPublishedCfiRef.current,
+      recentPublishedCfis: publishedCfisRef.current,
       lastAppliedCfi: lastAppliedCfiRef.current,
       spineIndex: target.spineIndex,
       chapterCount: chapters.length,
@@ -1229,16 +1242,22 @@ if (!targetCfi || chapters.length === 0) return;
           if (pendingChapter !== null && chapterIndex !== pendingChapter) break;
           if (pendingChapter !== null) pendingChapterNavigationRef.current = null;
           if (continuousDocumentRef.current && chapterIndex !== currentIndexRef.current) {
+            currentIndexRef.current = chapterIndex;
             setCurrentChapterIndex(chapterIndex);
           }
-const overallPercent = Math.min(
-          100,
-          Math.round(((chapterIndex + data.percent / 100) / Math.max(1, chaptersRef.current.length)) * 100)
-        );
-        const scrollCfi = `spine:${chapterIndex}:scroll:${Math.max(0, Math.round(data.scrollY || 0))}`;
-        lastPublishedCfiRef.current = scrollCfi;
-        onProgressChange(overallPercent, scrollCfi, chaptersRef.current[chapterIndex]?.title || `Chapter ${chapterIndex + 1}`);
-        break;
+          const overallPercent = Math.min(
+            100,
+            Math.round(((chapterIndex + data.percent / 100) / Math.max(1, chaptersRef.current.length)) * 100)
+          );
+          const scrollCfi = `spine:${chapterIndex}:scroll:${Math.max(0, Math.round(data.scrollY || 0))}`;
+          lastPublishedCfiRef.current = scrollCfi;
+          publishedCfisRef.current.add(scrollCfi);
+          if (publishedCfisRef.current.size > 120) {
+            const first = publishedCfisRef.current.values().next().value;
+            if (first) publishedCfisRef.current.delete(first);
+          }
+          onProgressChange(overallPercent, scrollCfi, chaptersRef.current[chapterIndex]?.title || `Chapter ${chapterIndex + 1}`);
+          break;
         }
 
         case 'pageBoundary':
@@ -1365,7 +1384,7 @@ const overallPercent = Math.min(
             continuousSeed.index,
             continuousSeed.body,
             {
-              activeHasLeadingHeading: activeChapter?.hasLeadingHeading === true,
+              activeHasLeadingHeading: continuousSeed.hasLeadingHeading,
               coverHtml,
             }
           )
@@ -1375,26 +1394,47 @@ const overallPercent = Math.min(
   const bookCss =
     geometry.mode === 'continuous' ? (continuousSeed?.css ?? '') : (activeChapter?.css ?? '');
 
-  const renderedHtml = buildReaderDocument({
-    mode: geometry.mode,
+  const renderedHtml = useMemo(() => {
+    return buildReaderDocument({
+      mode: geometry.mode,
+      bookCss,
+      body: bodyHtml,
+      palette: {
+        bg: palette.bg,
+        text: palette.text,
+        muted: palette.muted,
+        link: palette.link,
+      },
+      fontFamily: getCssFontFamily(renderSettings.fontFamily),
+      fontSize: renderSettings.fontSize,
+      lineHeight: renderSettings.lineHeight,
+      alignment: renderSettings.alignment,
+      paragraphSpacing: renderSettings.paragraphSpacing || 1.0,
+      layout: geometry.layout,
+      twoColumn: geometry.twoColumn,
+      startAtEnd,
+      initialScrollY,
+    });
+  }, [
+    geometry.mode,
+    geometry.layout,
+    geometry.twoColumn,
     bookCss,
-    body: bodyHtml,
-    palette: {
-      bg: palette.bg,
-      text: palette.text,
-      muted: palette.muted,
-      link: palette.link,
-    },
-    fontFamily: getCssFontFamily(renderSettings.fontFamily),
-    fontSize: renderSettings.fontSize,
-    lineHeight: renderSettings.lineHeight,
-    alignment: renderSettings.alignment,
-    paragraphSpacing: renderSettings.paragraphSpacing || 1.0,
-    layout: geometry.layout,
-    twoColumn: geometry.twoColumn,
+    bodyHtml,
+    palette.bg,
+    palette.text,
+    palette.muted,
+    palette.link,
+    renderSettings.fontFamily,
+    renderSettings.fontSize,
+    renderSettings.lineHeight,
+    renderSettings.alignment,
+    renderSettings.paragraphSpacing,
     startAtEnd,
     initialScrollY,
-  });
+  ]);
+
+  const webViewSource = useMemo(() => ({ html: renderedHtml }), [renderedHtml]);
 
   if (isLoading || !isMeasured) {
     // Nothing is painted until the container has been measured: a guessed 360x640
@@ -1447,7 +1487,7 @@ const overallPercent = Math.min(
         key={`${geometry.mode}-${loadAttempt}-${book.filePath || book.uri || ''}-${recovery.reloadKey}`}
         {...READER_WEBVIEW_PROPS}
         {...recovery.recoveryProps}
-        source={{ html: renderedHtml }}
+        source={webViewSource}
         style={[{ flex: 1, opacity: webViewPainted ? 1 : 0 }, { backgroundColor: palette.bg }]}
         onMessage={handleMessage}
         onLoadEnd={handleLoadEnd}

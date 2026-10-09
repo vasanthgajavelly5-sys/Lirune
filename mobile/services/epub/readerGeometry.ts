@@ -136,6 +136,8 @@ export interface NavigationTargetInput {
   targetCfi: string;
   /** The CFI this reader last published itself. */
   lastPublishedCfi: string | null;
+  /** Set of recent CFIs published by this reader to absorb delayed echoes. */
+  recentPublishedCfis?: Set<string>;
   /** The CFI this reader last acted on. */
   lastAppliedCfi: string | null;
   /** Spine index parsed from `targetCfi`, or null when it is not a spine target. */
@@ -169,6 +171,7 @@ export function decideNavigation(input: NavigationTargetInput): NavigationDecisi
   if (!input.targetCfi) return 'ignore-unparseable';
   // The reader's own progress report is not a request.
   if (input.targetCfi === input.lastPublishedCfi) return 'ignore-progress-echo';
+  if (input.recentPublishedCfis && input.recentPublishedCfis.has(input.targetCfi)) return 'ignore-progress-echo';
   // A request that was already honoured must not run twice.
   if (input.targetCfi === input.lastAppliedCfi) return 'ignore-already-applied';
   if (input.spineIndex === null) return 'ignore-unparseable';

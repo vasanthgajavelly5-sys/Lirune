@@ -800,10 +800,14 @@ const SettingsUI = (() => {
         <div class="about-list-row"><span>Author</span><strong>Vasanth Gajavelly</strong></div>
         <div class="about-list-row"><span>Licence</span><strong>GNU GPL v3.0</strong></div>
       </div>
-      <div class="setting-section-title">Third-party notices</div>
-      <p class="setting-hint">Lirune Reader bundles epub.js (BSD-2-Clause), PDF.js (Apache-2.0) and JSZip (MIT or GPL-3.0). Fonts are used under the SIL Open Font License.</p>
-      <div class="setting-section-title">Privacy</div>
-      <p class="setting-hint">Lirune Reader works entirely offline. Your books, reading positions and annotations stay on this computer and are never uploaded.</p>
+      <div class="about-block">
+        <div class="setting-section-title">Third-party notices</div>
+        <p class="setting-hint">Lirune Reader bundles epub.js (BSD-2-Clause), PDF.js (Apache-2.0) and JSZip (MIT or GPL-3.0). Fonts are used under the SIL Open Font License.</p>
+      </div>
+      <div class="about-block">
+        <div class="setting-section-title">Privacy</div>
+        <p class="setting-hint">Lirune Reader works entirely offline. Your books, reading positions and annotations stay on this computer and are never uploaded.</p>
+      </div>
     `;
     syncVersion();
   }

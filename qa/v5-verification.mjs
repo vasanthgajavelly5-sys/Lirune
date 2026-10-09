@@ -272,7 +272,7 @@ try {
 
   console.log('--- Step 11: App Version Check ---');
   const appVersion = await cdp.eval(`return document.getElementById('about-version')?.textContent;`);
-  check('App displays version 5.0.0', appVersion === '5.0.0', `version=${appVersion}`);
+  check('App displays version 5.5.0', appVersion === '5.5.0', `version=${appVersion}`);
 
 } catch (err) {
   console.error('Test execution error:', err);

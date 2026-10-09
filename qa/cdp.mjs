@@ -5,7 +5,7 @@
  * exposes helpers to evaluate expressions, send real key events and capture
  * screenshots. Not shipped: this directory is dev tooling only.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -247,9 +247,30 @@ export async function shutdown(cdp) {
   } catch {
     /* ignore */
   }
-  cdp.child.kill();
-  await sleep(600);
-  if (!cdp.child.killed) cdp.child.kill('SIGKILL');
+  try {
+    cdp.ws?.close();
+  } catch {
+    /* ignore */
+  }
+  if (cdp.child) {
+    try {
+      cdp.child.stdout?.destroy();
+      cdp.child.stderr?.destroy();
+    } catch {
+      /* ignore */
+    }
+    if (process.platform === 'win32' && cdp.child.pid) {
+      try {
+        spawnSync('taskkill', ['/F', '/T', '/PID', String(cdp.child.pid)], { stdio: 'ignore' });
+      } catch {
+        /* ignore */
+      }
+    } else {
+      cdp.child.kill();
+      await sleep(600);
+      if (!cdp.child.killed) cdp.child.kill('SIGKILL');
+    }
+  }
 }
 
 export { sleep };

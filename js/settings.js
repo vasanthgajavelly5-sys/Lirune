@@ -40,7 +40,7 @@ const ReaderSettings = (() => {
     return { ...currentSettings };
   }
 
-function updateUI() {
+  function updateUI() {
     // Font size display
     const fontSizeDisplay = document.getElementById('font-size-display');
     if (fontSizeDisplay) fontSizeDisplay.textContent = `${currentSettings.fontSize}px`;

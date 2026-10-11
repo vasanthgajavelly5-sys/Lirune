@@ -184,7 +184,26 @@ const SettingsUI = (() => {
         <span class="quick-settings-context">Reader</span>
         <span class="quick-settings-hint">Settings for the book you are reading</span>
       </div>
-      ${selectRow('qs-theme', 'Theme', Object.entries(READER_THEME_LABELS).map(([value, label]) => ({ value, label })), theme)}
+      <div class="quick-theme-group">
+        <div class="quick-row">
+          <label class="quick-row-label" for="qs-theme-select">Theme</label>
+          <select class="glass-select quick-select" id="qs-theme-select" data-quick-select="qs-theme">
+            ${Object.entries(READER_THEME_LABELS).map(([value, label]) => `
+              <option value="${Utils.escapeHTML(value)}"${value === theme ? ' selected' : ''}>${Utils.escapeHTML(label)}</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="theme-preset-grid quick-theme-grid" role="group" aria-label="Reading themes">
+          <button type="button" class="theme-preset${theme === 'neutral' ? ' active' : ''}" data-theme="neutral" aria-pressed="${theme === 'neutral' ? 'true' : 'false'}" title="Neutral"><span class="theme-swatch theme-swatch-neutral"></span><span class="theme-preset-name">Neutral</span></button>
+          <button type="button" class="theme-preset${theme === 'sepia' ? ' active' : ''}" data-theme="sepia" aria-pressed="${theme === 'sepia' ? 'true' : 'false'}" title="Sepia"><span class="theme-swatch theme-swatch-sepia"></span><span class="theme-preset-name">Sepia</span></button>
+          <button type="button" class="theme-preset${theme === 'night' ? ' active' : ''}" data-theme="night" aria-pressed="${theme === 'night' ? 'true' : 'false'}" title="Night"><span class="theme-swatch theme-swatch-night"></span><span class="theme-preset-name">Night</span></button>
+          <button type="button" class="theme-preset${theme === 'paper' ? ' active' : ''}" data-theme="paper" aria-pressed="${theme === 'paper' ? 'true' : 'false'}" title="Paper"><span class="theme-swatch theme-swatch-paper"></span><span class="theme-preset-name">Paper</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast1' ? ' active' : ''}" data-theme="contrast1" aria-pressed="${theme === 'contrast1' ? 'true' : 'false'}" title="Contrast 1 (OLED)"><span class="theme-swatch theme-swatch-contrast1"></span><span class="theme-preset-name">OLED</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast2' ? ' active' : ''}" data-theme="contrast2" aria-pressed="${theme === 'contrast2' ? 'true' : 'false'}" title="Contrast 2 (Amber)"><span class="theme-swatch theme-swatch-contrast2"></span><span class="theme-preset-name">Amber</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast3' ? ' active' : ''}" data-theme="contrast3" aria-pressed="${theme === 'contrast3' ? 'true' : 'false'}" title="Contrast 3 (Navy)"><span class="theme-swatch theme-swatch-contrast3"></span><span class="theme-preset-name">Navy</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast4' ? ' active' : ''}" data-theme="contrast4" aria-pressed="${theme === 'contrast4' ? 'true' : 'false'}" title="Contrast 4 (Sage)"><span class="theme-swatch theme-swatch-contrast4"></span><span class="theme-preset-name">Sage</span></button>
+        </div>
+      </div>
       ${selectRow('qs-font', 'Font', FONT_OPTIONS.map(f => ({ value: f.value, label: f.label })), reader.fontFamily)}
       ${sliderRow('qs-font-size', 'Size', reader.fontSize, 12, 36, 1, `${reader.fontSize}px`, 'px')}
       ${sliderRow('qs-line-height', 'Line height', reader.lineHeight, 1.2, 2.4, 0.1, reader.lineHeight.toFixed(1), '')}

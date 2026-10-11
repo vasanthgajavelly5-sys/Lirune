@@ -114,7 +114,7 @@
 .toolbar-actions .icon-btn:active,
 .toolbar-actions .icon-btn.active {
   background: var(--accent-subtle);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .toolbar-actions .icon-btn[disabled] {
   opacity: 0.38;
@@ -351,32 +351,11 @@ body.zen-mode #reading-stripe { display: none; }
 body.zen-mode #reader-statusbar { display: none; }
 body.zen-mode .nav-arrow { display: none; }
 body.focus-mode .nav-arrow { display: none; }
+body.focus-mode #reader-statusbar { display: none !important; }
+body.focus-mode #reading-stripe { display: none !important; }
 
 body.focus-mode #reader-toolbar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  opacity: 0;
-  transform: translateY(-100%);
-  pointer-events: none;
-  z-index: var(--z-sticky);
-  transition: opacity var(--dur-normal) var(--ease-io), transform var(--dur-normal) var(--ease-io);
-}
-body.focus-mode #reader-toolbar::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  height: 12px;
-  pointer-events: auto;
-}
-body.focus-mode #reader-toolbar:hover,
-body.focus-mode #reader-toolbar:focus-within {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: all;
+  display: none !important;
 }
 
 /* ── Search overlay ──────────────────────────────────────── */
@@ -515,13 +494,14 @@ body.focus-mode .focus-floating-controls .icon-btn:focus-visible {
 }
 body.focus-mode .focus-floating-controls .icon-btn:active {
   background: var(--accent-subtle);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 body.focus-mode .focus-floating-controls .icon-btn[disabled] {
   opacity: 0.35;
   pointer-events: none;
 }
 body.focus-mode .focus-settings-btn,
+body.focus-mode .focus-fullscreen-btn,
 body.focus-mode .focus-toc-btn {
   display: inline-flex;
 }

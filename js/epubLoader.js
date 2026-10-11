@@ -73,7 +73,6 @@ const EpubLoader = (() => {
   }
 
   /**
-  /**
    * The navigation entry that owns the reader's current location.
    *
    * Matching on spine index alone is enough when every chapter is its own
@@ -94,7 +93,7 @@ const EpubLoader = (() => {
       return candidates[0] || (currentActiveHref ? resolveChapter(currentActiveHref) : null);
     }
 
-    const doc = getCurrentDocument(location?.start?.href);
+    const doc = getCurrentDocument();
     const axis = readingAxis(doc);
     const limit = readingLimit(doc, axis);
     if (axis === null || limit === null) return candidates[0];
@@ -869,7 +868,7 @@ const EpubLoader = (() => {
     applyStylesToAllContents();
   }
 
-   function registerDefaultTheme() {
+  function registerDefaultTheme() {
     if (!rendition) return;
 
     const themeName = ThemeManager.getReaderTheme();
@@ -1392,7 +1391,7 @@ const EpubLoader = (() => {
     getLocation,
     getNavigation,
     getActiveNavId,
-      getZoom,
+    getZoom,
     setZoom,
     waitForLocations,
     cfiFromPercentage,

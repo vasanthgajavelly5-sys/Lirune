@@ -283,6 +283,14 @@ function createWindow() {
     mainWindow?.webContents.send('native-fullscreen-changed', false);
   });
 
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window-maximized-changed', true);
+  });
+
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window-maximized-changed', false);
+  });
+
   // External web links open in user's default browser
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url.startsWith('http:') || url.startsWith('https:')) {
@@ -683,6 +691,11 @@ ipcMain.handle('window:toggle-fullscreen', (event) => {
 ipcMain.handle('window:is-fullscreen', (event) => {
   requireTrustedSender(event);
   return Boolean(mainWindow?.isFullScreen());
+});
+
+ipcMain.handle('window:is-maximized', (event) => {
+  requireTrustedSender(event);
+  return Boolean(mainWindow?.isMaximized());
 });
 
 // Window controls

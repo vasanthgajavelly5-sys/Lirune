@@ -6,8 +6,8 @@ const path = require('path');
 test('Version consistency across package and lockfile', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'));
   const lock = JSON.parse(fs.readFileSync(path.join(__dirname, '../package-lock.json'), 'utf8'));
-  assert.equal(pkg.version, '5.6.0', 'package.json version must be 5.6.0');
-  assert.equal(lock.version, '5.6.0', 'package-lock.json version must be 5.6.0');
+  assert.equal(pkg.version, '5.6.1', 'package.json version must be 5.6.1');
+  assert.equal(lock.version, '5.6.1', 'package-lock.json version must be 5.6.1');
   assert.equal(pkg.build?.artifactName, '${productName}-${version}-Setup.${ext}');
 });
 
@@ -197,10 +197,11 @@ test('Fullscreen TOC accessibility and desktop toolbar congestion prevention', (
   const indexHtml = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const readerCss = fs.readFileSync(path.join(__dirname, '../css/reader.css'), 'utf8');
 
-  // Verify focus-floating-controls contains focus-toc-btn and focus-settings-btn
+  // Verify focus-floating-controls contains focus-toc-btn, focus-settings-btn, and focus-fullscreen-btn
   assert.match(indexHtml, /id="focus-floating-controls"/, 'Must contain focus-floating-controls container');
   assert.match(indexHtml, /id="focus-toc-btn"/, 'Must contain focus-toc-btn for fullscreen mode');
   assert.match(indexHtml, /id="focus-settings-btn"/, 'Must contain focus-settings-btn for fullscreen mode');
+  assert.match(indexHtml, /id="focus-fullscreen-btn"/, 'Must contain focus-fullscreen-btn for fullscreen mode');
 
   // Verify toolbar-actions capsule and divider in toolbar-right
   assert.match(indexHtml, /class="toolbar-actions"/, 'Must contain toolbar-actions capsule');
@@ -208,6 +209,9 @@ test('Fullscreen TOC accessibility and desktop toolbar congestion prevention', (
 
   // Verify CSS responsive queries and focus mode styles
   assert.match(readerCss, /\.focus-floating-controls/, 'Must style focus-floating-controls');
+  assert.match(readerCss, /body\.focus-mode\s+#reader-toolbar\s*\{\s*display:\s*none/i, 'Must hide reader toolbar in focus-mode');
+  assert.match(readerCss, /body\.focus-mode\s+#reader-statusbar\s*\{\s*display:\s*none/i, 'Must hide reader statusbar in focus-mode');
+  assert.match(readerCss, /body\.focus-mode\s+#reading-stripe\s*\{\s*display:\s*none/i, 'Must hide reading stripe in focus-mode');
   assert.match(readerCss, /\.toolbar-actions/, 'Must style toolbar-actions');
   assert.match(readerCss, /@media\s*\(max-width:\s*1100px\)/, 'Must contain responsive query for non-fullscreen windows <= 1100px');
   assert.match(readerCss, /@media\s*\(max-width:\s*900px\)/, 'Must contain responsive query for non-fullscreen windows <= 900px');

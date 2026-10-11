@@ -102,11 +102,14 @@ const AppPrefs = (() => {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && current.escToLibrary) {
         if (typeof App !== 'undefined' && App.getSettingsContext() === 'reader') {
-          // If a settings drawer or modal is open, let the drawer close first
+          // If a settings drawer or modal is open, let the drawer close first.
+          // Also skip if focus-mode is active; App's own handler already exits fullscreen.
           const settingsOpen = document.getElementById('settings-panel')?.classList.contains('open');
           const modalOpen = document.querySelector('.modal:not(.hidden)');
-          if (!settingsOpen && !modalOpen && typeof App.closeBook === 'function') {
-            App.closeBook();
+          const focusModeActive = document.body.classList.contains('focus-mode');
+          const panelOpen = document.querySelector('.panel.open');
+          if (!settingsOpen && !modalOpen && !focusModeActive && !panelOpen) {
+            App.openLibrary();
           }
         }
       }

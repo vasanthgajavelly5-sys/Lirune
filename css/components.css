@@ -46,18 +46,21 @@
   border: 0;
   border-radius: var(--r-sm);
   background: transparent;
-  color: var(--text-tertiary);
-  transition: background var(--dur-fast), color var(--dur-fast);
+  color: var(--text-secondary);
+  opacity: 0.92;
+  transition: background var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast);
 }
 .window-control:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+  opacity: 1;
 }
 .window-control-close:hover {
   background: var(--status-error);
   color: var(--text-on-accent);
+  opacity: 1;
 }
-.window-control svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.window-control svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .logo-tagline {
   margin-left: var(--sp-3);
   color: var(--text-tertiary);

@@ -845,6 +845,41 @@
   color: var(--accent-text);
 }
 
+/* Quick theme group and presets in side panel */
+.quick-theme-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.quick-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-2);
+  padding: 2px 0 6px;
+}
+.quick-theme-grid .theme-preset {
+  padding: 4px 2px;
+  border-radius: var(--r-md);
+  transition: background var(--dur-fast), transform var(--dur-fast);
+}
+.quick-theme-grid .theme-preset:hover {
+  background: var(--bg-hover);
+  transform: translateY(-1px);
+}
+.quick-theme-grid .theme-swatch {
+  height: 28px;
+  aspect-ratio: auto;
+  border-radius: var(--r-sm);
+}
+.quick-theme-grid .theme-preset.active .theme-swatch {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+.quick-theme-grid .theme-preset.active .theme-preset-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* Theme preset grid */
 .theme-preset-grid {
   display: grid;

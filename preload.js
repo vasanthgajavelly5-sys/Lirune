@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld('noveraDesktop', {
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
   closeWindow: () => ipcRenderer.send('window:close'),
+  isWindowMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+  onWindowMaximizedChanged: (callback) => {
+    ipcRenderer.on('window-maximized-changed', (_event, isMax) => callback(Boolean(isMax)));
+  },
 
   // Metadata
   getVersion: () => ipcRenderer.invoke('app:get-version'),

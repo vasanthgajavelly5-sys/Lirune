@@ -192,13 +192,9 @@ const App = (() => {
     });
 
     const focusFloatingControls = document.getElementById('focus-floating-controls');
-    if (focusFloatingControls && focusFloatingControls.parentElement !== document.getElementById('reader-view')) {
-      document.getElementById('reader-view')?.appendChild(focusFloatingControls);
-    } else {
-      const focusSettingsBtn = document.getElementById('focus-settings-btn');
-      if (focusSettingsBtn && focusSettingsBtn.parentElement !== document.getElementById('reader-view')) {
-        document.getElementById('reader-view')?.appendChild(focusSettingsBtn);
-      }
+    const readerView = document.getElementById('reader-view');
+    if (focusFloatingControls && readerView && focusFloatingControls.parentElement !== readerView) {
+      readerView.appendChild(focusFloatingControls);
     }
   }
 
@@ -230,6 +226,14 @@ const App = (() => {
       button.classList.toggle('active', focusMode);
       button.setAttribute('aria-label', focusMode ? 'Exit focused fullscreen' : 'Enter focused fullscreen');
       button.title = focusMode ? 'Exit Fullscreen (F)' : 'Toggle Fullscreen (F)';
+      button.innerHTML = focusMode
+        ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+      button.blur();
+    }
+    const readerToolbar = document.getElementById('reader-toolbar');
+    if (readerToolbar && document.activeElement && readerToolbar.contains(document.activeElement)) {
+      document.activeElement.blur();
     }
   }
 
@@ -242,9 +246,47 @@ const App = (() => {
       nativeFullscreen = isFullscreen;
       setFocusMode(isFullscreen);
     });
+
+    const readerToolbar = document.getElementById('reader-toolbar');
+    readerToolbar?.addEventListener('mouseleave', () => {
+      if (document.body.classList.contains('focus-mode')) {
+        if (document.activeElement && readerToolbar.contains(document.activeElement)) {
+          document.activeElement.blur();
+        }
+      }
+    });
+
+    document.getElementById('focus-fullscreen-btn')?.addEventListener('click', () => {
+      toggleFullscreen();
+    });
+
+    document.querySelector('.toolbar-actions')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.icon-btn');
+      if (btn) btn.blur();
+    });
+  }
+
+  function updateMaximizeButtons(isMaximized) {
+    const maxButtons = document.querySelectorAll('[data-window-action="maximize"]');
+    maxButtons.forEach(btn => {
+      btn.title = isMaximized ? 'Restore Down' : 'Maximize';
+      btn.setAttribute('aria-label', isMaximized ? 'Restore window' : 'Maximize window');
+      btn.innerHTML = isMaximized
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-4"/><rect x="4" y="8" width="11" height="11" rx="1"/></svg>'
+        : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>';
+    });
   }
 
   function bindWindowControls() {
+    if (window.noveraDesktop?.onWindowMaximizedChanged) {
+      window.noveraDesktop.onWindowMaximizedChanged((isMax) => {
+        updateMaximizeButtons(isMax);
+      });
+      window.noveraDesktop.isWindowMaximized?.().then((isMax) => {
+        updateMaximizeButtons(isMax);
+      }).catch(() => {});
+    }
+
     document.addEventListener('click', (event) => {
       const control = event.target.closest('[data-window-action]');
       if (!control) return;

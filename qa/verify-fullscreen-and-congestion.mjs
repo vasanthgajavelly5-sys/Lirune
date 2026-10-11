@@ -24,20 +24,39 @@ try {
     const controls = document.getElementById('focus-floating-controls');
     const tocBtn = document.getElementById('focus-toc-btn');
     const settingsBtn = document.getElementById('focus-settings-btn');
+    const statusbar = document.getElementById('reader-statusbar');
+    const stripe = document.getElementById('reading-stripe');
+    const toolbar = document.getElementById('reader-toolbar');
     const cs = window.getComputedStyle(controls);
+    const statusCs = window.getComputedStyle(statusbar);
+    const stripeCs = window.getComputedStyle(stripe);
+    const toolbarCs = window.getComputedStyle(toolbar);
+    const controlsRect = controls.getBoundingClientRect();
+    const tocRect = tocBtn.getBoundingClientRect();
+    const settingsRect = settingsBtn.getBoundingClientRect();
     return {
       isFocusMode: body.classList.contains('focus-mode'),
       controlsVisible: cs.display !== 'none' && cs.visibility !== 'hidden',
+      statusbarHidden: statusCs.display === 'none',
+      stripeHidden: stripeCs.display === 'none',
+      toolbarHidden: toolbarCs.display === 'none',
       hasTocBtn: !!tocBtn,
       tocBtnDisabled: tocBtn ? tocBtn.hasAttribute('disabled') : null,
-      hasSettingsBtn: !!settingsBtn
+      hasSettingsBtn: !!settingsBtn,
+      settingsInFloatingControls: settingsBtn?.parentElement === controls,
+      bothAtTop: controlsRect.top < 60 && settingsRect.top < 60 && tocRect.top < 60,
+      buttonsSideBySide: Math.abs(settingsRect.top - tocRect.top) < 10
     };
   `);
   check('Focus mode activated on body', focusState.isFocusMode, JSON.stringify(focusState));
-  check('Floating controls visible in fullscreen', focusState.controlsVisible, `display=${focusState.controlsVisible}`);
+  check('Floating controls visible in fullscreen', focusState.controlsVisible);
+  check('Top reader toolbar hidden in fullscreen', focusState.toolbarHidden);
+  check('Statusbar hidden in fullscreen', focusState.statusbarHidden);
+  check('Reading progress stripe hidden in fullscreen', focusState.stripeHidden);
   check('TOC button present and enabled in fullscreen', focusState.hasTocBtn && !focusState.tocBtnDisabled);
+  check('Settings button is grouped inside floating controls at top', focusState.settingsInFloatingControls && focusState.bothAtTop && focusState.buttonsSideBySide);
 
-  console.log('--- Step 3: Test TOC Drawer in Fullscreen Mode ---');
+  console.log('--- Step 3: Test TOC & Settings Drawers in Fullscreen Mode ---');
   // Click the fullscreen TOC button
   await cdp.eval(`document.getElementById('focus-toc-btn').click(); return true;`);
   await sleep(500);
@@ -65,11 +84,27 @@ try {
     return {
       beforeOpen,
       btnExists: !!btn,
-      afterOpen: panel.classList.contains('open'),
-      panelClasses: [...panel.classList]
+      afterOpen: panel.classList.contains('open')
     };
   `);
-  check('TOC drawer closes cleanly in fullscreen mode', !closeDiag.afterOpen, JSON.stringify(closeDiag));
+  check('TOC drawer closes cleanly in fullscreen mode', !closeDiag.afterOpen);
+  await sleep(300);
+
+  // Test Settings button in fullscreen mode
+  await cdp.eval(`document.getElementById('focus-settings-btn').click(); return true;`);
+  await sleep(500);
+
+  const settingsState = await cdp.eval(`
+    const panel = document.getElementById('settings-panel');
+    return {
+      isOpen: panel.classList.contains('open')
+    };
+  `);
+  check('Settings drawer opens via focus-settings-btn in fullscreen mode', settingsState.isOpen);
+
+  // Close Settings drawer
+  await cdp.eval(`document.getElementById('close-settings-btn').click(); return true;`);
+  await sleep(300);
 
   // Exit fullscreen via setFocusMode or toggleFullscreen
   await cdp.eval(`
@@ -78,6 +113,16 @@ try {
     return true;
   `);
   await sleep(400);
+
+  const nonFocusState = await cdp.eval(`
+    const statusbar = document.getElementById('reader-statusbar');
+    const cs = window.getComputedStyle(statusbar);
+    return {
+      isFocusMode: document.body.classList.contains('focus-mode'),
+      statusbarVisible: cs.display !== 'none'
+    };
+  `);
+  check('Statusbar restored after exiting fullscreen', !nonFocusState.isFocusMode && nonFocusState.statusbarVisible);
   const exitedFocus = await cdp.eval(`
     return {
       isFocusMode: document.body.classList.contains('focus-mode')

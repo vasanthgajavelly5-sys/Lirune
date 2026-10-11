@@ -191,9 +191,14 @@ const App = (() => {
       });
     });
 
-    const focusSettingsBtn = document.getElementById('focus-settings-btn');
-    if (focusSettingsBtn) {
-      document.getElementById('reader-view')?.appendChild(focusSettingsBtn);
+    const focusFloatingControls = document.getElementById('focus-floating-controls');
+    if (focusFloatingControls && focusFloatingControls.parentElement !== document.getElementById('reader-view')) {
+      document.getElementById('reader-view')?.appendChild(focusFloatingControls);
+    } else {
+      const focusSettingsBtn = document.getElementById('focus-settings-btn');
+      if (focusSettingsBtn && focusSettingsBtn.parentElement !== document.getElementById('reader-view')) {
+        document.getElementById('reader-view')?.appendChild(focusSettingsBtn);
+      }
     }
   }
 
@@ -260,16 +265,19 @@ const App = (() => {
     const overlay = document.getElementById('panel-overlay');
 
     // Navigation drawer (TOC / outline / page list depending on format)
-    const tocBtn = document.getElementById('toc-toggle-btn');
+    const tocButtons = [
+      document.getElementById('toc-toggle-btn'),
+      document.getElementById('focus-toc-btn')
+    ].filter(Boolean);
     const closeTocBtn = document.getElementById('close-toc-btn');
     const tocPanel = document.getElementById('toc-panel');
 
-    if (tocBtn) {
-      tocBtn.addEventListener('click', () => {
+    tocButtons.forEach(button => {
+      button.addEventListener('click', () => {
         Reader.renderNavigation();
         toggleDrawer(tocPanel);
       });
-    }
+    });
     if (closeTocBtn) {
       closeTocBtn.addEventListener('click', () => closeDrawer(tocPanel));
     }

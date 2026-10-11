@@ -39,9 +39,9 @@
   transform: translateY(0);
 }
 
-.toolbar-left   { display:flex; align-items:center; gap:var(--sp-2); flex:1; min-width:0; }
-.toolbar-center { flex-shrink:0; display:flex; align-items:center; gap:var(--sp-3); }
-.toolbar-right  { display:flex; align-items:center; gap:var(--sp-2); flex:1; justify-content:flex-end; }
+.toolbar-left   { display:flex; align-items:center; gap:var(--sp-2); flex:1 1 auto; min-width:0; }
+.toolbar-center { flex:0 1 auto; min-width:0; display:flex; align-items:center; gap:var(--sp-3); justify-content:center; }
+.toolbar-right  { display:flex; align-items:center; gap:var(--sp-2); flex:0 0 auto; justify-content:flex-end; min-width:0; }
 
 .toolbar-title-block { min-width:0; overflow:hidden; }
 .toolbar-book-title  {
@@ -51,9 +51,15 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 280px;
+  max-width: min(240px, 22vw);
 }
-.toolbar-book-author { font-size: 0.73rem; color: var(--reader-theme-muted, var(--text-tertiary)); }
+.toolbar-book-author {
+  font-size: 0.73rem;
+  color: var(--reader-theme-muted, var(--text-tertiary));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .toolbar-progress-info {
   display: flex;
@@ -62,8 +68,65 @@
   font-size: 0.8rem;
   color: var(--reader-theme-muted, var(--text-tertiary));
   white-space: nowrap;
+  min-width: 0;
 }
-.toolbar-sep { opacity: 0.4; }
+#progress-chapter {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#page-info {
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.toolbar-sep { opacity: 0.4; flex-shrink: 0; }
+
+/* ── Reading actions capsule & divider ───────────────────── */
+.toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-full);
+  padding: 2px 4px;
+  box-shadow: var(--shadow-xs);
+  flex-shrink: 0;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.toolbar-actions:hover {
+  border-color: var(--border-default);
+}
+.toolbar-actions .icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-full);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background var(--dur-fast), color var(--dur-fast), transform var(--dur-fast), border-color var(--dur-fast);
+}
+.toolbar-actions .icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.toolbar-actions .icon-btn:active,
+.toolbar-actions .icon-btn.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+.toolbar-actions .icon-btn[disabled] {
+  opacity: 0.38;
+  pointer-events: none;
+}
+.toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-subtle);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
 
 /* ── Reading progress stripe ─────────────────────────────── */
 #reading-stripe {
@@ -290,11 +353,29 @@ body.zen-mode .nav-arrow { display: none; }
 body.focus-mode .nav-arrow { display: none; }
 
 body.focus-mode #reader-toolbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
   opacity: 0;
+  transform: translateY(-100%);
   pointer-events: none;
+  z-index: var(--z-sticky);
+  transition: opacity var(--dur-normal) var(--ease-io), transform var(--dur-normal) var(--ease-io);
 }
-body.focus-mode #reader-main:hover #reader-toolbar {
+body.focus-mode #reader-toolbar::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 12px;
+  pointer-events: auto;
+}
+body.focus-mode #reader-toolbar:hover,
+body.focus-mode #reader-toolbar:focus-within {
   opacity: 1;
+  transform: translateY(0);
   pointer-events: all;
 }
 
@@ -389,25 +470,123 @@ body.focus-mode #reader-main:hover #reader-toolbar {
   font-size: 0.875rem;
 }
 
-/* Settings remain available as a quiet control in focused reading mode. */
-.focus-settings-btn { display: none; }
-body.focus-mode .focus-settings-btn {
+/* ── Fullscreen / Focus Mode Floating Controls (TOC & Settings) ── */
+.focus-floating-controls {
+  display: none;
+}
+body.focus-mode .focus-floating-controls {
   display: inline-flex;
+  align-items: center;
+  gap: 4px;
   position: fixed;
   top: var(--sp-4);
   right: var(--sp-4);
   z-index: var(--z-sticky);
+  background: var(--bg-glass-card);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-full);
+  padding: 3px 5px;
+  box-shadow: var(--shadow-sm);
   opacity: 0.52;
   pointer-events: auto;
-  background: transparent;
-  border-color: transparent;
-  color: var(--text-secondary);
+  transition: opacity var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast);
 }
-body.focus-mode .focus-settings-btn:hover,
-body.focus-mode .focus-settings-btn:focus-visible {
+body.focus-mode .focus-floating-controls:hover,
+body.focus-mode .focus-floating-controls:focus-within {
   opacity: 1;
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-md);
+}
+body.focus-mode .focus-floating-controls .icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-full);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+body.focus-mode .focus-floating-controls .icon-btn:hover,
+body.focus-mode .focus-floating-controls .icon-btn:focus-visible {
   background: var(--bg-hover);
-  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+body.focus-mode .focus-floating-controls .icon-btn:active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+body.focus-mode .focus-floating-controls .icon-btn[disabled] {
+  opacity: 0.35;
+  pointer-events: none;
+}
+body.focus-mode .focus-settings-btn,
+body.focus-mode .focus-toc-btn {
+  display: inline-flex;
+}
+
+/* ── Responsive Adaptations for Desktop Non-Fullscreen Window ── */
+@media (max-width: 1100px) {
+  #reader-toolbar {
+    padding: 0 var(--sp-3);
+    gap: var(--sp-2);
+  }
+  .toolbar-book-title {
+    max-width: 170px;
+  }
+  #progress-chapter {
+    max-width: 120px;
+  }
+  .toolbar-actions {
+    gap: 2px;
+    padding: 2px 3px;
+  }
+  .toolbar-actions .icon-btn {
+    width: 30px;
+    height: 30px;
+  }
+  .window-control {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+@media (max-width: 900px) {
+  .toolbar-book-author {
+    display: none;
+  }
+  .toolbar-book-title {
+    max-width: 140px;
+    font-size: 0.8125rem;
+  }
+  #progress-chapter {
+    max-width: 80px;
+  }
+  .toolbar-divider {
+    margin: 0 2px;
+  }
+}
+
+@media (max-width: 780px) {
+  #progress-chapter,
+  .toolbar-sep {
+    display: none;
+  }
+  .toolbar-book-title {
+    max-width: 110px;
+  }
+  .toolbar-actions {
+    padding: 1px 2px;
+  }
+  .toolbar-actions .icon-btn {
+    width: 28px;
+    height: 28px;
+  }
+  .toolbar-actions .icon-btn svg {
+    width: 14px;
+    height: 14px;
+  }
 }
 
 /* -- Non-EPUB reader surfaces (PDF, TXT, HTML, FB2, CBZ) ---------- */

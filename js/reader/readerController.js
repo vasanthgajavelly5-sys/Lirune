@@ -314,7 +314,9 @@ const Reader = (() => {
     document.getElementById('settings-panel')?.toggleAttribute('data-unsupported', capabilities.typography === false);
     document.getElementById('annotations-toggle-btn')?.toggleAttribute('disabled', capabilities.annotations === false);
     document.getElementById('search-toggle-btn')?.toggleAttribute('disabled', capabilities.search === false);
-    document.getElementById('toc-toggle-btn')?.toggleAttribute('disabled', capabilities.toc === false);
+    const tocDisabled = capabilities.toc === false;
+    document.getElementById('toc-toggle-btn')?.toggleAttribute('disabled', tocDisabled);
+    document.getElementById('focus-toc-btn')?.toggleAttribute('disabled', tocDisabled);
 
     const note = document.getElementById('format-note');
     if (note) {

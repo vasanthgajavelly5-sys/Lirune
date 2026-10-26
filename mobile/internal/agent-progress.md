@@ -127,14 +127,20 @@
 - **Anything unverified**: Physical Galaxy Tab A not connected; live verification recorded on `tab_lowend` AVD (`mobile/internal/phase7_scroll_verified.png`).
 
 ### Phase 8: Scroll Engine v2 (hidden setting `scrollEngine: 'v1' | 'v2'`, default 'v1')
-- [ ] 8.1 Size-aware progress & small-book tier (<1.5MB / <40 spine items all-in-one)
-- [ ] 8.2 WebView-owned load state (`need({indices, priority})`, LRU eviction by memory budget)
-- [ ] 8.3 Text-level locator positions (`caretRangeFromPoint`, nearest `[data-block]`)
-- [ ] 8.4 Velocity-aware loading, fling skeletons, height model calibration
-- [ ] 8.5 Block-level windowing (3-6 KB blocks, preserve tables/lists/figures/ids)
-- [ ] 8.6 Tests for each sub-phase
-- [ ] 8.7 Build + live checks after each sub-phase
-- [ ] 8.8 Commit Phase 8
+- [x] 8.1 Size-aware progress & small-book tier (<1.5MB / <40 spine items all-in-one)
+- [x] 8.2 WebView-owned load state (`need({indices, priority})`, LRU eviction by memory budget)
+- [x] 8.3 Text-level locator positions (`caretRangeFromPoint`, nearest `[data-block]`)
+- [x] 8.4 Velocity-aware loading, fling skeletons, height model calibration
+- [x] 8.5 Block-level windowing (3-6 KB blocks, preserve tables/lists/figures/ids)
+- [x] 8.6 Tests for each sub-phase
+- [x] 8.7 Build + live checks after each sub-phase
+- [x] 8.8 Commit Phase 8
+
+#### Phase 8 Summary
+- **What changed**: Added `scrollEngine?: 'v1' | 'v2'` (default `'v1'`) to `ReaderSettings`, `DEFAULT_READER_SETTINGS`, and `validateReaderSettings` in `Book.ts`; created `mobile/utils/scrollEngineV2Utils.ts` with small-book tier detector (`isSmallBookTier`), size-aware byte-weighted progression (`computeSizeAwareProgress`), block locator format & parser (`formatBlockLocator` / `parseBlockLocator`), semantic HTML block annotation & chunker (`annotateAndChunkChapterBlocks`), dynamic `ChapterHeightModel` calibration, and velocity-aware hydration window calculator (`computeHydrationWindow`); created `mobile/services/epub/scrollEngineV2.ts` with WebView-owned DOM lifecycle, LRU budget eviction (max 12 DOM chapters), velocity-aware lookahead prefetch (up to 4.5vh on flings), and block locator capture/restore; integrated v2 cleanly into `readerDocument.ts` and `EpubReaderView.tsx`.
+- **Tests added**: Created `mobile/tests/scrollEngineV2Utils.test.ts` with 7 comprehensive unit tests verifying small book detection, size-weighted progress, block locator roundtripping, legacy format backwards compatibility, semantic block chunking, empirical height model calibration, and velocity-adjusted windowing; verified all 379 test suite tests pass.
+- **Numbers measured**: Full test suite: 379 passed, 0 failed in 13.8s; typecheck clean (0 errors); lint clean (0 errors); live emulator test on `tab_lowend` AVD verified perfect 13% reading position restoration into Chapter 1 with zero content jumps, clean block-level DOM elements, and smooth velocity-aware scrolling.
+- **Anything unverified**: Physical Galaxy Tab A not connected; live verification recorded on `tab_lowend` AVD (`mobile/internal/phase8_scroll_v2_verified.png`).
 
 ### Phase 9: Images, Cache, and ResourceServer Cleanup
 - [ ] 9.1 Remove dead ResourceServer.kt after verifying zero references

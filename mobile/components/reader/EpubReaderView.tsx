@@ -37,6 +37,13 @@ import { extractChapterDocument, type ChapterDocument } from '@/services/epub/ch
 import { buildContinuousShell, buildReaderDocument, readerCss } from '@/services/epub/readerDocument';
 import { createSpineTarget, parseSpineTarget, type EpubNavigationTarget } from '@/services/epub/navigation';
 import { computeSectionProgress, formatScrollAnchor } from '@/utils/scrollEngineUtils';
+import {
+  computeSizeAwareProgress,
+  formatBlockLocator,
+  parseBlockLocator,
+  annotateAndChunkChapterBlocks,
+  isSmallBookTier,
+} from '@/utils/scrollEngineV2Utils';
 import { resolveZipHref, archiveDirname } from '@/services/epub/zipPaths';
 import { toPlainText } from '@/services/epub/markup';
 import { fileStorage } from '@/services/storage/FileStorage';
@@ -366,6 +373,7 @@ export function EpubReaderView({
     index: number;
     hasLeadingHeading: boolean;
     chapterSizes?: number[];
+    scrollEngine?: 'v1' | 'v2';
   } | null>(null);
   const [coverHtml, setCoverHtml] = useState<string | undefined>(undefined);
   /** Mirror of `continuousSeed` for callbacks that must not re-subscribe to it. */
@@ -689,6 +697,59 @@ export function EpubReaderView({
     [injectChapters, loadChapter]
   );
 
+  const hydrateIndicesV2 = useCallback(
+    async (indices: number[]) => {
+      const archive = archiveRef.current;
+      if (!archive || indices.length === 0) return;
+
+      const targetIndices = indices.filter(
+        (index) => !hydratedRef.current.has(index) && !inFlightHydrationRef.current.has(index)
+      );
+      if (targetIndices.length === 0) return;
+
+      for (const idx of targetIndices) {
+        inFlightHydrationRef.current.add(idx);
+      }
+
+      const payload: ChapterPayload[] = [];
+      try {
+        for (const index of targetIndices) {
+          if (hydratedRef.current.has(index)) continue;
+          try {
+            const doc = await loadChapter(index);
+            if (!doc) continue;
+            if (archiveRef.current !== archive) return;
+            hydratedRef.current.add(index);
+            const { annotatedHtml } = annotateAndChunkChapterBlocks(doc.body, index);
+            payload.push({
+              index,
+              body: annotatedHtml,
+              sheets: doc.stylesheets,
+              hasHeading: doc.hasLeadingHeading,
+              title: doc.title,
+            });
+          } catch (err) {
+            logger.warn(TAG, `Failed loading continuous chapter ${index} (v2)`, err);
+          }
+        }
+        if (payload.length > 0) {
+          payload.sort((a, b) => a.index - b.index);
+          webViewRef.current?.injectJavaScript(`
+            if (window.__liruneV2 && window.__liruneV2.supplyChapters) {
+              window.__liruneV2.supplyChapters(${JSON.stringify(payload)});
+            }
+            true;
+          `);
+        }
+      } finally {
+        for (const idx of targetIndices) {
+          inFlightHydrationRef.current.delete(idx);
+        }
+      }
+    },
+    [loadChapter]
+  );
+
   /**
    * Fills the rest of the book in the background.
    *
@@ -731,8 +792,17 @@ export function EpubReaderView({
   const finishContinuousHydration = useCallback(() => {
     webViewRef.current?.injectJavaScript('window.__epubHydrating = false; true;');
 
+    const savedLocator = targetCfi ? parseBlockLocator(targetCfi) : null;
     const position = positionToRestoreRef.current;
-    if (position) {
+    if (settings.scrollEngine === 'v2' && savedLocator) {
+      const locJson = JSON.stringify(savedLocator);
+      webViewRef.current?.injectJavaScript(`
+        if (window.__liruneV2 && window.__liruneV2.restoreLocator) {
+          window.__liruneV2.restoreLocator(${locJson});
+        }
+        true;
+      `);
+    } else if (position) {
       positionToRestoreRef.current = null;
       webViewRef.current?.injectJavaScript(restorePositionScript('continuous', position, 80));
     } else if (initialPositionRef.current?.fraction !== undefined) {
@@ -756,7 +826,7 @@ export function EpubReaderView({
       );
     }
     startBackgroundDrain();
-  }, [initialScrollY, startBackgroundDrain]);
+  }, [initialScrollY, settings.scrollEngine, startBackgroundDrain, targetCfi]);
 
   const revealWebView = useCallback(() => {
     if (paintRevealRef.current) {
@@ -941,8 +1011,16 @@ export function EpubReaderView({
               index: initialIdx,
               hasLeadingHeading: initialChapter.hasLeadingHeading === true,
               chapterSizes: chapterSizesRef.current,
+              scrollEngine: settings.scrollEngine,
             });
             hydratedRef.current = new Set([initialIdx]);
+
+            if (settings.scrollEngine === 'v2' && isSmallBookTier(loadedChapters.length, archive.entryCount * 10000)) {
+              webViewRef.current?.injectJavaScript(`
+                if (window.__liruneV2) window.__liruneV2.setSmallTier(true);
+                true;
+              `);
+            }
           }
           tocRef.current = toc;
           if (onTOCLoaded) onTOCLoaded(toc);
@@ -1415,8 +1493,21 @@ if (!targetCfi || chapters.length === 0) return;
             setCurrentChapterIndex(chapterIndex);
           }
           const fraction = Number.isFinite(data.fraction) ? data.fraction : 0;
-          const overallPercent = computeSectionProgress(chapterIndex, fraction, chaptersRef.current.length);
-          const scrollCfi = formatScrollAnchor(chapterIndex, fraction);
+          let overallPercent: number;
+          let scrollCfi: string;
+
+          if (settings.scrollEngine === 'v2') {
+            overallPercent = computeSizeAwareProgress(chapterIndex, fraction, chapterSizesRef.current);
+            if (data.locator) {
+              scrollCfi = formatBlockLocator(data.locator);
+            } else {
+              scrollCfi = formatScrollAnchor(chapterIndex, fraction);
+            }
+          } else {
+            overallPercent = computeSectionProgress(chapterIndex, fraction, chaptersRef.current.length);
+            scrollCfi = formatScrollAnchor(chapterIndex, fraction);
+          }
+
           lastPublishedCfiRef.current = scrollCfi;
           publishedCfisRef.current.add(scrollCfi);
           if (publishedCfisRef.current.size > 120) {
@@ -1472,6 +1563,13 @@ if (!targetCfi || chapters.length === 0) return;
               hydratedRef.current.delete(idx);
               inFlightHydrationRef.current.delete(idx);
             }
+          }
+          break;
+        }
+
+        case 'needChapters': {
+          if (Array.isArray(data.indices) && data.indices.length > 0) {
+            void hydrateIndicesV2(data.indices);
           }
           break;
         }
@@ -1554,7 +1652,17 @@ if (!targetCfi || chapters.length === 0) return;
           break;
       }
     },
-    [hydrateIndices, nextChapter, onProgressChange, onSelectionChange, onToggleControls, prevChapter, revealWebView]
+    [
+      hydrateIndices,
+      hydrateIndicesV2,
+      nextChapter,
+      onProgressChange,
+      onSelectionChange,
+      onToggleControls,
+      prevChapter,
+      revealWebView,
+      settings.scrollEngine,
+    ]
   );
 
   /* ---------------------------------------------------------------------- */
@@ -1576,6 +1684,7 @@ if (!targetCfi || chapters.length === 0) return;
               activeHasLeadingHeading: continuousSeed.hasLeadingHeading,
               coverHtml,
               chapterSizes: continuousSeed.chapterSizes,
+              scrollEngine: continuousSeed.scrollEngine,
             }
           )
         : '<p>Loading…</p>'
@@ -1604,6 +1713,7 @@ if (!targetCfi || chapters.length === 0) return;
       twoColumn: geometry.twoColumn,
       startAtEnd,
       initialScrollY,
+      scrollEngine: settings.scrollEngine,
     });
   }, [
     geometry.mode,
@@ -1616,6 +1726,7 @@ if (!targetCfi || chapters.length === 0) return;
     renderSettings.lineHeight,
     renderSettings.alignment,
     renderSettings.paragraphSpacing,
+    settings.scrollEngine,
     startAtEnd,
     initialScrollY,
     initialPalette,

@@ -15,6 +15,8 @@
 import type { ReaderLayout } from '../reader/readerLayout.ts';
 import { SELECTION_WATCHER_JS } from '../reader/selectionBridge.ts';
 import { readingPositionScript, type ReaderMode } from '../reader/readingPosition.ts';
+import { continuousScriptV2 } from './scrollEngineV2.ts';
+import { annotateAndChunkChapterBlocks } from '../../utils/scrollEngineV2Utils.ts';
 
 export interface ReaderPalette {
   bg: string;
@@ -49,6 +51,8 @@ export interface ReaderDocumentInput {
   currentChapterIndex?: number;
   /** Id of the chapter the continuous shell should render content into. */
   activeChapterBodyId?: string;
+  /** Active scroll engine version ('v1' | 'v2'). */
+  scrollEngine?: 'v1' | 'v2';
 }
 
 function escapeHtml(value: string): string {
@@ -915,6 +919,8 @@ export interface ContinuousShellOptions {
   coverHtml?: string;
   /** Approximate byte/char size per chapter used to calibrate placeholder height and prevent CLS */
   chapterSizes?: number[];
+  /** Active scroll engine version */
+  scrollEngine?: 'v1' | 'v2';
 }
 
 /**
@@ -941,6 +947,11 @@ export function buildContinuousShell(
       `</section>`
     );
   }
+  const renderedActiveBody =
+    options.scrollEngine === 'v2'
+      ? annotateAndChunkChapterBlocks(activeBodyHtml, activeIndex).annotatedHtml
+      : activeBodyHtml;
+
   for (let index = 0; index < chapterCount; index++) {
     const isActive = index === activeIndex;
     const title = chapterTitles[index] || '';
@@ -956,7 +967,7 @@ export function buildContinuousShell(
     sections.push(
       `<section id="chapter-${index}" data-chapter-index="${index}" class="chapter-section" data-loaded="${isActive ? 'true' : 'false'}" data-has-heading="${hasHeading ? 'true' : 'false'}"${isActive ? '' : ` style="min-height:${estimatedHeight}px"`}>` +
         header +
-        `<div class="chapter-body" id="chapter-body-${index}">${isActive ? activeBodyHtml : '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>'}</div>` +
+        `<div class="chapter-body" id="chapter-body-${index}">${isActive ? renderedActiveBody : '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>'}</div>` +
         `</section>`
     );
   }
@@ -1035,7 +1046,11 @@ const LINK_INTERCEPTOR_JS = `
 export function buildReaderDocument(input: ReaderDocumentInput): string {
   const bookCss = input.bookCss ? `<style id="book-css">${input.bookCss}</style>` : '';
   const script =
-    input.mode === 'paginated' ? paginatedScript(input) : continuousScript(input);
+    input.mode === 'paginated'
+      ? paginatedScript(input)
+      : input.scrollEngine === 'v2'
+        ? continuousScriptV2(input)
+        : continuousScript(input);
 
   return `<!DOCTYPE html>
 <html>

@@ -13,6 +13,7 @@ jobs:
   validate-desktop:
     name: Desktop Validation (Node 20 / Windows)
     runs-on: windows-latest
+    if: hashFiles('package.json') != ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
@@ -40,6 +41,39 @@ jobs:
 
       - name: Release configuration validation
         run: npm run validate:release:config
+
+  validate-mobile:
+    name: Mobile Validation (Node 22 / Ubuntu)
+    runs-on: ubuntu-latest
+    if: hashFiles('mobile/package.json') != ''
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'mobile/package-lock.json'
+
+      - name: Clean install mobile dependencies
+        run: npm --prefix mobile ci
+
+      - name: Mobile linting
+        run: npm --prefix mobile run lint
+
+      - name: Mobile TypeScript check
+        run: npm --prefix mobile run typecheck
+
+      - name: Verify PDF.js integrity
+        run: npm --prefix mobile run check:pdfjs
+
+      - name: Mobile test suite
+        run: npm --prefix mobile test
+
+      - name: Mobile production dependency audit
+        run: npm --prefix mobile audit --omit=dev
 
   secret-scan:
     name: Secret & Credential Scan

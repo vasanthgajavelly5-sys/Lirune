@@ -1,0 +1,91 @@
+name: Release Integrity & Checksums
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g. v4.9.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  checksums-and-attest:
+    name: Generate Release Checksums & Provenance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Download release assets
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const release_id = context.payload.release ? context.payload.release.id : null;
+            if (!release_id) {
+              console.log('No release context; skipping download.');
+              return;
+            }
+            const assets = await github.rest.repos.listReleaseAssets({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release_id
+            });
+            fs.mkdirSync('./release-dist', { recursive: true });
+            for (const asset of assets.data) {
+              if (asset.name.endsWith('.exe') || asset.name.endsWith('.apk') || asset.name.endsWith('.zip')) {
+                console.log(`Downloading ${asset.name}...`);
+                const download = await github.rest.repos.getReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: asset.id,
+                  headers: { accept: 'application/octet-stream' }
+                });
+                fs.writeFileSync(path.join('./release-dist', asset.name), Buffer.from(download.data));
+              }
+            }
+
+      - name: Compute SHA-256 Checksums
+        run: |
+          if [ -d "./release-dist" ] && [ "$(ls -A ./release-dist 2>/dev/null)" ]; then
+            cd ./release-dist
+            sha256sum * > SHA256SUMS.txt
+            cat SHA256SUMS.txt
+          else
+            echo "No downloaded release assets found to checksum."
+          fi
+
+      - name: Attest Artifact Provenance
+        if: success()
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebfb773fb89671d6 # v1.4.2
+        with:
+          subject-path: 'release-dist/*'
+        continue-on-error: true
+
+      - name: Upload SHA256SUMS to Release
+        if: success()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const fs = require('fs');
+            const release_id = context.payload.release ? context.payload.release.id : null;
+            if (!release_id || !fs.existsSync('./release-dist/SHA256SUMS.txt')) {
+              console.log('No release id or SHA256SUMS.txt found.');
+              return;
+            }
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release_id,
+              name: 'SHA256SUMS.txt',
+              data: fs.readFileSync('./release-dist/SHA256SUMS.txt')
+            });
+        continue-on-error: true

@@ -159,43 +159,56 @@ export async function extractChapterDocument(
 
   const chapterDir = archiveDirname(chapterPath);
 
-  // 1. Stylesheets
-  const chunks = collectStylesheets(document, chapterPath);
-  const cssState = createCssInlineState();
-  const stylesheets: { path: string; css: string }[] = [];
-  for (const chunk of chunks) {
-    const raw = chunk.css !== null ? chunk.css : await archive.readText(chunk.path);
-    if (!raw || !raw.trim()) continue;
-    const inlined = await inlineEpubCss(raw, chunk.path, archive, cssState);
-    if (inlined.trim()) stylesheets.push({ path: chunk.path, css: inlined });
+  try {
+    // 1. Stylesheets
+    const chunks = collectStylesheets(document, chapterPath);
+    const cssState = createCssInlineState();
+    const stylesheets: { path: string; css: string }[] = [];
+    for (const chunk of chunks) {
+      const raw = chunk.css !== null ? chunk.css : await archive.readText(chunk.path);
+      if (!raw || !raw.trim()) continue;
+      const inlined = await inlineEpubCss(raw, chunk.path, archive, cssState);
+      if (inlined.trim()) stylesheets.push({ path: chunk.path, css: inlined });
+    }
+    const css = stylesheets.map((sheet) => sheet.css).join('\n');
+
+    // 2. Resources inside the markup
+    const withResources = await inlineMarkupResources(document, chapterDir, archive);
+
+    // 3. SVG covers + bare <image> elements
+    const withImages = convertBareImageElements(normalizeSvgCovers(withResources));
+
+    // 4. Body
+    const body = extractBodyContent(withImages);
+
+    // 5. Sanitise
+    const sanitized = sanitizeHtml(body.content);
+
+    const imageCount = (sanitized.match(/<img\b/gi) || []).length + (sanitized.match(/<image\b/gi) || []).length;
+    const fontCount = (css.match(FONT_FACE) || []).length;
+
+    const heading = extractChapterTitle(withImages);
+    const title = resolveChapterTitle(options.navigationTitle, heading);
+
+    return {
+      title,
+      body: sanitized,
+      stylesheets,
+      css,
+      imageCount,
+      fontCount,
+      hasLeadingHeading: startsWithHeading(sanitized),
+    };
+  } catch {
+    // Malformed chapter markup, bad entities, or corrupt assets must degrade gracefully
+    return {
+      title: options.navigationTitle || 'Chapter',
+      body: '<div class="chapter-placeholder"><p class="loading-hint">This section could not be rendered.</p></div>',
+      stylesheets: [],
+      css: '',
+      imageCount: 0,
+      fontCount: 0,
+      hasLeadingHeading: false,
+    };
   }
-  const css = stylesheets.map((sheet) => sheet.css).join('\n');
-
-  // 2. Resources inside the markup
-  const withResources = await inlineMarkupResources(document, chapterDir, archive);
-
-  // 3. SVG covers + bare <image> elements
-  const withImages = convertBareImageElements(normalizeSvgCovers(withResources));
-
-  // 4. Body
-  const body = extractBodyContent(withImages);
-
-  // 5. Sanitise
-  const sanitized = sanitizeHtml(body.content);
-
-  const imageCount = (sanitized.match(/<img\b/gi) || []).length + (sanitized.match(/<image\b/gi) || []).length;
-  const fontCount = (css.match(FONT_FACE) || []).length;
-
-  const heading = extractChapterTitle(withImages);
-  const title = resolveChapterTitle(options.navigationTitle, heading);
-
-  return {
-    title,
-    body: sanitized,
-    stylesheets,
-    css,
-    imageCount,
-    fontCount,
-    hasLeadingHeading: startsWithHeading(sanitized),
-  };
 }

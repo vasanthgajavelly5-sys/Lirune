@@ -4,14 +4,14 @@ export interface ArchiveEntryBudget {
   uncompressedSize?: number;
 }
 
-export const MAX_ARCHIVE_ENTRIES = 2000;
-export const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 512 * 1024 * 1024;
+export const MAX_ARCHIVE_ENTRIES = 30000;
+export const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 2048 * 1024 * 1024;
 export const MAX_ARCHIVE_ENTRY_BYTES = 64 * 1024 * 1024;
 export const MAX_ARCHIVE_COMPRESSION_RATIO = 100;
 
 export function validateArchiveBudget(entries: ArchiveEntryBudget[]): void {
   if (entries.length > MAX_ARCHIVE_ENTRIES) {
-    throw new Error('The archive contains too many entries to open safely.');
+    throw new Error(`The archive contains too many entries (${entries.length}) to open safely.`);
   }
 
   let totalUncompressed = 0;

@@ -15,13 +15,14 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, useWindowDimensions, Share } from 'react-native';
 import { useStableInsets } from '@/hooks/useStableInsets';
 import { useWebViewRecovery } from '@/hooks/useWebViewRecovery';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
 import { parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
+import { bookLocationService } from '@/services/reader/BookLocationService';
 import {
   REQUEST_POSITION_JS,
   isReadingPosition,
@@ -340,6 +341,15 @@ export function EpubReaderView({
   const [initialScrollY, setInitialScrollY] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<{
+    phase: 'open' | 'parse-opf' | 'parse-toc' | 'load-chapter' | 'render';
+    message: string;
+    bookId: string;
+    chapterIndex?: number;
+    stack?: string;
+  } | null>(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
+  const [copiedReport, setCopiedReport] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   /** True once the WebView has fired its first onLoadEnd and drawn a real frame. */
   const [webViewPainted, setWebViewPainted] = useState(false);
@@ -426,6 +436,7 @@ export function EpubReaderView({
 
   const isPaginated = settings.flow !== 'scrolled';
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
+  const isDark = settings.theme === 'night' || settings.theme.startsWith('contrast');
 
   /**
    * Geometry is only meaningful once the container has been measured. A guessed
@@ -730,7 +741,11 @@ export function EpubReaderView({
       lastAppliedCfiRef.current = null;
       setContinuousSeed(null);
 
+      let currentPhase: 'open' | 'parse-opf' | 'parse-toc' | 'load-chapter' | 'render' = 'open';
+      let targetChapterIdx = 0;
+
       try {
+        currentPhase = 'open';
         const buffer = await fileStorage.readAsArrayBuffer(bookPath);
         if (!buffer || buffer.byteLength === 0) {
           throw new Error('EPUB file is empty or missing from storage.');
@@ -740,9 +755,11 @@ export function EpubReaderView({
         sourcePathRef.current = bookPath;
         validateArchiveBudget(archive.budgetEntries());
 
+        currentPhase = 'parse-opf';
         const epubPackage = await readEpubPackage(archive);
         packageRef.current = epubPackage;
 
+        currentPhase = 'parse-toc';
         const loadedChapters: ChapterItem[] = epubPackage.spine.map((item, index) => {
           const navTitle = epubPackage.chapterTitles[index] || '';
           return {
@@ -771,12 +788,15 @@ export function EpubReaderView({
         } else if (book.progress && book.progress > 0) {
           initialIdx = Math.min(loadedChapters.length - 1, Math.floor((book.progress / 100) * loadedChapters.length));
         }
+        targetChapterIdx = initialIdx;
 
+        currentPhase = 'load-chapter';
         const initialChapter = await extractChapterDocument(archive, loadedChapters[initialIdx].itemPath, {
           navigationTitle: loadedChapters[initialIdx].navTitle,
         });
         chapterCacheRef.current.set(initialIdx, initialChapter);
 
+        currentPhase = 'render';
         continuousDocumentRef.current = settings.flow === 'scrolled';
 
         if (isMounted) {
@@ -785,6 +805,13 @@ export function EpubReaderView({
           setChapters(loadedChapters);
           setActiveChapter(initialChapter);
           setCurrentChapterIndex(initialIdx);
+
+          // Launch lazy location generation in the background without blocking the reader
+          void bookLocationService.startLazyGeneration(
+            book.id,
+            loadedChapters.map((c) => ({ idref: c.id, path: c.itemPath }))
+          );
+
           // Adopt the geometry that is current *now* (the container has been
           // measured by this point) so the first render is already correct and
           // the reader never paints once with fallback dimensions.
@@ -825,9 +852,17 @@ export function EpubReaderView({
           }
         }
       } catch (err: any) {
-        logger.error(TAG, `Failed to load EPUB: ${bookPath}`, err);
+        logger.error(TAG, `Failed to load EPUB (phase: ${currentPhase}): ${bookPath}`, err);
         if (isMounted) {
-          setLoadError(err?.message || 'Unable to open EPUB publication.');
+          const msg = err?.message || 'Unable to open EPUB publication.';
+          setLoadError(msg);
+          setErrorDetails({
+            phase: currentPhase,
+            message: msg,
+            bookId: book.id,
+            chapterIndex: targetChapterIdx,
+            stack: err?.stack,
+          });
           setIsLoading(false);
         }
       }
@@ -863,6 +898,7 @@ export function EpubReaderView({
         archiveRef.current.dispose();
         archiveRef.current = null;
       }
+      bookLocationService.cancelActiveTask();
       chapterCache.clear();
       packageRef.current = null;
     };
@@ -1475,28 +1511,95 @@ if (!targetCfi || chapters.length === 0) return;
 
   if (loadError || chapters.length === 0) {
     const canRetry = loadAttempt < 3;
+    const phaseLabel = errorDetails?.phase || 'open';
+    const reportText = [
+      '--- Lirune Reader Diagnostic Report ---',
+      `Book ID: ${errorDetails?.bookId || book.id}`,
+      `Phase: ${phaseLabel}`,
+      `Chapter Index: ${errorDetails?.chapterIndex ?? 'N/A'}`,
+      `Message: ${errorDetails?.message || loadError || 'Unknown error'}`,
+      `Time: ${new Date().toISOString()}`,
+      `Stack:\n${errorDetails?.stack || 'No stack trace available'}`,
+    ].join('\n');
+
+    const handleCopyReport = async () => {
+      try {
+        await Share.share({
+          title: 'Lirune Reader Error Report',
+          message: reportText,
+        });
+        setCopiedReport(true);
+        setTimeout(() => setCopiedReport(false), 3000);
+      } catch {
+        // Fallback
+        setCopiedReport(true);
+      }
+    };
+
     return (
       <View
-        style={[styles.container, styles.centered, { backgroundColor: palette.bg, padding: 32 }]}
+        style={[styles.container, styles.centered, { backgroundColor: palette.bg, padding: 24 }]}
         onLayout={handleContainerLayout}
       >
         <Ionicons name="alert-circle-outline" size={48} color={palette.link} />
         <Text style={[styles.errorTitle, { color: palette.text }]}>Unable to Read Publication</Text>
+
+        <View style={[styles.phaseBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+          <Text style={[styles.phaseBadgeText, { color: palette.link }]}>
+            Phase: {phaseLabel.toUpperCase()}
+          </Text>
+        </View>
+
         <Text style={[styles.errorMessage, { color: palette.muted }]}>
           {loadError || 'No readable chapters or content found in this EPUB file.'}
         </Text>
-        {canRetry ? (
-          <TouchableOpacity
-            style={[styles.errorBtn, { backgroundColor: palette.link }]}
-            onPress={() => setLoadAttempt((attempt) => attempt + 1)}
-          >
-            <Text style={styles.errorBtnText}>Retry ({3 - loadAttempt} left)</Text>
-          </TouchableOpacity>
-        ) : (
-          <Text style={[styles.errorMessage, { color: palette.muted, marginTop: 12 }]}>
-            Maximum retry attempts reached. Please return to Library.
+
+        {/* Details Expander */}
+        <TouchableOpacity
+          style={styles.detailsToggleBtn}
+          onPress={() => setShowErrorDetails((prev) => !prev)}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.detailsToggleText, { color: palette.link }]}>
+            {showErrorDetails ? 'Hide Details' : 'Show Details'}
           </Text>
+          <Ionicons
+            name={showErrorDetails ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={palette.link}
+          />
+        </TouchableOpacity>
+
+        {showErrorDetails && (
+          <View style={[styles.detailsBox, { backgroundColor: isDark ? '#141418' : '#F2F2F6', borderColor: palette.border }]}>
+            <Text style={[styles.detailsMonospace, { color: palette.text }]}>
+              {reportText}
+            </Text>
+          </View>
         )}
+
+        {/* Action Buttons */}
+        <View style={styles.errorActionRow}>
+          <TouchableOpacity
+            style={[styles.copyReportBtn, { borderColor: palette.link }]}
+            onPress={handleCopyReport}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={copiedReport ? 'checkmark-outline' : 'copy-outline'} size={16} color={palette.link} />
+            <Text style={[styles.copyReportBtnText, { color: palette.link }]}>
+              {copiedReport ? 'Report Shared' : 'Copy Report'}
+            </Text>
+          </TouchableOpacity>
+
+          {canRetry && (
+            <TouchableOpacity
+              style={[styles.errorBtn, { backgroundColor: palette.link }]}
+              onPress={() => setLoadAttempt((attempt) => attempt + 1)}
+            >
+              <Text style={styles.errorBtnText}>Retry ({3 - loadAttempt})</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     );
   }
@@ -1568,7 +1671,32 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, fontSize: 14 },
   errorTitle: { marginTop: 16, fontSize: 18, fontWeight: '700', textAlign: 'center' },
   errorMessage: { marginTop: 8, fontSize: 14, textAlign: 'center', lineHeight: 20, maxWidth: 320 },
-  errorBtn: { marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  phaseBadge: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+  phaseBadgeText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  detailsToggleBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 12, paddingVertical: 4 },
+  detailsToggleText: { fontSize: 13, fontWeight: '600' },
+  detailsBox: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    maxHeight: 180,
+    width: '100%',
+    maxWidth: 420,
+  },
+  detailsMonospace: { fontSize: 11, fontFamily: 'monospace', lineHeight: 16 },
+  errorActionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20 },
+  copyReportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  copyReportBtnText: { fontSize: 14, fontWeight: '600' },
+  errorBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
   errorBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
   pageFooter: {
     position: 'absolute',

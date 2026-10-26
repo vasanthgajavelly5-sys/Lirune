@@ -666,6 +666,7 @@ function continuousScript(input: ReaderDocumentInput): string {
 
         if (window.__liruneInjectStyles) window.__liruneInjectStyles(chapter.index, chapter.sheets);
         body.innerHTML = chapter.body;
+        section.style.minHeight = '';
         section.setAttribute('data-loaded', 'true');
         if (window.__liruneChapterHeader) {
           window.__liruneChapterHeader(chapter.index, chapter.hasHeading, chapter.title);
@@ -809,6 +810,28 @@ function continuousScript(input: ReaderDocumentInput): string {
           chapterIndex = Number(markers[i].getAttribute('data-chapter-index')) || 0;
         }
       }
+
+      // Continuous windowing: render current chapter ± 2, unload the rest to keep DOM memory flat
+      var loadedSections = document.querySelectorAll('.chapter-section[data-loaded="true"]');
+      for (var k = 0; k < loadedSections.length; k++) {
+        var s = loadedSections[k];
+        var idxAttr = s.getAttribute('data-chapter-index');
+        if (idxAttr === 'cover') continue;
+        var sIdx = Number(idxAttr);
+        if (isNaN(sIdx)) continue;
+        if (Math.abs(sIdx - chapterIndex) > 2) {
+          var currentH = s.offsetHeight;
+          if (currentH > 40) {
+            s.style.minHeight = currentH + 'px';
+          }
+          var bodyEl = document.getElementById('chapter-body-' + sIdx);
+          if (bodyEl) {
+            bodyEl.innerHTML = '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>';
+          }
+          s.setAttribute('data-loaded', 'false');
+        }
+      }
+
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'scrollProgress',
         percent: percent,

@@ -39,6 +39,7 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
         val booksDir = File(reactContext.filesDir, "books")
         Ingestor(reactContext, booksDir, ::emitEventMap)
     }
+    private val archiveBrowser by lazy { ArchiveBrowser(reactContext, ingestor) }
 
     private val activeListings = ConcurrentHashMap<String, Job>()
     private val scanCancelled = AtomicBoolean(false)
@@ -964,6 +965,118 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(true)
         } catch (_: Exception) {
             promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun openArchive(uriString: String, password: String?, encoding: String?, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val info = archiveBrowser.openArchive(uriString, password, encoding)
+                val map = Arguments.createMap().apply {
+                    putString("handleId", info.handleId)
+                    putInt("entryCount", info.entryCount)
+                    putBoolean("needsPassword", info.needsPassword)
+                    putString("encoding", info.encoding)
+                }
+                promise.resolve(map)
+            } catch (e: Exception) {
+                promise.reject("ARCHIVE_OPEN_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun listArchive(handleId: String, path: String, offset: Int, limit: Int, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val entries = archiveBrowser.listArchive(handleId, path, offset, limit)
+                val arr = Arguments.createArray()
+                for (entry in entries) {
+                    val map = Arguments.createMap().apply {
+                        putString("path", entry.path)
+                        putString("name", entry.name)
+                        putBoolean("isDirectory", entry.isDirectory)
+                        putDouble("size", entry.size.toDouble())
+                        putDouble("compressedSize", entry.compressedSize.toDouble())
+                        putDouble("mtime", entry.mtime.toDouble())
+                        if (entry.sniffFormat != null) putString("sniffFormat", entry.sniffFormat) else putNull("sniffFormat")
+                        putString("kind", entry.kind)
+                        putBoolean("encrypted", entry.encrypted)
+                        putBoolean("isNestedArchive", entry.isNestedArchive)
+                    }
+                    arr.pushMap(map)
+                }
+                promise.resolve(arr)
+            } catch (e: Exception) {
+                promise.reject("ARCHIVE_LIST_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun sniffArchiveEntry(handleId: String, entryPath: String, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val sniff = archiveBrowser.sniffArchiveEntry(handleId, entryPath)
+                val map = Arguments.createMap().apply {
+                    putString("format", sniff.format)
+                    putDouble("confidence", sniff.confidence.toDouble())
+                    putString("reason", sniff.reason)
+                    putBoolean("isDrm", sniff.isDrm)
+                    if (sniff.drmReason != null) putString("drmReason", sniff.drmReason) else putNull("drmReason")
+                    if (sniff.quickFp != null) putString("quickFp", sniff.quickFp) else putNull("quickFp")
+                    putString("kind", sniff.kind)
+                    putBoolean("needsPassword", sniff.needsPassword)
+                }
+                promise.resolve(map)
+            } catch (e: Exception) {
+                promise.reject("ARCHIVE_SNIFF_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun extractEntryToImport(handleId: String, entryPath: String, jobIdDouble: Double, existingShaList: ReadableArray?, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val shaSet = HashSet<String>()
+                if (existingShaList != null) {
+                    for (i in 0 until existingShaList.size()) {
+                        existingShaList.getString(i)?.let { shaSet.add(it) }
+                    }
+                }
+                val res = archiveBrowser.extractEntryToImport(
+                    handleId = handleId,
+                    entryPath = entryPath,
+                    jobId = jobIdDouble.toLong(),
+                    existingSha256List = shaSet
+                )
+                val map = Arguments.createMap().apply {
+                    putString("bookId", res.bookId)
+                    putString("sha256", res.sha256)
+                    putDouble("size", res.size.toDouble())
+                    putString("mode", res.mode)
+                    putString("pathOrUri", res.pathOrUri)
+                    putString("title", res.title)
+                    if (res.author != null) putString("author", res.author) else putNull("author")
+                    putString("format", res.format)
+                    putBoolean("isDuplicate", res.isDuplicate)
+                }
+                promise.resolve(map)
+            } catch (e: Exception) {
+                promise.reject("ARCHIVE_EXTRACT_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun closeArchive(handleId: String, promise: Promise) {
+        try {
+            val closed = archiveBrowser.closeArchive(handleId)
+            promise.resolve(closed)
+        } catch (e: Exception) {
+            promise.reject("ARCHIVE_CLOSE_ERROR", e.message, e)
         }
     }
 

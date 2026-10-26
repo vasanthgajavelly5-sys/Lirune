@@ -126,6 +126,9 @@ export default function LibraryScreen() {
         break;
     }
 
+    // Containers (ZIP) appear only in Folders, never as library books
+    result = result.filter((b) => (b.format as string) !== 'zip');
+
     // 3. Sorting
     result.sort((a, b) => {
       let cmp = 0;

@@ -22,6 +22,9 @@ export interface QueueItem {
   progress: number;
   error?: string;
   bookId?: string;
+  archiveHandleId?: string;
+  archiveEntryPath?: string;
+  sourceKind?: 'file' | 'archive';
 }
 
 export interface ImportQueueState {
@@ -29,7 +32,15 @@ export interface ImportQueueState {
   isProcessing: boolean;
   unsubscriber: (() => void) | null;
 
-  enqueue: (entries: { uri: string; name: string; format: string; mode?: 'managed' | 'linked' }[]) => Promise<void>;
+  enqueue: (entries: {
+    uri: string;
+    name: string;
+    format: string;
+    mode?: 'managed' | 'linked';
+    archiveHandleId?: string;
+    archiveEntryPath?: string;
+    sourceKind?: 'file' | 'archive';
+  }[]) => Promise<void>;
   cancelItem: (id: number) => Promise<void>;
   retryItem: (id: number) => Promise<void>;
   clearCompleted: () => void;
@@ -65,6 +76,9 @@ export const useImportQueueStore = create<ImportQueueState>((set, get) => ({
         mode: entry.mode ?? 'managed',
         state: 'queued',
         progress: 0,
+        archiveHandleId: entry.archiveHandleId,
+        archiveEntryPath: entry.archiveEntryPath,
+        sourceKind: entry.sourceKind ?? 'file',
       });
     }
 
@@ -155,20 +169,31 @@ async function processQueue(): Promise<void> {
           existingShaList.push(...shaRows.map((r) => r.sha256));
         }
 
-        // Guard: sniff before ingesting to guarantee kind == 'book'
-        const sniff = await nativeStorage.sniff(nextItem.uri, nextItem.name);
-        if (sniff.kind !== 'book') {
-          throw new Error(`Unsupported: Cannot import ${sniff.kind} item as a book (${sniff.reason})`);
-        }
+        let ingestResult: any = null;
 
-        const ingestResult = await nativeStorage.ingestFile({
-          uri: nextItem.uri,
-          mode: nextItem.mode,
-          name: nextItem.name,
-          format: nextItem.format,
-          existingSha256List: existingShaList,
-          jobId: nextItem.id,
-        });
+        if (nextItem.archiveHandleId && nextItem.archiveEntryPath) {
+          ingestResult = await nativeStorage.extractEntryToImport({
+            handleId: nextItem.archiveHandleId,
+            entryPath: nextItem.archiveEntryPath,
+            jobId: nextItem.id,
+            existingSha256List: existingShaList,
+          });
+        } else {
+          // Guard: sniff before ingesting to guarantee kind == 'book'
+          const sniff = await nativeStorage.sniff(nextItem.uri, nextItem.name);
+          if (sniff.kind !== 'book') {
+            throw new Error(`Unsupported: Cannot import ${sniff.kind} item as a book (${sniff.reason})`);
+          }
+
+          ingestResult = await nativeStorage.ingestFile({
+            uri: nextItem.uri,
+            mode: nextItem.mode,
+            name: nextItem.name,
+            format: nextItem.format,
+            existingSha256List: existingShaList,
+            jobId: nextItem.id,
+          });
+        }
 
         if (!ingestResult) {
           throw new Error('Native ingest returned null');

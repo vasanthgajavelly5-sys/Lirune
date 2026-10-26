@@ -112,6 +112,26 @@ export interface BookSessionHandle {
   seekable: boolean;
 }
 
+export interface ArchiveInfo {
+  handleId: string;
+  entryCount: number;
+  needsPassword: boolean;
+  encoding: string;
+}
+
+export interface ArchiveEntry {
+  path: string;
+  name: string;
+  isDirectory: boolean;
+  size: number;
+  compressedSize: number;
+  mtime: number;
+  sniffFormat: string | null;
+  kind: 'book' | 'container' | 'blocked';
+  encrypted: boolean;
+  isNestedArchive?: boolean;
+}
+
 export const LIRUNE_SCAN_PROGRESS_EVENT = 'LiruneScanProgress';
 
 const eventEmitter = Platform.OS === 'android' && LiruneStorage ? new NativeEventEmitter(LiruneStorage) : null;
@@ -544,6 +564,61 @@ export const nativeStorage = {
       kind: isBlocked ? 'blocked' : isZip ? 'container' : 'book',
       needsPassword: false,
     };
+  },
+
+  // ==========================================
+  // Archive Browser Engine
+  // ==========================================
+
+  async openArchive(uri: string, password?: string, encoding?: string): Promise<ArchiveInfo> {
+    if (!this.isAvailable() || typeof LiruneStorage.openArchive !== 'function') {
+      return { handleId: 'mock-handle', entryCount: 0, needsPassword: false, encoding: 'UTF-8' };
+    }
+    return await LiruneStorage.openArchive(uri, password ?? null, encoding ?? null);
+  },
+
+  async listArchive(handleId: string, path: string = '', offset: number = 0, limit: number = 100): Promise<ArchiveEntry[]> {
+    if (!this.isAvailable() || typeof LiruneStorage.listArchive !== 'function') return [];
+    return await LiruneStorage.listArchive(handleId, path, offset, limit);
+  },
+
+  async sniffArchiveEntry(handleId: string, entryPath: string): Promise<NativeSniffResult> {
+    if (!this.isAvailable() || typeof LiruneStorage.sniffArchiveEntry !== 'function') {
+      return {
+        format: 'unknown',
+        confidence: 0,
+        reason: 'Native storage unavailable',
+        isDrm: false,
+        drmReason: null,
+        quickFp: null,
+        kind: 'blocked',
+      };
+    }
+    return await LiruneStorage.sniffArchiveEntry(handleId, entryPath);
+  },
+
+  async extractEntryToImport(params: {
+    handleId: string;
+    entryPath: string;
+    jobId?: number;
+    existingSha256List?: string[];
+  }): Promise<NativeIngestResult | null> {
+    if (!this.isAvailable() || typeof LiruneStorage.extractEntryToImport !== 'function') return null;
+    return await LiruneStorage.extractEntryToImport(
+      params.handleId,
+      params.entryPath,
+      params.jobId ?? 0,
+      params.existingSha256List ?? []
+    );
+  },
+
+  async closeArchive(handleId: string): Promise<boolean> {
+    if (!this.isAvailable() || typeof LiruneStorage.closeArchive !== 'function') return true;
+    try {
+      return await LiruneStorage.closeArchive(handleId);
+    } catch {
+      return false;
+    }
   },
 
   async clearCurrentIntent(): Promise<boolean> {

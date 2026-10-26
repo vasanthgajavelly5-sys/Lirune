@@ -16,9 +16,10 @@ import {
   RefreshControl,
   BackHandler,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useThemeContext } from '@/theme/ThemeContext';
@@ -26,6 +27,7 @@ import {
   nativeStorage,
   StorageVolume,
   NativeDirEntry,
+  ArchiveEntry,
 } from '@/services/storage/NativeStorageBridge';
 import { SUPPORTED_DOCUMENT_MIMES } from '@/models/Book';
 import { getDatabase } from '@/services/database/Database';
@@ -34,6 +36,8 @@ import { useLibraryStore } from '@/state/libraryStore';
 import { useReaderStore } from '@/state/readerStore';
 import { BreadcrumbBar, BreadcrumbSegment } from '@/components/folders/BreadcrumbBar';
 import { BookDetailSheet } from '@/components/folders/BookDetailSheet';
+import { ArchivePasswordModal } from '@/components/modals/ArchivePasswordModal';
+import { ErrorReportModal } from '@/components/modals/ErrorReportModal';
 import { LiruneDialog } from '@/components/LiruneDialog';
 import { LiruneToast } from '@/components/LiruneToast';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
@@ -95,6 +99,40 @@ export default function FoldersScreen() {
     title: '',
     message: '',
   });
+
+  const { archiveUri, archiveName } = useLocalSearchParams<{ archiveUri?: string; archiveName?: string }>();
+
+  // Layer 2A: Archive Browsing State
+  const [archiveSession, setArchiveSession] = useState<{
+    handleId: string;
+    uri: string;
+    name: string;
+    encoding: string;
+    needsPassword: boolean;
+    entryCount: number;
+  } | null>(null);
+  const [archiveBreadcrumbs, setArchiveBreadcrumbs] = useState<{ name: string; path: string }[]>([]);
+  const [archiveEntries, setArchiveEntries] = useState<ArchiveEntry[]>([]);
+  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
+  const [passwordModal, setPasswordModal] = useState<{
+    visible: boolean;
+    uri: string;
+    name: string;
+    attempts: number;
+    error?: string | null;
+  }>({
+    visible: false,
+    uri: '',
+    name: '',
+    attempts: 0,
+    error: null,
+  });
+  const [errorReport, setErrorReport] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    details?: string;
+  } | null>(null);
 
   // LRU Directory Cache (docId -> entries)
   const dirCache = useRef<Map<string, NativeDirEntry[]>>(new Map());
@@ -292,12 +330,149 @@ export default function FoldersScreen() {
     [activeSource, breadcrumbs, fetchDirectory]
   );
 
+  // Lazy format sniffing inside archive
+  const lazySniffEntries = useCallback(async (handleId: string, items: ArchiveEntry[]) => {
+    const unsniffed = items.filter((e) => !e.isDirectory && !e.sniffFormat && e.kind !== 'blocked').slice(0, 8);
+    for (const item of unsniffed) {
+      try {
+        const sniff = await nativeStorage.sniffArchiveEntry(handleId, item.path);
+        if (sniff.kind === 'book') {
+          setArchiveEntries((prev) =>
+            prev.map((e) => (e.path === item.path ? { ...e, sniffFormat: sniff.format, kind: 'book' } : e))
+          );
+        }
+      } catch {}
+    }
+  }, []);
+
+  // Open archive container
+  const openArchiveContainer = useCallback(
+    async (uri: string, name: string, password?: string, encoding?: string) => {
+      setIsLoadingArchive(true);
+      try {
+        const info = await nativeStorage.openArchive(uri, password, encoding);
+        if (info.needsPassword && !password) {
+          setPasswordModal({
+            visible: true,
+            uri,
+            name,
+            attempts: 0,
+            error: null,
+          });
+          setIsLoadingArchive(false);
+          return;
+        }
+
+        setArchiveSession({
+          handleId: info.handleId,
+          uri,
+          name,
+          encoding: info.encoding,
+          needsPassword: info.needsPassword,
+          entryCount: info.entryCount,
+        });
+        setArchiveBreadcrumbs([{ name, path: '' }]);
+
+        const entriesList = await nativeStorage.listArchive(info.handleId, '', 0, 500);
+        setArchiveEntries(entriesList);
+
+        // Single-book archive shortcut: exactly one supported book in root
+        const nonDir = entriesList.filter((e) => !e.isDirectory);
+        if (nonDir.length === 1 && nonDir[0].kind === 'book') {
+          const single = nonDir[0];
+          setSelectedBook({
+            docId: single.path,
+            name: single.name,
+            isDirectory: false,
+            size: single.size,
+            mtime: single.mtime,
+            mimeType: null,
+            format: single.sniffFormat || single.name.split('.').pop() || 'epub',
+            uri,
+          });
+        }
+
+        void lazySniffEntries(info.handleId, entriesList);
+      } catch (err: any) {
+        const msg = String(err?.message || err || '');
+        logger.error(TAG, 'Failed to open archive', err);
+        let title = 'Cannot Open Archive';
+        let message = 'An error occurred while reading the archive file.';
+        if (msg.includes('Corrupt: central directory not found')) {
+          title = 'Corrupted Archive';
+          message = 'The central directory was not found. The file may be incomplete or corrupted.';
+        } else if (msg.includes('Unsupported compression')) {
+          title = 'Unsupported Compression';
+          message = 'The archive uses a compression method not currently supported.';
+        } else if (msg.includes('suspicious') || msg.includes('limit')) {
+          title = 'Suspicious Archive';
+          message = 'The archive entry size or compression ratio exceeds security limits.';
+        } else if (msg.includes('Password required') || msg.includes('needs password')) {
+          setPasswordModal((prev) => ({
+            visible: true,
+            uri,
+            name,
+            attempts: prev.attempts + 1,
+            error: 'Incorrect password',
+          }));
+          return;
+        }
+        setErrorReport({
+          visible: true,
+          title,
+          message,
+          details: msg,
+        });
+      } finally {
+        setIsLoadingArchive(false);
+      }
+    },
+    [lazySniffEntries]
+  );
+
+  // Navigate back inside archive or exit
+  const handleArchiveBack = useCallback(async () => {
+    if (!archiveSession) return;
+    if (archiveBreadcrumbs.length > 1) {
+      const updated = [...archiveBreadcrumbs];
+      updated.pop();
+      const parentSegment = updated[updated.length - 1];
+      setArchiveBreadcrumbs(updated);
+      setIsLoadingArchive(true);
+      try {
+        const list = await nativeStorage.listArchive(archiveSession.handleId, parentSegment.path, 0, 500);
+        setArchiveEntries(list);
+        void lazySniffEntries(archiveSession.handleId, list);
+      } finally {
+        setIsLoadingArchive(false);
+      }
+    } else {
+      await nativeStorage.closeArchive(archiveSession.handleId);
+      setArchiveSession(null);
+      setArchiveBreadcrumbs([]);
+      setArchiveEntries([]);
+      setSelectedIds(new Set());
+      setIsMultiSelect(false);
+    }
+  }, [archiveSession, archiveBreadcrumbs, lazySniffEntries]);
+
+  // Handle auto-open if passed via query params
+  useEffect(() => {
+    if (archiveUri) {
+      openArchiveContainer(archiveUri, archiveName || 'Archive');
+    }
+  }, [archiveUri, archiveName, openArchiveContainer]);
+
   // Handle hardware Back button to navigate up breadcrumbs or back to locations
   useEffect(() => {
     const onBackPress = () => {
       if (isMultiSelect) {
         setIsMultiSelect(false);
         setSelectedIds(new Set());
+        return true;
+      }
+      if (archiveSession) {
+        void handleArchiveBack();
         return true;
       }
       if (activeSource) {
@@ -314,14 +489,14 @@ export default function FoldersScreen() {
 
     const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => sub.remove();
-  }, [activeSource, breadcrumbs.length, exitToLocations, goUpOneLevel, isMultiSelect]);
+  }, [activeSource, archiveSession, breadcrumbs.length, exitToLocations, goUpOneLevel, handleArchiveBack, isMultiSelect]);
 
   // Add location via SAF tree picker
   const handleAddLocation = async () => {
     try {
       // In mobile Expo environment, DocumentPicker or custom SAF intent handles tree picking
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
+        type: SUPPORTED_DOCUMENT_MIMES,
         copyToCacheDirectory: false,
       });
 
@@ -446,17 +621,66 @@ export default function FoldersScreen() {
     return result;
   }, [entries, booksOnly, searchQuery, sortBy, sortAsc, foldersFirst]);
 
+  // Filtered and sorted archive entries
+  const displayedArchiveEntries = useMemo(() => {
+    let result = archiveEntries;
+
+    if (booksOnly) {
+      result = result.filter((e) => e.isDirectory || e.kind === 'book');
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter((e) => e.name.toLowerCase().includes(q));
+    }
+
+    result.sort((a, b) => {
+      if (foldersFirst && a.isDirectory !== b.isDirectory) {
+        return a.isDirectory ? -1 : 1;
+      }
+
+      let cmp = 0;
+      switch (sortBy) {
+        case 'name':
+          cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
+          break;
+        case 'mtime':
+          cmp = (a.mtime || 0) - (b.mtime || 0);
+          break;
+        case 'size':
+          cmp = (a.size || 0) - (b.size || 0);
+          break;
+        case 'type':
+          cmp = (a.sniffFormat || '').localeCompare(b.sniffFormat || '');
+          break;
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+
+    return result;
+  }, [archiveEntries, booksOnly, searchQuery, sortBy, sortAsc, foldersFirst]);
+
   // Multi-select toggle
-  const toggleSelect = (docId: string) => {
+  const toggleSelect = (docIdOrPath: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(docId)) next.delete(docId);
-      else next.add(docId);
+      if (next.has(docIdOrPath)) next.delete(docIdOrPath);
+      else next.add(docIdOrPath);
       return next;
     });
   };
 
   const handleSelectAll = () => {
+    if (archiveSession) {
+      const selectable = displayedArchiveEntries.filter((e) => !e.isDirectory && e.kind === 'book');
+      if (selectedIds.size === selectable.length) {
+        setSelectedIds(new Set());
+      } else {
+        setSelectedIds(new Set(selectable.map((e) => e.path)));
+      }
+      return;
+    }
+
     if (selectedIds.size === displayedEntries.length) {
       setSelectedIds(new Set());
     } else {
@@ -466,6 +690,29 @@ export default function FoldersScreen() {
 
   // Import selected items
   const handleImportSelected = async () => {
+    if (archiveSession) {
+      const toImport = archiveEntries.filter((e) => selectedIds.has(e.path) && e.kind === 'book');
+      if (toImport.length === 0) {
+        setToastMessage('No valid books selected');
+        return;
+      }
+      await enqueue(
+        toImport.map((e) => ({
+          uri: archiveSession.uri,
+          name: e.name,
+          format: e.sniffFormat || e.name.split('.').pop() || 'epub',
+          mode: 'managed' as const,
+          archiveHandleId: archiveSession.handleId,
+          archiveEntryPath: e.path,
+          sourceKind: 'archive' as const,
+        }))
+      );
+      setToastMessage(`Queued ${toImport.length} book(s) from ${archiveSession.name}`);
+      setIsMultiSelect(false);
+      setSelectedIds(new Set());
+      return;
+    }
+
     const selectedEntries = entries.filter((e) => selectedIds.has(e.docId) && !e.isDirectory);
     if (selectedEntries.length === 0) {
       setToastMessage('No book files selected');
@@ -482,6 +729,28 @@ export default function FoldersScreen() {
     setSelectedIds(new Set());
   };
 
+  // Import all books in current archive folder
+  const handleImportAllInFolder = async () => {
+    if (!archiveSession) return;
+    const bookEntries = archiveEntries.filter((e) => !e.isDirectory && e.kind === 'book');
+    if (bookEntries.length === 0) {
+      setToastMessage('No supported book files found in this folder');
+      return;
+    }
+    await enqueue(
+      bookEntries.map((e) => ({
+        uri: archiveSession.uri,
+        name: e.name,
+        format: e.sniffFormat || e.name.split('.').pop() || 'epub',
+        mode: 'managed' as const,
+        archiveHandleId: archiveSession.handleId,
+        archiveEntryPath: e.path,
+        sourceKind: 'archive' as const,
+      }))
+    );
+    setToastMessage(`Queued all ${bookEntries.length} book(s) from folder for import`);
+  };
+
   // Open book item
   const handleOpenBook = async (item: NativeDirEntry) => {
     // Check if in library
@@ -493,9 +762,455 @@ export default function FoldersScreen() {
     }
 
     // Ingest first then open
-    await enqueue([{ uri: item.uri, name: item.name, format: item.format || 'epub' }]);
+    if (archiveSession) {
+      await enqueue([
+        {
+          uri: archiveSession.uri,
+          name: item.name,
+          format: item.format || 'epub',
+          mode: 'managed',
+          archiveHandleId: archiveSession.handleId,
+          archiveEntryPath: item.docId,
+          sourceKind: 'archive',
+        },
+      ]);
+    } else {
+      await enqueue([{ uri: item.uri, name: item.name, format: item.format || 'epub' }]);
+    }
     setToastMessage('Importing book to open...');
   };
+
+  // ==========================================
+  // RENDER: Layer 2A (Archive Container Browser)
+  // ==========================================
+  if (archiveSession) {
+    const currentCrumbName = archiveBreadcrumbs[archiveBreadcrumbs.length - 1]?.name || archiveSession.name;
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        {/* Top Header */}
+        <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity onPress={handleArchiveBack} style={styles.backBtn} accessibilityLabel="Back">
+              <Ionicons name="arrow-back" size={22} color={colors.text} />
+            </TouchableOpacity>
+            <Ionicons name="archive" size={20} color={colors.accent} style={{ marginRight: 6 }} />
+            <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
+              {currentCrumbName}
+            </Text>
+          </View>
+
+          <View style={styles.headerRight}>
+            <TouchableOpacity
+              onPress={() => {
+                const encodings = ['UTF-8', 'IBM437', 'CP866', 'GBK', 'Shift_JIS', 'Big5'];
+                const nextEnc = encodings[(encodings.indexOf(archiveSession.encoding) + 1) % encodings.length];
+                openArchiveContainer(archiveSession.uri, archiveSession.name, undefined, nextEnc);
+                setToastMessage(`Encoding: ${nextEnc}`);
+              }}
+              style={styles.iconBtn}
+              accessibilityLabel="Change filename encoding"
+            >
+              <Ionicons name="text-outline" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
+              style={styles.iconBtn}
+              accessibilityLabel="Toggle view mode"
+            >
+              <Ionicons
+                name={viewMode === 'list' ? 'grid-outline' : 'list-outline'}
+                size={20}
+                color={colors.textSecondary}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setBooksOnly(!booksOnly)}
+              style={[
+                styles.filterChip,
+                booksOnly && { backgroundColor: colors.accent + '22', borderColor: colors.accent },
+              ]}
+              accessibilityLabel="Filter books only"
+            >
+              <Ionicons
+                name="book"
+                size={14}
+                color={booksOnly ? colors.accent : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.filterChipText,
+                  { color: booksOnly ? colors.accent : colors.textSecondary },
+                ]}
+              >
+                Books
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Search Bar */}
+        <View style={[styles.searchBar, { backgroundColor: colors.surface, borderBottomColor: colors.borderSubtle }]}>
+          <Ionicons name="search" size={16} color={colors.textMuted} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder="Search inside archive..."
+            placeholderTextColor={colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {/* Archive Breadcrumb Bar */}
+        <View style={[styles.archiveBreadcrumbRow, { borderBottomColor: colors.borderSubtle }]}>
+          <Ionicons name="archive-outline" size={16} color={colors.accent} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.breadcrumbScroll}>
+            {archiveBreadcrumbs.map((crumb, idx) => {
+              const isLast = idx === archiveBreadcrumbs.length - 1;
+              return (
+                <View key={idx} style={styles.breadcrumbItem}>
+                  <TouchableOpacity
+                    disabled={isLast}
+                    onPress={async () => {
+                      const updated = archiveBreadcrumbs.slice(0, idx + 1);
+                      setArchiveBreadcrumbs(updated);
+                      setIsLoadingArchive(true);
+                      try {
+                        const list = await nativeStorage.listArchive(archiveSession.handleId, crumb.path, 0, 500);
+                        setArchiveEntries(list);
+                        void lazySniffEntries(archiveSession.handleId, list);
+                      } finally {
+                        setIsLoadingArchive(false);
+                      }
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.breadcrumbText,
+                        { color: isLast ? colors.text : colors.accent, fontWeight: isLast ? '700' : '500' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {crumb.name}
+                    </Text>
+                  </TouchableOpacity>
+                  {!isLast && <Ionicons name="chevron-forward" size={14} color={colors.textMuted} style={{ marginHorizontal: 4 }} />}
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* Content */}
+        {isLoadingArchive ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Reading archive contents...</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={displayedArchiveEntries}
+            keyExtractor={(item) => item.path}
+            numColumns={viewMode === 'grid' ? 3 : 1}
+            key={viewMode}
+            contentContainerStyle={styles.listContainer}
+            renderItem={({ item }) => {
+              const isSelected = selectedIds.has(item.path);
+              const isBlocked = item.kind === 'blocked';
+              const inLibrary = !item.isDirectory && librarySet.has(item.name.toLowerCase());
+
+              const handleItemPress = () => {
+                if (isBlocked) {
+                  setToastMessage('Blocked application package or unsupported format');
+                  return;
+                }
+                if (isMultiSelect) {
+                  toggleSelect(item.path);
+                  return;
+                }
+                if (item.isDirectory) {
+                  const updated = [...archiveBreadcrumbs, { name: item.name, path: item.path }];
+                  setArchiveBreadcrumbs(updated);
+                  setIsLoadingArchive(true);
+                  nativeStorage.listArchive(archiveSession.handleId, item.path, 0, 500)
+                    .then((list) => {
+                      setArchiveEntries(list);
+                      void lazySniffEntries(archiveSession.handleId, list);
+                    })
+                    .finally(() => setIsLoadingArchive(false));
+                } else {
+                  setSelectedBook({
+                    docId: item.path,
+                    name: item.name,
+                    isDirectory: false,
+                    size: item.size,
+                    mtime: item.mtime,
+                    mimeType: null,
+                    format: item.sniffFormat || item.name.split('.').pop() || 'epub',
+                    uri: archiveSession.uri,
+                  });
+                }
+              };
+
+              if (viewMode === 'grid') {
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.gridItem,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: isSelected ? colors.accent : colors.borderSubtle,
+                        opacity: isBlocked ? 0.45 : 1,
+                      },
+                    ]}
+                    disabled={isBlocked}
+                    onPress={handleItemPress}
+                    onLongPress={() => {
+                      if (!isBlocked && !isMultiSelect) {
+                        setIsMultiSelect(true);
+                        setSelectedIds(new Set([item.path]));
+                      }
+                    }}
+                  >
+                    <View style={styles.gridIcon}>
+                      <Ionicons
+                        name={item.isDirectory ? 'folder' : isBlocked ? 'ban-outline' : 'document-text'}
+                        size={36}
+                        color={item.isDirectory ? colors.accent : isBlocked ? '#E06C75' : colors.textSecondary}
+                      />
+                      {isMultiSelect && !isBlocked && (
+                        <Ionicons
+                          name={isSelected ? 'checkbox' : 'square-outline'}
+                          size={18}
+                          color={isSelected ? colors.accent : colors.textMuted}
+                          style={styles.gridCheckbox}
+                        />
+                      )}
+                    </View>
+                    <Text style={[styles.gridName, { color: colors.text }]} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                    {item.sniffFormat ? (
+                      <View style={[styles.badgeSmall, { backgroundColor: colors.accent + '22' }]}>
+                        <Text style={[styles.badgeTextSmall, { color: colors.accent }]}>
+                          {item.sniffFormat.toUpperCase()}
+                        </Text>
+                      </View>
+                    ) : isBlocked ? (
+                      <View style={[styles.badgeSmall, { backgroundColor: '#e06c7522' }]}>
+                        <Text style={[styles.badgeTextSmall, { color: '#E06C75' }]}>BLOCKED</Text>
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              }
+
+              // List Item inside archive
+              return (
+                <TouchableOpacity
+                  style={[
+                    styles.listItem,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: isSelected ? colors.accent : colors.borderSubtle,
+                      opacity: isBlocked ? 0.45 : 1,
+                    },
+                  ]}
+                  disabled={isBlocked}
+                  onPress={handleItemPress}
+                  onLongPress={() => {
+                    if (!isBlocked && !isMultiSelect) {
+                      setIsMultiSelect(true);
+                      setSelectedIds(new Set([item.path]));
+                    }
+                  }}
+                >
+                  {isMultiSelect && !isBlocked && (
+                    <Ionicons
+                      name={isSelected ? 'checkbox' : 'square-outline'}
+                      size={20}
+                      color={isSelected ? colors.accent : colors.textMuted}
+                      style={{ marginRight: 12 }}
+                    />
+                  )}
+
+                  <View
+                    style={[
+                      styles.listIconBox,
+                      {
+                        backgroundColor: item.isDirectory
+                          ? colors.accent + '15'
+                          : isBlocked
+                          ? '#e06c7515'
+                          : colors.surfaceElevated,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={item.isDirectory ? 'folder' : isBlocked ? 'ban-outline' : 'document-text-outline'}
+                      size={22}
+                      color={item.isDirectory ? colors.accent : isBlocked ? '#E06C75' : colors.textSecondary}
+                    />
+                  </View>
+
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={[styles.listName, { color: colors.text }]} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <View style={styles.listSubRow}>
+                      {!item.isDirectory && (
+                        <Text style={[styles.listSub, { color: colors.textSecondary }]}>
+                          {item.size > 0 ? (item.size / 1024 / 1024).toFixed(1) + ' MB' : ''} •{' '}
+                        </Text>
+                      )}
+                      <Text style={[styles.listSub, { color: colors.textMuted }]}>
+                        {isBlocked ? 'Blocked app package' : item.mtime > 0 ? new Date(item.mtime).toLocaleDateString() : ''}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {item.sniffFormat ? (
+                    <View style={[styles.badge, { backgroundColor: colors.accent + '22' }]}>
+                      <Text style={[styles.badgeText, { color: colors.accent }]}>
+                        {item.sniffFormat.toUpperCase()}
+                      </Text>
+                    </View>
+                  ) : isBlocked ? (
+                    <View style={[styles.badge, { backgroundColor: '#e06c7522' }]}>
+                      <Text style={[styles.badgeTextSmall, { color: '#E06C75' }]}>BLOCKED</Text>
+                    </View>
+                  ) : null}
+
+                  {inLibrary && (
+                    <View style={[styles.chipInLibrary, { backgroundColor: colors.success + '22' }]}>
+                      <Text style={[styles.chipTextInLibrary, { color: colors.success }]}>In Library</Text>
+                    </View>
+                  )}
+
+                  {item.isDirectory ? (
+                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                  ) : null}
+                </TouchableOpacity>
+              );
+            }}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Ionicons name="folder-open-outline" size={44} color={colors.textMuted} />
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>No Books Inside</Text>
+                <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
+                  {booksOnly ? 'No supported book files found in this archive folder.' : 'This archive folder is empty.'}
+                </Text>
+              </View>
+            }
+          />
+        )}
+
+        {/* Bottom Bar: Multi-Select or Import All */}
+        <View style={[styles.bottomActionBar, { backgroundColor: colors.surface, borderTopColor: colors.borderSubtle }]}>
+          {isMultiSelect ? (
+            <>
+              <View style={styles.actionCountRow}>
+                <Text style={[styles.actionCountText, { color: colors.text }]}>
+                  {selectedIds.size} selected
+                </Text>
+                <TouchableOpacity onPress={() => { setIsMultiSelect(false); setSelectedIds(new Set()); }}>
+                  <Text style={{ color: colors.accent, fontWeight: '600' }}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.actionButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.importBtn, { backgroundColor: colors.accent, flex: 1 }]}
+                  onPress={handleImportSelected}
+                  accessibilityRole="button"
+                  accessibilityLabel="Import selected books"
+                >
+                  <Ionicons name="download-outline" size={18} color={colors.accentForeground} />
+                  <Text style={[styles.importBtnText, { color: colors.accentForeground }]}>
+                    Import ({selectedIds.size})
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <View style={styles.actionButtonsRow}>
+              <TouchableOpacity
+                style={[styles.importBtn, { backgroundColor: colors.accent, flex: 1 }]}
+                onPress={handleImportAllInFolder}
+                accessibilityRole="button"
+                accessibilityLabel="Import all books in this folder"
+              >
+                <Ionicons name="library-outline" size={18} color={colors.accentForeground} />
+                <Text style={[styles.importBtnText, { color: colors.accentForeground }]}>
+                  Import All Books in This Folder
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* Modals */}
+        <BookDetailSheet
+          visible={!!selectedBook}
+          item={selectedBook}
+          isInLibrary={selectedBook ? librarySet.has(selectedBook.name.toLowerCase()) : false}
+          isContainer={false}
+          onClose={() => setSelectedBook(null)}
+          onOpen={() => selectedBook && handleOpenBook(selectedBook)}
+          onImport={() => {
+            if (selectedBook && archiveSession) {
+              enqueue([
+                {
+                  uri: archiveSession.uri,
+                  name: selectedBook.name,
+                  format: selectedBook.format || 'epub',
+                  mode: 'managed',
+                  archiveHandleId: archiveSession.handleId,
+                  archiveEntryPath: selectedBook.docId,
+                  sourceKind: 'archive',
+                },
+              ]);
+              setToastMessage(`Queued ${selectedBook.name} for import`);
+            }
+          }}
+        />
+
+        <ArchivePasswordModal
+          visible={passwordModal.visible}
+          archiveName={passwordModal.name}
+          attempts={passwordModal.attempts}
+          errorMessage={passwordModal.error}
+          onSubmit={(pass) => {
+            const nextAttempts = passwordModal.attempts + 1;
+            if (nextAttempts >= 5) {
+              setPasswordModal({ visible: false, uri: '', name: '', attempts: 0 });
+              setToastMessage('Maximum password attempts exceeded.');
+              return;
+            }
+            openArchiveContainer(passwordModal.uri, passwordModal.name, pass);
+          }}
+          onCancel={() => {
+            setPasswordModal({ visible: false, uri: '', name: '', attempts: 0 });
+          }}
+        />
+
+        <ErrorReportModal
+          visible={!!errorReport}
+          title={errorReport?.title || 'Archive Error'}
+          message={errorReport?.message || ''}
+          details={errorReport?.details}
+          onDismiss={() => setErrorReport(null)}
+        />
+
+        {toastMessage && (
+          <LiruneToast visible={!!toastMessage} message={toastMessage} onDismiss={() => setToastMessage(null)} />
+        )}
+      </SafeAreaView>
+    );
+  }
 
   // ==========================================
   // RENDER: Layer 1 (Locations)
@@ -820,6 +1535,8 @@ export default function FoldersScreen() {
             const isSelected = selectedIds.has(item.docId);
             const inLibrary = !item.isDirectory && librarySet.has(item.name.toLowerCase());
 
+            const isZip = item.format === 'zip' || item.name.toLowerCase().endsWith('.zip');
+
             if (viewMode === 'grid') {
               return (
                 <TouchableOpacity
@@ -829,6 +1546,7 @@ export default function FoldersScreen() {
                   ]}
                   onPress={() => {
                     if (isMultiSelect) toggleSelect(item.docId);
+                    else if (isZip) openArchiveContainer(item.uri, item.name);
                     else if (item.isDirectory) navigateToChild(item);
                     else setSelectedBook(item);
                   }}
@@ -839,13 +1557,13 @@ export default function FoldersScreen() {
                     }
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={`${item.isDirectory ? 'Folder' : 'File'} ${item.name}`}
+                  accessibilityLabel={`${item.isDirectory ? 'Folder' : isZip ? 'Archive' : 'File'} ${item.name}`}
                 >
                   <View style={styles.gridIcon}>
                     <Ionicons
-                      name={item.isDirectory ? 'folder' : 'document-text'}
+                      name={item.isDirectory ? 'folder' : isZip ? 'archive' : 'document-text'}
                       size={36}
-                      color={item.isDirectory ? colors.accent : colors.textSecondary}
+                      color={item.isDirectory ? colors.accent : isZip ? colors.accent : colors.textSecondary}
                     />
                     {isMultiSelect && (
                       <Ionicons
@@ -859,7 +1577,13 @@ export default function FoldersScreen() {
                   <Text style={[styles.gridName, { color: colors.text }]} numberOfLines={2}>
                     {item.name}
                   </Text>
-                  {item.format ? (
+                  {isZip ? (
+                    <View style={[styles.badgeSmall, { backgroundColor: colors.accent + '22' }]}>
+                      <Text style={[styles.badgeTextSmall, { color: colors.accent }]}>
+                        ZIP · ARCHIVE
+                      </Text>
+                    </View>
+                  ) : item.format ? (
                     <View style={[styles.badgeSmall, { backgroundColor: colors.accent + '22' }]}>
                       <Text style={[styles.badgeTextSmall, { color: colors.accent }]}>
                         {item.format.toUpperCase()}
@@ -879,6 +1603,7 @@ export default function FoldersScreen() {
                 ]}
                 onPress={() => {
                   if (isMultiSelect) toggleSelect(item.docId);
+                  else if (isZip) openArchiveContainer(item.uri, item.name);
                   else if (item.isDirectory) navigateToChild(item);
                   else setSelectedBook(item);
                 }}
@@ -889,7 +1614,7 @@ export default function FoldersScreen() {
                   }
                 }}
                 accessibilityRole="button"
-                accessibilityLabel={`${item.isDirectory ? 'Folder' : 'File'} ${item.name}`}
+                accessibilityLabel={`${item.isDirectory ? 'Folder' : isZip ? 'Archive' : 'File'} ${item.name}`}
               >
                 {isMultiSelect && (
                   <Ionicons
@@ -900,11 +1625,16 @@ export default function FoldersScreen() {
                   />
                 )}
 
-                <View style={[styles.listIconBox, { backgroundColor: item.isDirectory ? colors.accent + '15' : colors.surfaceElevated }]}>
+                <View
+                  style={[
+                    styles.listIconBox,
+                    { backgroundColor: item.isDirectory || isZip ? colors.accent + '15' : colors.surfaceElevated },
+                  ]}
+                >
                   <Ionicons
-                    name={item.isDirectory ? 'folder' : 'document-text-outline'}
+                    name={item.isDirectory ? 'folder' : isZip ? 'archive-outline' : 'document-text-outline'}
                     size={22}
-                    color={item.isDirectory ? colors.accent : colors.textSecondary}
+                    color={item.isDirectory || isZip ? colors.accent : colors.textSecondary}
                   />
                 </View>
 
@@ -919,12 +1649,18 @@ export default function FoldersScreen() {
                       </Text>
                     )}
                     <Text style={[styles.listSub, { color: colors.textMuted }]}>
-                      {item.mtime > 0 ? new Date(item.mtime).toLocaleDateString() : ''}
+                      {isZip ? 'Archive Container' : item.mtime > 0 ? new Date(item.mtime).toLocaleDateString() : ''}
                     </Text>
                   </View>
                 </View>
 
-                {item.format ? (
+                {isZip ? (
+                  <View style={[styles.badge, { backgroundColor: colors.accent + '22' }]}>
+                    <Text style={[styles.badgeText, { color: colors.accent }]}>
+                      ZIP · ARCHIVE
+                    </Text>
+                  </View>
+                ) : item.format ? (
                   <View style={[styles.badge, { backgroundColor: colors.accent + '22' }]}>
                     <Text style={[styles.badgeText, { color: colors.accent }]}>
                       {item.format.toUpperCase()}
@@ -938,7 +1674,7 @@ export default function FoldersScreen() {
                   </View>
                 )}
 
-                {item.isDirectory ? (
+                {item.isDirectory || isZip ? (
                   <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                 ) : null}
               </TouchableOpacity>
@@ -988,7 +1724,13 @@ export default function FoldersScreen() {
         visible={!!selectedBook}
         item={selectedBook}
         isInLibrary={selectedBook ? librarySet.has(selectedBook.name.toLowerCase()) : false}
+        isContainer={selectedBook?.format === 'zip' || Boolean(selectedBook?.name.toLowerCase().endsWith('.zip'))}
         onClose={() => setSelectedBook(null)}
+        onBrowseArchive={() => {
+          if (selectedBook) {
+            openArchiveContainer(selectedBook.uri, selectedBook.name);
+          }
+        }}
         onOpen={() => selectedBook && handleOpenBook(selectedBook)}
         onImport={() => {
           if (selectedBook) {
@@ -996,6 +1738,35 @@ export default function FoldersScreen() {
             setToastMessage(`Queued ${selectedBook.name} for import`);
           }
         }}
+      />
+
+      {/* Archive Password Prompt Modal */}
+      <ArchivePasswordModal
+        visible={passwordModal.visible}
+        archiveName={passwordModal.name}
+        attempts={passwordModal.attempts}
+        errorMessage={passwordModal.error}
+        onSubmit={(pass) => {
+          const nextAttempts = passwordModal.attempts + 1;
+          if (nextAttempts >= 5) {
+            setPasswordModal({ visible: false, uri: '', name: '', attempts: 0 });
+            setToastMessage('Maximum password attempts exceeded.');
+            return;
+          }
+          openArchiveContainer(passwordModal.uri, passwordModal.name, pass);
+        }}
+        onCancel={() => {
+          setPasswordModal({ visible: false, uri: '', name: '', attempts: 0 });
+        }}
+      />
+
+      {/* Archive Error Report Modal */}
+      <ErrorReportModal
+        visible={!!errorReport}
+        title={errorReport?.title || 'Archive Error'}
+        message={errorReport?.message || ''}
+        details={errorReport?.details}
+        onDismiss={() => setErrorReport(null)}
       />
 
       {/* Toast */}
@@ -1337,5 +2108,24 @@ const styles = StyleSheet.create({
   importBtnText: {
     fontSize: 15,
     fontWeight: '600',
+  },
+  archiveBreadcrumbRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+  },
+  breadcrumbScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  breadcrumbItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  breadcrumbText: {
+    fontSize: 13,
   },
 });

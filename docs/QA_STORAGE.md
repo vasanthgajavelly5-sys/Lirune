@@ -81,3 +81,22 @@ This document details the manual quality assurance procedures and verification t
 |---|---|---|---|---|
 | **DIA-01** | View diagnostics in Settings | Navigate to Settings -> Developer -> Storage Diagnostics. | Modal opens displaying registered sources, grant validity, job journal, and recent logs. | PASS |
 | **DIA-02** | Copy diagnostic report | Tap "Copy Diagnostics" button. | Complete JSON report copied to clipboard. | PASS |
+
+---
+
+## 8. ZIP / APK Identification, File Association Chooser & Archive Browser
+
+| ID | Test Scenario | Steps | Expected Result | Pass / Fail |
+|---|---|---|---|---|
+| **ARC-01** | Android Resolver / "Open with" exclusion for APK | 1. From third-party file manager (e.g. Files by Google), long-press an `.apk` file.<br>2. Run shell command:<br>`adb shell am start -a android.intent.action.VIEW -t application/vnd.android.package-archive -d "content://..."`<br>3. Check resolver candidates with `adb shell pm query-intent-activities -a android.intent.action.VIEW -t application/vnd.android.package-archive`. | Lirune is **NOT** listed in the Android "Open with" chooser or candidate activity resolver list. | PASS |
+| **ARC-02** | Trojan APK renamed to `.zip`, `.epub`, `.bin` | 1. Rename `sample.apk` to `sample.zip` (or `.epub`, `.bin`, or extensionless).<br>2. Pick or open via in-app DocumentPicker or VIEW intent. | File is detected as `blocked:app-package`. App displays full-screen `BlockedFileModal` stating "Lirune can't open this file: it looks like an Android app package (.apk)". Tapping **Close** clears intent and exits safely; never imported or enqueued. | PASS |
+| **ARC-03** | ZIP container browsing & selective import | 1. Place a `.zip` containing 3 EPUBs and 1 PDF in a folder.<br>2. Browse in Folders screen. Tap the ZIP container.<br>3. Select 2 EPUB entries -> tap "Import (2)". | Container opens in virtual directory view showing archive breadcrumbs. Selected 2 EPUB entries stream into library via `importQueueStore`. ZIP file itself is **not** imported into library. | PASS |
+| **ARC-04** | Direct Book formats in ZIP (CBZ, EPUB, DOCX, ODT, FB2.ZIP) | Browse/import standard `.cbz`, `.epub`, `.docx`, `.odt`, and `.fb2.zip`. | All 5 formats are identified as `kind: 'book'` (not container) and import directly into the library as readable books. | PASS |
+| **ARC-05** | Encrypted ZIP container password prompt | 1. Open an encrypted ZIP container (ZipCrypto or AES).<br>2. When prompted, enter an incorrect password.<br>3. Enter the correct password. | Incorrect password displays inline error without crashing (capped at 5 attempts before backing out). Password is held purely in memory (never logged/stored). Entries unlock and list correctly on correct password. | PASS |
+| **ARC-06** | Zip-slip (`../../evil.epub`) protection | Attempt to open or extract an entry named `../../evil.epub`. | Path traversal is sanitized and rejected; extraction destination remains strictly `<uuid>.<ext>` inside managed storage; traversal fails safely. | PASS |
+| **ARC-07** | Zip-bomb ratio protection (>200:1 on >100 MB / 2 GB cap) | Open a synthetic zip-bomb (small compressed payload expanding to gigabytes). | `SafeGuardInputStream` halts extraction with typed `Corrupt: suspicious compression ratio` or max declared size exceeded; app memory and disk protected. | PASS |
+| **ARC-08** | Non-UTF-8 filename encodings (CP866, GBK, Shift_JIS) | Open a ZIP created on Windows/legacy OS with CP866 or GBK filenames without the UTF-8 header flag bit. | Charset detector transparently falls back through CP437 -> CP866 -> GBK -> Shift_JIS; entry names render properly without mojibake. | PASS |
+| **ARC-09** | Large 2 GB+ ZIP browsing performance | Browse a multi-gigabyte ZIP archive with thousands of entries. | Index parses random-access Central Directory; first rows render in < 500 ms; JS heap remains lean and peak native memory stays under 100 MB. | PASS |
+| **ARC-10** | Crash recovery / kill app mid-entry extract | 1. Begin extracting a 500 MB entry from a container.<br>2. Force-kill app (`am force-stop`) mid-stream.<br>3. Re-launch Lirune. | Journal cleaner sweeps temporary `.part` files on startup; no orphaned files or corrupt entries in library. | PASS |
+| **ARC-11** | Rescan speed with 500 ZIP containers | Run folder rescan on a directory containing 500 ZIP archives where none changed. | Rescan completes in < 2 seconds because scanner only checks central directory metadata (mtime/size) without decompressing or listing entries. | PASS |
+

@@ -21,9 +21,11 @@ interface BookDetailSheetProps {
   item: NativeDirEntry | null;
   isInLibrary: boolean;
   isDrm?: boolean;
+  isContainer?: boolean;
   onClose: () => void;
   onOpen: () => void;
   onImport: () => void;
+  onBrowseArchive?: () => void;
 }
 
 export function BookDetailSheet({
@@ -31,9 +33,11 @@ export function BookDetailSheet({
   item,
   isInLibrary,
   isDrm,
+  isContainer,
   onClose,
   onOpen,
   onImport,
+  onBrowseArchive,
 }: BookDetailSheetProps) {
   const { colors } = useThemeContext();
 
@@ -107,33 +111,50 @@ export function BookDetailSheet({
 
           {/* Actions */}
           <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.secondaryBtn, { borderColor: colors.borderSubtle }]}
-              onPress={() => {
-                onClose();
-                onImport();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Import book"
-            >
-              <Ionicons name="download-outline" size={18} color={colors.text} />
-              <Text style={[styles.btnText, { color: colors.text }]}>
-                {isInLibrary ? 'Re-Import' : 'Import'}
-              </Text>
-            </TouchableOpacity>
+            {isContainer && onBrowseArchive ? (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.primaryBtn, { backgroundColor: colors.accent, flex: 1 }]}
+                onPress={() => {
+                  onClose();
+                  onBrowseArchive();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Browse inside archive"
+              >
+                <Ionicons name="folder-open-outline" size={18} color={colors.accentForeground} />
+                <Text style={[styles.btnText, { color: colors.accentForeground }]}>Browse Inside Archive</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.secondaryBtn, { borderColor: colors.borderSubtle }]}
+                  onPress={() => {
+                    onClose();
+                    onImport();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Import book"
+                >
+                  <Ionicons name="download-outline" size={18} color={colors.text} />
+                  <Text style={[styles.btnText, { color: colors.text }]}>
+                    {isInLibrary ? 'Re-Import' : 'Import'}
+                  </Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.primaryBtn, { backgroundColor: colors.accent }]}
-              onPress={() => {
-                onClose();
-                onOpen();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Open book"
-            >
-              <Ionicons name="book-outline" size={18} color={colors.accentForeground} />
-              <Text style={[styles.btnText, { color: colors.accentForeground }]}>Open</Text>
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.primaryBtn, { backgroundColor: colors.accent }]}
+                  onPress={() => {
+                    onClose();
+                    onOpen();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open book"
+                >
+                  <Ionicons name="book-outline" size={18} color={colors.accentForeground} />
+                  <Text style={[styles.btnText, { color: colors.accentForeground }]}>Open</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </Pressable>
       </Pressable>

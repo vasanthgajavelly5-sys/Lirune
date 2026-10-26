@@ -86,6 +86,18 @@ class Ingestor(
         existingSha256List: Set<String>,
         jobId: Long
     ): IngestResult = withContext(Dispatchers.IO) {
+        val inputStream = openStream(sourceUri, sourceUriString)
+            ?: throw IllegalStateException("Cannot open input stream for $sourceUriString")
+        ingestStream(inputStream, entryName, format, existingSha256List, jobId)
+    }
+
+    suspend fun ingestStream(
+        inputStream: InputStream,
+        entryName: String,
+        format: String,
+        existingSha256List: Set<String> = emptySet(),
+        jobId: Long = 0L
+    ): IngestResult = withContext(Dispatchers.IO) {
         val bookId = UUID.randomUUID().toString()
         val ext = format.ifBlank { "bin" }
         val partFile = File(booksDir, "$bookId.part")
@@ -93,9 +105,6 @@ class Ingestor(
 
         val md = MessageDigest.getInstance("SHA-256")
         var totalCopied = 0L
-
-        val inputStream = openStream(sourceUri, sourceUriString)
-            ?: throw IllegalStateException("Cannot open input stream for $sourceUriString")
 
         try {
             FileOutputStream(partFile).use { fos ->

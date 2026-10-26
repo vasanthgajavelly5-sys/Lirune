@@ -30,7 +30,7 @@ export function LiruneToast({
   onDismiss,
   duration = 3000,
 }: LiruneToastProps) {
-  const { colors, scheme } = useThemeContext();
+  const { colors } = useThemeContext();
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(20));
 
@@ -75,7 +75,6 @@ export function LiruneToast({
 
   if (!visible) return null;
 
-  const isDark = scheme === 'dark';
   let accentColor: string = colors.accent;
   if (variant === 'success') accentColor = colors.success;
   if (variant === 'error') accentColor = colors.error;
@@ -89,7 +88,7 @@ export function LiruneToast({
         {
           opacity,
           transform: [{ translateY }],
-          backgroundColor: isDark ? '#23242B' : '#FFFFFF',
+          backgroundColor: colors.surfaceElevated,
           borderColor: colors.borderSubtle,
         },
       ]}

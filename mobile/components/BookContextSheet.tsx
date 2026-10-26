@@ -61,7 +61,7 @@ export function BookContextSheet({
       id: 'favorite',
       label: book.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
       icon: (book.isFavorite ? 'heart' : 'heart-outline') as keyof typeof Ionicons.glyphMap,
-      color: book.isFavorite ? '#FF6584' : colors.text,
+      color: book.isFavorite ? colors.favorite : colors.text,
       onPress: () => {
         onClose();
         onToggleFavorite(book);
@@ -113,7 +113,7 @@ export function BookContextSheet({
           style={[
             styles.sheetContainer,
             {
-              backgroundColor: isDark ? '#1C1C22' : '#FFFFFF',
+              backgroundColor: colors.modalBackground,
               borderColor: colors.borderSubtle,
               paddingBottom: Math.max(36, insets.bottom + 20),
             },
@@ -124,7 +124,7 @@ export function BookContextSheet({
             <View
               style={[
                 styles.thumbnail,
-                { backgroundColor: book.coverColor || '#2E2B38' },
+                { backgroundColor: book.coverColor || colors.accentSoft },
               ]}
             >
               {book.coverUrl ? (

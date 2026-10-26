@@ -10,7 +10,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  StatusBar,
   Modal,
   TextInput,
   ScrollView,
@@ -38,8 +37,7 @@ const PRESET_COLORS = [
 
 export default function CollectionsScreen() {
   const router = useRouter();
-  const { colors, scheme } = useThemeContext();
-  const isDark = scheme === 'dark';
+  const { colors } = useThemeContext();
   const { collections, books, createCollection, deleteCollection, setSelectedCollectionId, addBookToCollection, removeBookFromCollection } =
     useLibraryStore();
 
@@ -90,8 +88,6 @@ export default function CollectionsScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
-
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
         <View style={styles.headerLeft}>
@@ -134,7 +130,7 @@ export default function CollectionsScreen() {
                 ]}
                 onPress={() => handleSelectCollection(item)}
               >
-                <View style={[styles.colorBar, { backgroundColor: item.color || '#C9B8FF' }]} />
+                <View style={[styles.colorBar, { backgroundColor: item.color || colors.accentAlternative }]} />
                 <View style={styles.cardInfo}>
                   <Text style={[styles.collectionName, { color: colors.text }]}>
                     {item.name}

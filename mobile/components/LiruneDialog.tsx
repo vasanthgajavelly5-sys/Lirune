@@ -50,8 +50,7 @@ export function LiruneDialog({
   actions,
   children,
 }: LiruneDialogProps) {
-  const { colors, scheme } = useThemeContext();
-  const isDark = scheme === 'dark';
+  const { colors } = useThemeContext();
 
   if (!visible) return null;
 
@@ -86,7 +85,7 @@ export function LiruneDialog({
           style={[
             styles.dialogContainer,
             {
-              backgroundColor: isDark ? '#1C1C22' : '#FFFFFF',
+              backgroundColor: colors.modalBackground,
               borderColor: colors.borderSubtle,
             },
           ]}

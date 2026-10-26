@@ -54,7 +54,7 @@ export function SearchSheet({
   const borderColor = activeTheme
     ? (isThemeDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.10)')
     : colors.borderSubtle;
-  const accentColor = activeTheme ? (activeTheme.link || (isThemeDark ? '#C9B8FF' : '#4C4666')) : colors.accent;
+  const accentColor = activeTheme?.link || colors.accent;
 
   const handleSubmit = () => {
     if (query.trim()) {

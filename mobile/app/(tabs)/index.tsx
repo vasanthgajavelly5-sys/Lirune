@@ -12,7 +12,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  StatusBar,
   ActivityIndicator,
   RefreshControl,
   ScrollView,
@@ -235,8 +234,6 @@ export default function LibraryScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
-
       {/* Lirune Header */}
       <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
         <View style={styles.headerLeft}>
@@ -325,7 +322,7 @@ export default function LibraryScreen() {
                   <Ionicons
                     name={isSelected ? 'heart' : 'heart-outline'}
                     size={14}
-                    color={isSelected ? colors.accentForeground : '#FF6584'}
+                    color={isSelected ? colors.accentForeground : colors.favorite}
                     style={{ marginRight: 6 }}
                   />
                 )}
@@ -437,7 +434,7 @@ export default function LibraryScreen() {
                   <View
                     style={[
                       styles.collDot,
-                      { backgroundColor: coll.color || '#C9B8FF' },
+                      { backgroundColor: coll.color || colors.accentAlternative },
                     ]}
                   />
                   <Text

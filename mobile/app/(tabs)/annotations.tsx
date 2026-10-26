@@ -11,7 +11,6 @@ import {
   FlatList,
   TouchableOpacity,
   TextInput,
-  StatusBar,
   ActivityIndicator,
   Alert,
 } from 'react-native';
@@ -33,8 +32,7 @@ type SortOption = 'newest' | 'oldest' | 'book';
 
 export default function GlobalAnnotationsScreen() {
   const router = useRouter();
-  const { colors, scheme } = useThemeContext();
-  const isDark = scheme === 'dark';
+  const { colors } = useThemeContext();
 
   const { books } = useLibraryStore();
   const { openBook } = useReaderStore();
@@ -129,8 +127,6 @@ export default function GlobalAnnotationsScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
-
       {/* Top Header */}
       <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
         <View style={styles.headerLeft}>

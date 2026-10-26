@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Bookmark, Highlight, Note } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 interface AnnotationsSheetProps {
   visible: boolean;
@@ -48,6 +49,7 @@ export function AnnotationsSheet({
   themeName = 'neutral',
 }: AnnotationsSheetProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useThemeContext();
   const [activeTab, setActiveTab] = useState<'bookmarks' | 'notes' | 'highlights'>('bookmarks');
   const [noteInput, setNoteInput] = useState('');
   const [isAddingNote, setIsAddingNote] = useState(false);
@@ -60,7 +62,7 @@ export function AnnotationsSheet({
   const textColor = activeTheme.text;
   const mutedColor = activeTheme.muted;
   const borderColor = isThemeDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.10)';
-  const activeAccent = activeTheme.link || (isThemeDark ? '#C9B8FF' : '#4C4666');
+  const activeAccent = activeTheme.link || colors.accent;
   const activeAccentFg = isThemeDark ? '#000000' : '#FFFFFF';
 
   const handleSaveNote = () => {
@@ -170,7 +172,7 @@ export function AnnotationsSheet({
                     style={styles.deleteBtn}
                     accessibilityLabel="Delete bookmark"
                   >
-                    <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+                    <Ionicons name="trash-outline" size={18} color={colors.error} />
                   </TouchableOpacity>
                 </View>
               )}
@@ -249,7 +251,7 @@ export function AnnotationsSheet({
                       style={styles.deleteBtn}
                       accessibilityLabel="Delete note"
                     >
-                      <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+                      <Ionicons name="trash-outline" size={18} color={colors.error} />
                     </TouchableOpacity>
                   </View>
                 )}
@@ -293,7 +295,7 @@ export function AnnotationsSheet({
                     style={styles.deleteBtn}
                     accessibilityLabel="Delete highlight"
                   >
-                    <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+                    <Ionicons name="trash-outline" size={18} color={colors.error} />
                   </TouchableOpacity>
                 </View>
               )}

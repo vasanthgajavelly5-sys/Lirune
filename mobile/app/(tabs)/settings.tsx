@@ -11,7 +11,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  StatusBar,
   Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -175,8 +174,6 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
-
       {/* Top Header with Side Nav Button */}
       <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
         <View style={styles.headerLeft}>
@@ -552,7 +549,7 @@ export default function SettingsScreen() {
               value={accessibility.highContrast}
               onValueChange={(val) => updateAccessibility({ highContrast: val })}
               trackColor={{ false: colors.surfaceElevated, true: colors.accent }}
-              thumbColor={accessibility.highContrast ? colors.accentForeground : '#FFF'}
+              thumbColor={accessibility.highContrast ? colors.accentForeground : colors.surface}
             />
           </View>
 
@@ -570,7 +567,7 @@ export default function SettingsScreen() {
               value={accessibility.largeTouchTargets}
               onValueChange={(val) => updateAccessibility({ largeTouchTargets: val })}
               trackColor={{ false: colors.surfaceElevated, true: colors.accent }}
-              thumbColor={accessibility.largeTouchTargets ? colors.accentForeground : '#FFF'}
+              thumbColor={accessibility.largeTouchTargets ? colors.accentForeground : colors.surface}
             />
           </View>
 
@@ -588,7 +585,7 @@ export default function SettingsScreen() {
               value={accessibility.reduceMotion}
               onValueChange={(val) => updateAccessibility({ reduceMotion: val })}
               trackColor={{ false: colors.surfaceElevated, true: colors.accent }}
-              thumbColor={accessibility.reduceMotion ? colors.accentForeground : '#FFF'}
+              thumbColor={accessibility.reduceMotion ? colors.accentForeground : colors.surface}
             />
           </View>
 
@@ -606,7 +603,7 @@ export default function SettingsScreen() {
               value={accessibility.screenReaderOptimized}
               onValueChange={(val) => updateAccessibility({ screenReaderOptimized: val })}
               trackColor={{ false: colors.surfaceElevated, true: colors.accent }}
-              thumbColor={accessibility.screenReaderOptimized ? colors.accentForeground : '#FFF'}
+              thumbColor={accessibility.screenReaderOptimized ? colors.accentForeground : colors.surface}
             />
           </View>
 

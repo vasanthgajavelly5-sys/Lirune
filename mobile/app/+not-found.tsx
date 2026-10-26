@@ -1,9 +1,11 @@
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 export default function NotFoundScreen() {
   const router = useRouter();
+  const { colors } = useThemeContext();
 
   useEffect(() => {
     // Gracefully fallback to home tabs if an external file URI causes an unmatched route
@@ -14,8 +16,8 @@ export default function NotFoundScreen() {
   }, [router]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#1A1A1D', alignItems: 'center', justifyContent: 'center' }}>
-      <ActivityIndicator size="large" color="#EEECF8" />
+    <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>
+      <ActivityIndicator size="large" color={colors.accent} />
     </View>
   );
 }

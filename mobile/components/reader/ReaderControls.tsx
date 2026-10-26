@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Book } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 interface ReaderControlsProps {
   book: Book;
@@ -59,14 +60,14 @@ export function ReaderControls({
   onOpenThumbnails,
 }: ReaderControlsProps) {
   const activeTheme = READER_THEMES[themeName] || READER_THEMES.neutral;
-  const isDark = themeName === 'night' || themeName.startsWith('contrast');
+  const { colors } = useThemeContext();
 
   const insets = useSafeAreaInsets();
   const barBg = activeTheme.surface;
   const textColor = activeTheme.text;
   const mutedColor = activeTheme.muted;
   const iconColor = activeTheme.text;
-  const accentColor = activeTheme.link || (isDark ? '#C9B8FF' : '#4C4666');
+  const accentColor = activeTheme.link || colors.accent;
 
   // One label, one source: the header respects honest chapter numbering and section titles.
   // When currentChapter already contains "Chapter X" or is front matter (e.g. "Synopsis", "Cover", "Introduction"),

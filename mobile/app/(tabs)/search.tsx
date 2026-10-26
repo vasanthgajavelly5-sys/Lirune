@@ -17,7 +17,6 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
-  StatusBar,
   ScrollView,
   TextInput,
 } from 'react-native';
@@ -168,8 +167,7 @@ const FORMAT_FILTERS: { id: string; label: string }[] = [
 
 export default function FilesScreen() {
   const router = useRouter();
-  const { colors, scheme } = useThemeContext();
-  const isDark = scheme === 'dark';
+  const { colors } = useThemeContext();
 
   const { books, loadLibrary } = useLibraryStore();
   const { openBook } = useReaderStore();
@@ -1044,8 +1042,6 @@ export default function FilesScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
-
       {/* Top Header with Side Nav Button */}
       <View style={[styles.topHeader, { borderBottomColor: colors.borderSubtle }]}>
         <View style={styles.headerLeft}>

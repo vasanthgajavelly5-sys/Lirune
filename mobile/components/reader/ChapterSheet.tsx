@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TOCItem } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 const ITEM_HEIGHT = 48;
 
@@ -47,6 +48,7 @@ export function ChapterSheet({
   themeName = 'neutral',
 }: ChapterSheetProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useThemeContext();
   const activeTheme = READER_THEMES[themeName] || READER_THEMES.neutral;
   const isThemeDark = themeName === 'night' || themeName.startsWith('contrast');
 
@@ -55,7 +57,7 @@ export function ChapterSheet({
   const textColor = activeTheme.text;
   const mutedColor = activeTheme.muted;
   const borderColor = isThemeDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.10)';
-  const activeAccent = activeTheme.link || (isThemeDark ? '#C9B8FF' : '#4C4666');
+  const activeAccent = activeTheme.link || colors.accent;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());

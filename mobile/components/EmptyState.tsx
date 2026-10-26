@@ -147,12 +147,13 @@ export function EmptySearchState({ query }: { query: string }) {
 }
 
 export function EmptyFavoritesState() {
+  const { colors } = useThemeContext();
   return (
     <EmptyState
       title="No Favorites Yet"
       message="Tap the heart symbol on any book to add it to your favorites."
       icon="heart-outline"
-      iconColor="#FF6584"
+      iconColor={colors.favorite}
     />
   );
 }

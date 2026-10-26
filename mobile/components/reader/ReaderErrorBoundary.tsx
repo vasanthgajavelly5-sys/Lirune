@@ -7,6 +7,7 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { logger } from '@/utils/logger';
+import { Colors } from '@/theme/Colors';
 
 const TAG = 'ReaderErrorBoundary';
 
@@ -62,16 +63,16 @@ export class ReaderErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.hasError) {
-      const bg = this.props.themeBg || '#1A1A1D';
-      const textColor = this.props.textColor || '#FFFFFF';
-      const accent = this.props.accentColor || '#EEECF8';
+      const bg = this.props.themeBg || Colors.dark.background;
+      const textColor = this.props.textColor || Colors.dark.text;
+      const accent = this.props.accentColor || Colors.dark.accent;
       const canRetry = this.state.retryCount < 3;
 
       return (
         <View style={[styles.container, { backgroundColor: bg }]}>
           <View style={styles.content}>
             <View style={styles.iconCircle}>
-              <Ionicons name="warning-outline" size={40} color="#FF6B6B" />
+              <Ionicons name="warning-outline" size={40} color={Colors.dark.error} />
             </View>
             <Text style={[styles.title, { color: textColor }]}>Display Error</Text>
             <Text style={styles.subtitle}>
@@ -94,8 +95,8 @@ export class ReaderErrorBoundary extends Component<Props, State> {
                   onPress={this.handleReset}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="refresh" size={18} color="#1A1A1D" style={{ marginRight: 6 }} />
-                  <Text style={styles.primaryButtonText}>
+                  <Ionicons name="refresh" size={18} color={Colors.dark.accentForeground} style={{ marginRight: 6 }} />
+                  <Text style={[styles.primaryButtonText, { color: Colors.dark.accentForeground }]}>
                     Retry ({3 - this.state.retryCount} left)
                   </Text>
                 </TouchableOpacity>
@@ -150,7 +151,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: 'rgba(255, 255, 255, 0.65)',
     textAlign: 'center',
     marginBottom: 16,
     lineHeight: 20,
@@ -164,7 +165,7 @@ const styles = StyleSheet.create({
   },
   errorDetails: {
     fontSize: 12,
-    color: '#FF8A80',
+    color: Colors.dark.error,
     fontFamily: 'monospace',
   },
   actionRow: {
@@ -181,7 +182,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButtonText: {
-    color: '#1A1A1D',
     fontWeight: '600',
     fontSize: 15,
   },

@@ -91,7 +91,7 @@ export function LiruneBottomTabBar() {
     }
   };
 
-  const barBg = isDark ? '#19191E' : '#FFFFFF';
+  const barBg = colors.surface;
   const borderTop = colors.borderSubtle;
   const bottomPadding = Math.max(insets.bottom, 6);
 

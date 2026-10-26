@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { ttsService, TtsState } from '@/services/tts/TtsService';
 import { READER_THEMES } from '@/theme/Colors';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 interface TtsControlsSheetProps {
   visible: boolean;
@@ -33,6 +34,7 @@ export function TtsControlsSheet({
   onClose,
 }: TtsControlsSheetProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useThemeContext();
   const palette = READER_THEMES[themeName] || READER_THEMES.neutral;
   const isDark = themeName === 'night' || themeName.startsWith('contrast');
 
@@ -120,13 +122,13 @@ export function TtsControlsSheet({
               ttsService.play();
             }
           }}
-          style={[styles.playButton, { backgroundColor: palette.link || '#4C4666' }]}
+          style={[styles.playButton, { backgroundColor: palette.link || colors.accent }]}
           activeOpacity={0.85}
         >
           <Ionicons
             name={ttsState.isPlaying ? 'pause' : 'play'}
             size={28}
-            color={isDark ? '#1A1A1D' : '#FFFFFF'}
+            color={isDark ? colors.background : '#FFFFFF'}
           />
         </TouchableOpacity>
 
@@ -164,7 +166,7 @@ export function TtsControlsSheet({
                 <Text
                   style={[
                     styles.speedChipText,
-                    { color: isSelected ? (isDark ? '#1A1A1D' : '#FFFFFF') : palette.text },
+                    { color: isSelected ? (isDark ? colors.background : '#FFFFFF') : palette.text },
                   ]}
                 >
                   {spd}x

@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { READER_THEMES } from '@/theme/Colors';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 interface ThumbnailsSheetProps {
   visible: boolean;
@@ -38,6 +39,7 @@ export function ThumbnailsSheet({
   onClose,
 }: ThumbnailsSheetProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useThemeContext();
   const palette = READER_THEMES[themeName] || READER_THEMES.neutral;
   const isDark = themeName === 'night' || themeName.startsWith('contrast');
   // Measured per render: the sheet is opened from the reader, often after a
@@ -106,7 +108,7 @@ export function ThumbnailsSheet({
                     height: itemWidth * 1.4,
                     backgroundColor: palette.surface,
                     borderColor: isCurrent
-                      ? palette.link || (isDark ? '#C9B8FF' : '#4C4666')
+                      ? palette.link || colors.accent
                       : palette.border || 'rgba(128,128,128,0.2)',
                     borderWidth: isCurrent ? 2.5 : 1,
                   },
@@ -131,7 +133,7 @@ export function ThumbnailsSheet({
 
                 {isCurrent && (
                   <View style={[styles.currentBadge, { backgroundColor: palette.link }]}>
-                    <Text style={[styles.currentBadgeText, { color: isDark ? '#1A1A1D' : '#FFFFFF' }]}>
+                    <Text style={[styles.currentBadgeText, { color: isDark ? colors.background : '#FFFFFF' }]}>
                       Current
                     </Text>
                   </View>

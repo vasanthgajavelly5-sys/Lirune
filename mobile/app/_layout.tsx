@@ -5,7 +5,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import { AppState, InteractionManager } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
@@ -194,7 +193,6 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <AppInitializer>
-        <StatusBar style="light" />
         <Stack
           screenOptions={{
             headerShown: false,

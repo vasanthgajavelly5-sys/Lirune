@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { nativeScreen } from '@/services/native/NativeScreenBridge';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 /** Width of the edge zones that trigger brightness control (dp). */
 const EDGE_ZONE_DP = 44;
@@ -76,10 +77,12 @@ export function BrightnessEdgeOverlay({
   brightness,
   onBrightnessChange,
   keepAwake = false,
-  accentColor = '#C9B8FF',
+  accentColor: customAccent,
   textColor = '#FFFFFF',
   pillBg = 'rgba(28,28,32,0.88)',
 }: BrightnessEdgeOverlayProps) {
+  const { colors } = useThemeContext();
+  const accentColor = customAccent || colors.accent;
   const [pillVisible, setPillVisible] = useState(false);
   const [pillOpacity] = useState(() => new Animated.Value(0));
   const pillHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

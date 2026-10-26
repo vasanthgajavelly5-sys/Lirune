@@ -980,7 +980,7 @@ export default function FoldersScreen() {
                       <Ionicons
                         name={item.isDirectory ? 'folder' : isBlocked ? 'ban-outline' : 'document-text'}
                         size={36}
-                        color={item.isDirectory ? colors.accent : isBlocked ? '#E06C75' : colors.textSecondary}
+                        color={item.isDirectory ? colors.accent : isBlocked ? colors.blocked : colors.textSecondary}
                       />
                       {isMultiSelect && !isBlocked && (
                         <Ionicons
@@ -1001,8 +1001,8 @@ export default function FoldersScreen() {
                         </Text>
                       </View>
                     ) : isBlocked ? (
-                      <View style={[styles.badgeSmall, { backgroundColor: '#e06c7522' }]}>
-                        <Text style={[styles.badgeTextSmall, { color: '#E06C75' }]}>BLOCKED</Text>
+                      <View style={[styles.badgeSmall, { backgroundColor: colors.blockedSoft }]}>
+                        <Text style={[styles.badgeTextSmall, { color: colors.blocked }]}>BLOCKED</Text>
                       </View>
                     ) : null}
                   </TouchableOpacity>
@@ -1045,7 +1045,7 @@ export default function FoldersScreen() {
                         backgroundColor: item.isDirectory
                           ? colors.accent + '15'
                           : isBlocked
-                          ? '#e06c7515'
+                          ? colors.blockedSoft
                           : colors.surfaceElevated,
                       },
                     ]}
@@ -1053,7 +1053,7 @@ export default function FoldersScreen() {
                     <Ionicons
                       name={item.isDirectory ? 'folder' : isBlocked ? 'ban-outline' : 'document-text-outline'}
                       size={22}
-                      color={item.isDirectory ? colors.accent : isBlocked ? '#E06C75' : colors.textSecondary}
+                      color={item.isDirectory ? colors.accent : isBlocked ? colors.blocked : colors.textSecondary}
                     />
                   </View>
 
@@ -1080,8 +1080,8 @@ export default function FoldersScreen() {
                       </Text>
                     </View>
                   ) : isBlocked ? (
-                    <View style={[styles.badge, { backgroundColor: '#e06c7522' }]}>
-                      <Text style={[styles.badgeTextSmall, { color: '#E06C75' }]}>BLOCKED</Text>
+                    <View style={[styles.badge, { backgroundColor: colors.blockedSoft }]}>
+                      <Text style={[styles.badgeTextSmall, { color: colors.blocked }]}>BLOCKED</Text>
                     </View>
                   ) : null}
 

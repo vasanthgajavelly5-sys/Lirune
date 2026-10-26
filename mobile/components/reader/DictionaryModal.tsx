@@ -15,6 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { DictionaryService, WordDefinition } from '@/services/dictionary/DictionaryService';
 import { READER_THEMES } from '@/theme/Colors';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 interface DictionaryModalProps {
   visible: boolean;
@@ -35,6 +36,7 @@ export function DictionaryModal({
   themeName,
   onClose,
 }: DictionaryModalProps) {
+  const { colors } = useThemeContext();
   const palette = READER_THEMES[themeName] || READER_THEMES.neutral;
   const isDark = themeName === 'night' || themeName.startsWith('contrast');
 
@@ -133,7 +135,7 @@ export function DictionaryModal({
                 {
                   backgroundColor: isSaved
                     ? 'rgba(78, 205, 196, 0.15)'
-                    : palette.link || (isDark ? '#C9B8FF' : '#4C4666'),
+                    : palette.link || colors.accent,
                 },
               ]}
               onPress={handleSaveWord}
@@ -143,14 +145,14 @@ export function DictionaryModal({
               <Ionicons
                 name={isSaved ? 'checkmark-circle' : 'bookmark-outline'}
                 size={16}
-                color={isSaved ? '#4ECDC4' : isDark ? '#1A1A1D' : '#FFFFFF'}
+                color={isSaved ? colors.success : colors.accentForeground}
                 style={{ marginRight: 6 }}
               />
               <Text
                 style={[
                   styles.saveButtonText,
                   {
-                    color: isSaved ? '#4ECDC4' : isDark ? '#1A1A1D' : '#FFFFFF',
+                    color: isSaved ? colors.success : colors.accentForeground,
                   },
                 ]}
               >

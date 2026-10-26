@@ -62,7 +62,7 @@ export function AddToCollectionModal({
           style={[
             styles.container,
             {
-              backgroundColor: isDark ? '#1C1C22' : '#FFFFFF',
+              backgroundColor: colors.modalBackground,
               borderColor: colors.borderSubtle,
             },
           ]}
@@ -109,7 +109,7 @@ export function AddToCollectionModal({
                     <View
                       style={[
                         styles.collDot,
-                        { backgroundColor: coll.color || '#C9B8FF' },
+                        { backgroundColor: coll.color || colors.accentAlternative },
                       ]}
                     />
                     <Text

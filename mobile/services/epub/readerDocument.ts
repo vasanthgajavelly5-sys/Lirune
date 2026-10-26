@@ -111,6 +111,12 @@ export function readerCss(input: ReaderDocumentInput): string {
   const { columnStep, sideInset } = paginatedColumnGeometry(layout, input.twoColumn);
 
   return `
+    :root {
+      --reader-bg: ${palette.bg};
+      --reader-text: ${palette.text};
+      --reader-muted: ${palette.muted};
+      --reader-link: ${palette.link};
+    }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html {
       width: 100%;
@@ -119,8 +125,8 @@ export function readerCss(input: ReaderDocumentInput): string {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-      background-color: ${palette.bg};
-      color: ${palette.text};
+      background-color: var(--reader-bg, ${palette.bg});
+      color: var(--reader-text, ${palette.text});
       ${input.mode === 'paginated' ? 'overflow: hidden;' : 'overflow-x: hidden;'}
       word-wrap: break-word;
       overflow-wrap: break-word;
@@ -132,8 +138,8 @@ export function readerCss(input: ReaderDocumentInput): string {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-      background-color: ${palette.bg} !important;
-      color: ${palette.text} !important;
+      background-color: var(--reader-bg, ${palette.bg}) !important;
+      color: var(--reader-text, ${palette.text}) !important;
       font-family: ${input.fontFamily};
       font-size: ${input.fontSize}px;
       line-height: ${input.lineHeight};

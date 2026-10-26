@@ -35,7 +35,6 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
     ref
   ) => {
     const theme = useTheme();
-    const isDark = theme.isDark;
 
     const baseStyles = StyleSheet.create({
       base: {
@@ -76,7 +75,7 @@ export const Button = React.forwardRef<React.ElementRef<typeof Pressable>, Butto
     });
 
     const textStyles = StyleSheet.create({
-      primary: { color: isDark ? '#1A1A1D' : '#FFFFFF' },
+      primary: { color: theme.colors.accentForeground },
       secondary: { color: theme.colors.accent },
       outline: { color: theme.colors.text },
       ghost: { color: theme.colors.text },

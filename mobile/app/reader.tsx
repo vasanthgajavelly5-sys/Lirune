@@ -8,7 +8,6 @@ import React, { useEffect, useCallback, useState, useRef, useMemo } from 'react'
 import {
   View,
   StyleSheet,
-  StatusBar,
   BackHandler,
   ActivityIndicator,
   Text,
@@ -50,6 +49,7 @@ import { ReaderTabsSheet } from '@/components/reader/ReaderTabsSheet';
 import { ttsService } from '@/services/tts/TtsService';
 import { parseSpineTarget, classifyReadingUnitType, extractExplicitChapterNumber } from '@/services/epub/navigation';
 import { READER_THEMES } from '@/theme/Colors';
+import { useThemeContext } from '@/theme/ThemeContext';
 import { Bookmark, TOCItem, SearchResult, Book, clampReaderBrightness } from '@/models/Book';
 import type { SelectionPayload } from '@/services/reader/selectionBridge';
 import { SourceUnavailableError, UnsupportedFormatError } from '@/utils/errors';
@@ -64,6 +64,7 @@ type ReaderResolutionStatus = 'resolving' | 'loading' | 'ready' | 'failed' | 'un
 export default function ReaderScreen() {
   const router = useRouter();
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
+  const { colors } = useThemeContext();
   const insets = useStableInsets();
   const isExitingRef = useRef(false);
 
@@ -433,8 +434,7 @@ export default function ReaderScreen() {
   if (!currentBook || resolutionStatus === 'resolving') {
     return (
       <View style={[styles.statusContainer, { backgroundColor: palette.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <StatusBar hidden={false} barStyle={isThemeDark ? 'light-content' : 'dark-content'} />
-        <ActivityIndicator size="large" color={palette.link || (isThemeDark ? '#C9B8FF' : '#4C4666')} />
+        <ActivityIndicator size="large" color={palette.link || colors.accent} />
         <Text style={[styles.statusTitle, { color: palette.text }]}>
           {currentBook ? currentBook.title : 'Opening book...'}
         </Text>
@@ -449,26 +449,25 @@ export default function ReaderScreen() {
   if (resolutionStatus === 'unavailable') {
     return (
       <View style={[styles.statusContainer, { backgroundColor: palette.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <StatusBar hidden={false} barStyle={isThemeDark ? 'light-content' : 'dark-content'} />
         <View style={styles.errorIconOrb}>
-          <Ionicons name="folder-open-outline" size={42} color="#FFA726" />
+          <Ionicons name="folder-open-outline" size={42} color={colors.warning} />
         </View>
         <Text style={[styles.statusTitle, { color: palette.text }]}>{currentBook.title}</Text>
         <Text style={[styles.statusSubtitle, { color: palette.muted }]}>
           Source File Unavailable
         </Text>
-        <Text style={styles.errorDescription}>
+        <Text style={[styles.errorDescription, { color: palette.muted }]}>
           The original file could not be accessed. Permissions may have expired or the file was moved from its original folder.
         </Text>
 
         <View style={styles.recoveryBtnRow}>
           <TouchableOpacity
-            style={[styles.primaryRecoveryBtn, { backgroundColor: palette.link || (isThemeDark ? '#C9B8FF' : '#4C4666') }]}
+            style={[styles.primaryRecoveryBtn, { backgroundColor: palette.link || colors.accent }]}
             onPress={handleRelinkFile}
             activeOpacity={0.8}
           >
-            <Ionicons name="link-outline" size={18} color={isThemeDark ? '#1A1A1D' : '#FFFFFF'} style={{ marginRight: 6 }} />
-            <Text style={[styles.primaryRecoveryBtnText, { color: isThemeDark ? '#1A1A1D' : '#FFFFFF' }]}>Re-link File</Text>
+            <Ionicons name="link-outline" size={18} color={isThemeDark ? colors.background : '#FFFFFF'} style={{ marginRight: 6 }} />
+            <Text style={[styles.primaryRecoveryBtnText, { color: isThemeDark ? colors.background : '#FFFFFF' }]}>Re-link File</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -488,26 +487,25 @@ export default function ReaderScreen() {
   if (resolutionStatus === 'unsupported') {
     return (
       <View style={[styles.statusContainer, { backgroundColor: palette.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <StatusBar hidden={false} barStyle={isThemeDark ? 'light-content' : 'dark-content'} />
         <View style={[styles.errorIconOrb, { backgroundColor: 'rgba(255, 171, 0, 0.12)' }]}>
-          <Ionicons name="document-text-outline" size={42} color="#FFAB00" />
+          <Ionicons name="document-text-outline" size={42} color={colors.warning} />
         </View>
         <Text style={[styles.statusTitle, { color: palette.text }]}>{currentBook.title}</Text>
         <Text style={[styles.statusSubtitle, { color: palette.muted }]}>
           Document Format Unsupported
         </Text>
-        <Text style={styles.errorDescription}>
+        <Text style={[styles.errorDescription, { color: palette.muted }]}>
           {errorMessage || 'This file format is not supported by Lirune Reader.'}
         </Text>
 
         <View style={styles.recoveryBtnRow}>
           <TouchableOpacity
-            style={[styles.primaryRecoveryBtn, { backgroundColor: palette.link || (isThemeDark ? '#C9B8FF' : '#4C4666') }]}
+            style={[styles.primaryRecoveryBtn, { backgroundColor: palette.link || colors.accent }]}
             onPress={handleExitReader}
             activeOpacity={0.8}
           >
-            <Ionicons name="library-outline" size={18} color={isThemeDark ? '#1A1A1D' : '#FFFFFF'} style={{ marginRight: 6 }} />
-            <Text style={[styles.primaryRecoveryBtnText, { color: isThemeDark ? '#1A1A1D' : '#FFFFFF' }]}>Back to Library</Text>
+            <Ionicons name="library-outline" size={18} color={isThemeDark ? colors.background : '#FFFFFF'} style={{ marginRight: 6 }} />
+            <Text style={[styles.primaryRecoveryBtnText, { color: isThemeDark ? colors.background : '#FFFFFF' }]}>Back to Library</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -519,16 +517,15 @@ export default function ReaderScreen() {
     const canRetry = retryCount < 3;
     return (
       <View style={[styles.statusContainer, { backgroundColor: palette.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <StatusBar hidden={false} barStyle={isThemeDark ? 'light-content' : 'dark-content'} />
         <View style={[styles.errorIconOrb, { backgroundColor: 'rgba(255, 107, 107, 0.12)' }]}>
-          <Ionicons name="alert-circle-outline" size={42} color="#FF6B6B" />
+          <Ionicons name="alert-circle-outline" size={42} color={colors.error} />
         </View>
         <Text style={[styles.statusTitle, { color: palette.text }]}>{currentBook.title}</Text>
         <Text style={[styles.statusSubtitle, { color: palette.muted }]}>
           Unable to Open Document
         </Text>
         {errorMessage ? (
-          <Text style={styles.errorDescription} numberOfLines={3}>
+          <Text style={[styles.errorDescription, { color: palette.muted }]} numberOfLines={3}>
             {errorMessage}
           </Text>
         ) : null}
@@ -536,15 +533,15 @@ export default function ReaderScreen() {
         <View style={styles.recoveryBtnRow}>
           {canRetry ? (
             <TouchableOpacity
-              style={[styles.primaryRecoveryBtn, { backgroundColor: palette.link || (isThemeDark ? '#C9B8FF' : '#4C4666') }]}
+              style={[styles.primaryRecoveryBtn, { backgroundColor: palette.link || colors.accent }]}
               onPress={() => {
                 setRetryCount((prev) => prev + 1);
                 resolveCurrentBook(currentBook);
               }}
               activeOpacity={0.8}
             >
-              <Ionicons name="refresh" size={18} color={isThemeDark ? '#1A1A1D' : '#FFFFFF'} style={{ marginRight: 6 }} />
-              <Text style={[styles.primaryRecoveryBtnText, { color: isThemeDark ? '#1A1A1D' : '#FFFFFF' }]}>
+              <Ionicons name="refresh" size={18} color={isThemeDark ? colors.background : '#FFFFFF'} style={{ marginRight: 6 }} />
+              <Text style={[styles.primaryRecoveryBtnText, { color: isThemeDark ? colors.background : '#FFFFFF' }]}>
                 Retry ({3 - retryCount} left)
               </Text>
             </TouchableOpacity>
@@ -602,11 +599,6 @@ export default function ReaderScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
-      <StatusBar
-        hidden={!isControlsVisible}
-        barStyle={isThemeDark ? 'light-content' : 'dark-content'}
-      />
-
       <ReaderErrorBoundary
         themeBg={palette.bg}
         textColor={palette.text}
@@ -798,7 +790,7 @@ export default function ReaderScreen() {
           style={[
             styles.highlightBar,
             {
-              backgroundColor: palette.surface ?? '#1A1A1D',
+              backgroundColor: palette.surface ?? colors.surface,
               bottom: Math.max(insets.bottom, 16) + 16,
             },
           ]}
@@ -825,7 +817,7 @@ export default function ReaderScreen() {
             onPress={() => setSelection({ text: '', top: 0 })}
             style={styles.highlightCancel}
           >
-            <Text style={{ color: palette.muted ?? '#B8B8B0', fontSize: 13 }}>Cancel</Text>
+            <Text style={{ color: palette.muted ?? colors.textSecondary, fontSize: 13 }}>Cancel</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -837,7 +829,7 @@ export default function ReaderScreen() {
         brightness={brightness}
         onBrightnessChange={handleBrightnessChange}
         keepAwake={readerSettings.keepScreenAwake !== false}
-        accentColor={palette.link || (isThemeDark ? '#C9B8FF' : '#4C4666')}
+        accentColor={palette.link || colors.accent}
         textColor={palette.text}
       />
 
@@ -1003,7 +995,6 @@ const styles = StyleSheet.create({
   errorDescription: {
     marginTop: 12,
     fontSize: 13,
-    color: '#8E8E93',
     textAlign: 'center',
     lineHeight: 18,
     maxWidth: 320,

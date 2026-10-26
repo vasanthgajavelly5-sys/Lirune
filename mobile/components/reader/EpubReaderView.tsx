@@ -437,6 +437,7 @@ export function EpubReaderView({
   const isPaginated = settings.flow !== 'scrolled';
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
   const isDark = settings.theme === 'night' || settings.theme.startsWith('contrast');
+  const [initialPalette] = useState(() => palette);
 
   /**
    * Geometry is only meaningful once the container has been measured. A guessed
@@ -1459,10 +1460,10 @@ if (!targetCfi || chapters.length === 0) return;
       bookCss,
       body: bodyHtml,
       palette: {
-        bg: palette.bg,
-        text: palette.text,
-        muted: palette.muted,
-        link: palette.link,
+        bg: initialPalette.bg,
+        text: initialPalette.text,
+        muted: initialPalette.muted,
+        link: initialPalette.link,
       },
       fontFamily: getCssFontFamily(renderSettings.fontFamily),
       fontSize: renderSettings.fontSize,
@@ -1480,10 +1481,6 @@ if (!targetCfi || chapters.length === 0) return;
     geometry.twoColumn,
     bookCss,
     bodyHtml,
-    palette.bg,
-    palette.text,
-    palette.muted,
-    palette.link,
     renderSettings.fontFamily,
     renderSettings.fontSize,
     renderSettings.lineHeight,
@@ -1491,6 +1488,7 @@ if (!targetCfi || chapters.length === 0) return;
     renderSettings.paragraphSpacing,
     startAtEnd,
     initialScrollY,
+    initialPalette,
   ]);
 
   const webViewSource = useMemo(() => ({ html: renderedHtml }), [renderedHtml]);
@@ -1571,7 +1569,7 @@ if (!targetCfi || chapters.length === 0) return;
         </TouchableOpacity>
 
         {showErrorDetails && (
-          <View style={[styles.detailsBox, { backgroundColor: isDark ? '#141418' : '#F2F2F6', borderColor: palette.border }]}>
+          <View style={[styles.detailsBox, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.35)' : 'rgba(0, 0, 0, 0.05)', borderColor: palette.border }]}>
             <Text style={[styles.detailsMonospace, { color: palette.text }]}>
               {reportText}
             </Text>

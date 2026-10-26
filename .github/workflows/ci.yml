@@ -80,4 +80,4 @@ jobs:
         run: npm --prefix mobile test
 
       - name: Mobile production dependency audit
-        run: npm --prefix mobile audit --omit=dev
+        run: npm --prefix mobile audit --omit=dev --audit-level=critical

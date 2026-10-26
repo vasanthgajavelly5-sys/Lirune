@@ -155,6 +155,12 @@ async function processQueue(): Promise<void> {
           existingShaList.push(...shaRows.map((r) => r.sha256));
         }
 
+        // Guard: sniff before ingesting to guarantee kind == 'book'
+        const sniff = await nativeStorage.sniff(nextItem.uri, nextItem.name);
+        if (sniff.kind !== 'book') {
+          throw new Error(`Unsupported: Cannot import ${sniff.kind} item as a book (${sniff.reason})`);
+        }
+
         const ingestResult = await nativeStorage.ingestFile({
           uri: nextItem.uri,
           mode: nextItem.mode,

@@ -54,6 +54,10 @@ class Ingestor(
     ): IngestResult = withContext(Dispatchers.IO) {
         semaphore.withPermit {
             val sourceUri = Uri.parse(sourceUriString)
+            val sniff = FormatRegistry.sniff(context, sourceUri, entryName)
+            if (sniff.kind != "book") {
+                throw UnsupportedOperationException("Unsupported: Cannot import ${sniff.kind} item as a book (${sniff.reason})")
+            }
             val isLinkedRequested = mode == "linked"
 
             var effectiveMode = "managed"

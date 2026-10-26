@@ -7,6 +7,7 @@
 
 import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import { BookFormat } from '@/models/Book';
+import { FormatDetector } from '@/services/discovery/FormatDetector';
 import { logger } from '@/utils/logger';
 
 const TAG = 'NativeStorageBridge';
@@ -89,6 +90,8 @@ export interface NativeSniffResult {
   isDrm: boolean;
   drmReason: string | null;
   quickFp: string | null;
+  kind: 'book' | 'container' | 'blocked';
+  needsPassword?: boolean;
 }
 
 export interface NativeIngestResult {
@@ -516,6 +519,31 @@ export const nativeStorage = {
       logger.warn(TAG, `copyContentUriToStorage failed for ${sourceUri}`, err);
       return null;
     }
+  },
+
+  async sniff(uri: string, fileName?: string): Promise<NativeSniffResult> {
+    if (this.isAvailable() && typeof LiruneStorage.sniff === 'function') {
+      try {
+        return await LiruneStorage.sniff(uri, fileName ?? null);
+      } catch (err) {
+        logger.warn(TAG, `NativeStorage.sniff failed for ${uri}`, err);
+      }
+    }
+    // Fallback using FormatDetector
+    const ext = (fileName || uri).split('.').pop()?.toLowerCase() || '';
+    const isBlocked = ['apk', 'jar', 'aab', 'xapk', 'apks', 'dex', 'exe', 'class', 'arsc', 'so', 'dll'].includes(ext);
+    const isZip = ext === 'zip';
+    const detected = FormatDetector.fromFilename(fileName || uri);
+    return {
+      format: isBlocked ? 'unknown' : detected.id,
+      confidence: isBlocked ? 0 : 0.8,
+      reason: isBlocked ? 'Blocked application package' : 'Identified by extension',
+      isDrm: false,
+      drmReason: null,
+      quickFp: null,
+      kind: isBlocked ? 'blocked' : isZip ? 'container' : 'book',
+      needsPassword: false,
+    };
   },
 
   async clearCurrentIntent(): Promise<boolean> {

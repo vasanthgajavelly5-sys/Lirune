@@ -928,6 +928,29 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun sniff(uriString: String, fileName: String?, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val uri = Uri.parse(uriString)
+                val sniff = FormatRegistry.sniff(reactContext, uri, fileName)
+                val map = Arguments.createMap().apply {
+                    putString("format", sniff.format)
+                    putDouble("confidence", sniff.confidence.toDouble())
+                    putString("reason", sniff.reason)
+                    putBoolean("isDrm", sniff.isDrm)
+                    if (sniff.drmReason != null) putString("drmReason", sniff.drmReason)
+                    if (sniff.quickFp != null) putString("quickFp", sniff.quickFp)
+                    putString("kind", sniff.kind)
+                    putBoolean("needsPassword", sniff.needsPassword)
+                }
+                promise.resolve(map)
+            } catch (e: Exception) {
+                promise.reject("SNIFF_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
     fun clearCurrentIntent(promise: Promise) {
         try {
             val activity = reactContext.currentActivity

@@ -35,7 +35,6 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
     private val moduleScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val sourceManager by lazy { SourceManager(reactContext) }
     private val sessionManager by lazy { BookSessionManager(reactContext) }
-    private val resourceServer by lazy { ResourceServer(sessionManager).also { it.start() } }
     private val scanner by lazy { Scanner(reactContext, ::emitEventMap) }
     private val ingestor by lazy {
         val booksDir = File(reactContext.filesDir, "books")
@@ -368,12 +367,7 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun getResourceServerUrl(handleId: String, promise: Promise) {
-        try {
-            val url = "http://127.0.0.1:${resourceServer.port}/book/$handleId"
-            promise.resolve(url)
-        } catch (e: Exception) {
-            promise.reject("SERVER_URL_ERROR", e.message, e)
-        }
+        promise.resolve(null)
     }
 
     // ==========================================

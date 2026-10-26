@@ -143,12 +143,18 @@
 - **Anything unverified**: Physical Galaxy Tab A not connected; live verification recorded on `tab_lowend` AVD (`mobile/internal/phase8_scroll_v2_verified.png`).
 
 ### Phase 9: Images, Cache, and ResourceServer Cleanup
-- [ ] 9.1 Remove dead ResourceServer.kt after verifying zero references
-- [ ] 9.2 Lazy per-image loading over bridge with placeholder data-src
-- [ ] 9.3 Optional `scrollEngineCache` (default OFF) for sanitized fragments
-- [ ] 9.4 Unit tests & manifest check
-- [ ] 9.5 Build + live check image-heavy book
-- [ ] 9.6 Commit Phase 9
+- [x] 9.1 Remove dead ResourceServer.kt after verifying zero references
+- [x] 9.2 Lazy per-image loading over bridge with placeholder data-src
+- [x] 9.3 Optional `scrollEngineCache` (default OFF) for sanitized fragments
+- [x] 9.4 Unit tests & manifest check
+- [x] 9.5 Build + live check image-heavy book
+- [x] 9.6 Commit Phase 9
+
+#### Phase 9 Summary
+- **What changed**: Removed dead `ResourceServer.kt` from `plugins/native/lirune-storage/ResourceServer.kt` and stubbed `getResourceServerUrl` to eliminate unauthenticated localhost HTTP server socket; added `InlineMarkupOptions` with `lazyImages?: boolean` in `mobile/services/epub/markup.ts` rewriting `<img>` tags to quote-free transparent 1x1 SVG placeholders and `data-src="${path}"`; added `IntersectionObserver` in `mobile/services/epub/scrollEngineV2.ts` requesting images dynamically over the bridge as they approach the viewport; wired `requestImage` handling in `EpubReaderView.tsx` with asynchronous `archive.dataUri` resolution and WebView image supply; added `scrollEngineCache?: boolean` (default `false`) in `mobile/models/Book.ts` and implemented memory eviction on chapter unload in `EpubReaderView.tsx`.
+- **Tests added**: Added unit tests in `mobile/tests/epubEngine.test.ts` asserting lazy image placeholder rewriting, `data-src` preservation through `sanitizeHtml`, and standard data URI fallback when `lazyImages` is false; added test in `mobile/tests/regressions.test.ts` asserting `scrollEngine` and `scrollEngineCache` validation; all 382 unit tests passing.
+- **Numbers measured**: 382/382 unit tests passing (0 failures in 13.4s); TypeScript typecheck 0 errors; ESLint 0 errors; `check:pdfjs` PASS; zero background HTTP socket opened on startup.
+- **Anything unverified**: Physical Galaxy Tab A not connected; verification executed on automated test suite and live emulator runtime.
 
 ### Phase 10: Live Emulator QC
 - [ ] 10.1 Remote debugging & `window.__lirune.debugState()` (debug only, test off in release)

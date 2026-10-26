@@ -549,6 +549,18 @@ test('validateReaderSettings: safely falls back to valid defaults on corrupted p
   assert.equal(validated.columns, 'auto');
   assert.equal(validated.brightness, 10); // Clamped to MIN_READER_BRIGHTNESS
   assert.equal(validated.keepScreenAwake, true);
+  assert.equal(validated.scrollEngine, 'v1');
+  assert.equal(validated.scrollEngineCache, false);
+});
+
+test('validateReaderSettings: preserves valid scrollEngine and scrollEngineCache flags', () => {
+  const custom = {
+    scrollEngine: 'v2',
+    scrollEngineCache: true,
+  };
+  const validated = validateReaderSettings(custom);
+  assert.equal(validated.scrollEngine, 'v2');
+  assert.equal(validated.scrollEngineCache, true);
 });
 
 test('validateAccessibilitySettings: bounds scaling and sanitizes booleans', () => {

@@ -260,6 +260,43 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
         }, 250);
       }
 
+      // Lazy image IntersectionObserver
+      var imageObserver = null;
+      var pendingImageRequests = new Set();
+
+      function initImageObserver() {
+        if (!window.IntersectionObserver) return;
+        imageObserver = new IntersectionObserver(function(entries) {
+          entries.forEach(function(entry) {
+            if (entry.isIntersecting) {
+              var img = entry.target;
+              var src = img.getAttribute('data-src');
+              if (src && !pendingImageRequests.has(src)) {
+                pendingImageRequests.add(src);
+                try {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'requestImage',
+                    path: src
+                  }));
+                } catch (e) {}
+              }
+              imageObserver.unobserve(img);
+            }
+          });
+        }, {
+          rootMargin: '100% 0px 100% 0px'
+        });
+      }
+
+      function observeLazyImages(container) {
+        if (!imageObserver) initImageObserver();
+        if (!imageObserver) return;
+        var imgs = (container || document).querySelectorAll('img[data-src]');
+        for (var i = 0; i < imgs.length; i++) {
+          imageObserver.observe(imgs[i]);
+        }
+      }
+
       window.addEventListener('scroll', function() {
         if (scrollRafId) return;
         scrollRafId = window.requestAnimationFrame(function() {
@@ -267,6 +304,8 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
           onScrollTick();
         });
       }, { passive: true });
+
+      observeLazyImages(document);
 
       return {
         setSmallTier: function(val) { isSmallTier = !!val; },
@@ -283,6 +322,7 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
             sec.setAttribute('data-loaded', 'true');
             loadedChapters.add(item.index);
             pendingRequests.delete(item.index);
+            observeLazyImages(body);
 
             // Measure actual rendered height and calibrate model
             var measuredH = body.offsetHeight || 1;
@@ -296,6 +336,17 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
           window.requestAnimationFrame(function() {
             scanAndRequestChapters();
           });
+        },
+        supplyImage: function(path, dataUri) {
+          pendingImageRequests.delete(path);
+          if (!path || !dataUri) return;
+          var imgs = document.querySelectorAll('img[data-src]');
+          for (var i = 0; i < imgs.length; i++) {
+            if (imgs[i].getAttribute('data-src') === path) {
+              imgs[i].setAttribute('src', dataUri);
+              imgs[i].removeAttribute('data-src');
+            }
+          }
         },
         restoreLocator: function(loc) {
           if (!loc) return;

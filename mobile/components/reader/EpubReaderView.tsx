@@ -278,6 +278,10 @@ class BoundedCache<T> {
     }
   }
 
+  delete(key: number): boolean {
+    return this.map.delete(key);
+  }
+
   clear(): void {
     this.map.clear();
   }
@@ -399,6 +403,10 @@ export function EpubReaderView({
     },
   });
 
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   const webViewRef = useRef<WebView>(null);
   const archiveRef = useRef<EpubArchive | null>(null);
   const packageRef = useRef<EpubPackage | null>(null);
@@ -558,7 +566,11 @@ export function EpubReaderView({
       chapterCacheRef.current.set(index, shared);
       return shared;
     }
-    const doc = await extractChapterDocument(archive, item.itemPath, { navigationTitle: item.navTitle });
+    const isV2 = settingsRef.current.scrollEngine === 'v2';
+    const doc = await extractChapterDocument(archive, item.itemPath, {
+      navigationTitle: item.navTitle,
+      lazyImages: isV2,
+    });
     // A book switch during extraction invalidates the result.
     if (archiveRef.current !== archive) return null;
     chapterCacheRef.current.set(index, doc);
@@ -972,8 +984,10 @@ export function EpubReaderView({
 
         currentPhase = 'load-chapter';
         perf.mark('loadEpub-extractInitialChapter');
+        const isV2 = settings.scrollEngine === 'v2';
         const initialChapter = await extractChapterDocument(archive, loadedChapters[initialIdx].itemPath, {
           navigationTitle: loadedChapters[initialIdx].navTitle,
+          lazyImages: isV2,
         });
         chapterCacheRef.current.set(initialIdx, initialChapter);
         perf.measure('loadEpub-extractInitialChapter');
@@ -1562,7 +1576,28 @@ if (!targetCfi || chapters.length === 0) return;
             for (const idx of data.indices) {
               hydratedRef.current.delete(idx);
               inFlightHydrationRef.current.delete(idx);
+              if (!settingsRef.current.scrollEngineCache) {
+                chapterCacheRef.current.delete(idx);
+              }
             }
+          }
+          break;
+        }
+
+        case 'requestImage': {
+          if (typeof data.path === 'string' && data.path && archiveRef.current) {
+            const imgPath = data.path;
+            const archive = archiveRef.current;
+            void archive.dataUri(imgPath).then((uri) => {
+              if (uri && webViewRef.current) {
+                webViewRef.current.injectJavaScript(`
+                  if (window.__liruneV2 && window.__liruneV2.supplyImage) {
+                    window.__liruneV2.supplyImage(${JSON.stringify(imgPath)}, ${JSON.stringify(uri)});
+                  }
+                  true;
+                `);
+              }
+            });
           }
           break;
         }

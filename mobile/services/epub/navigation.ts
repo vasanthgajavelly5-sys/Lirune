@@ -19,6 +19,7 @@ export interface EpubNavigationTarget {
   spineIndex: number;
   scrollY?: number;
   anchor?: string;
+  fraction?: number;
 }
 
 export interface LogicalChapterInfo {
@@ -39,10 +40,17 @@ export function createSpineTarget(spineIndex: number, fragment?: string): string
 }
 
 export function parseSpineTarget(target: string): EpubNavigationTarget | null {
-  const match = target.match(/^spine:(\d+)(?::(scroll|anchor):(.+))?$/);
+  const match = target.match(/^spine:(\d+)(?::(frac|scroll|anchor):(.+))?$/);
   if (!match) return null;
 
   const parsedValue = match[3];
+  if (match[2] === 'frac') {
+    const fraction = Number.parseFloat(parsedValue);
+    return {
+      spineIndex: Number(match[1]),
+      ...(Number.isFinite(fraction) ? { fraction: Math.max(0, Math.min(1, fraction)) } : {}),
+    };
+  }
   if (match[2] === 'scroll') {
     const scrollY = Number.parseInt(parsedValue, 10);
     return { spineIndex: Number(match[1]), ...(Number.isFinite(scrollY) ? { scrollY: Math.max(0, scrollY) } : {}) };

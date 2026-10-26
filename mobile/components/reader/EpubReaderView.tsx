@@ -35,7 +35,8 @@ import { EpubArchive } from '@/services/epub/archive';
 import { readEpubPackage, type EpubPackage } from '@/services/epub/package';
 import { extractChapterDocument, type ChapterDocument } from '@/services/epub/chapter';
 import { buildContinuousShell, buildReaderDocument, readerCss } from '@/services/epub/readerDocument';
-import { createSpineTarget, parseSpineTarget } from '@/services/epub/navigation';
+import { createSpineTarget, parseSpineTarget, type EpubNavigationTarget } from '@/services/epub/navigation';
+import { computeSectionProgress, formatScrollAnchor } from '@/utils/scrollEngineUtils';
 import { resolveZipHref, archiveDirname } from '@/services/epub/zipPaths';
 import { toPlainText } from '@/services/epub/markup';
 import { fileStorage } from '@/services/storage/FileStorage';
@@ -67,10 +68,10 @@ const BACKGROUND_YIELD_MS = 32;
  * Chapters the background drain will inline, nearest the reader first.
  *
  * Demand-driven viewport hydration is primary; the background drain only warms up
- * the immediate vicinity (within ~18 chapters) rather than turning the DOM into an
+ * the immediate vicinity (within ~4 chapters) rather than turning the DOM into an
  * unbounded memory hazard.
  */
-const BACKGROUND_CHAPTER_LIMIT = 18;
+const BACKGROUND_CHAPTER_LIMIT = 4;
 
 /**
  * Fallback reveal timer for the first painted frame.
@@ -364,6 +365,7 @@ export function EpubReaderView({
     css: string;
     index: number;
     hasLeadingHeading: boolean;
+    chapterSizes?: number[];
   } | null>(null);
   const [coverHtml, setCoverHtml] = useState<string | undefined>(undefined);
   /** Mirror of `continuousSeed` for callbacks that must not re-subscribe to it. */
@@ -560,6 +562,10 @@ export function EpubReaderView({
   /* WebView hydration                                                        */
   const hydrationRequestSeqRef = useRef(0);
   const pendingHydrationRequestsRef = useRef<Map<number, () => void>>(new Map());
+  const inFlightHydrationRef = useRef<Set<number>>(new Set());
+  const chapterFailuresRef = useRef<Map<number, number>>(new Map());
+  const chapterSizesRef = useRef<number[]>([]);
+  const initialPositionRef = useRef<EpubNavigationTarget | null>(null);
 
   const injectChapters = useCallback((payload: ChapterPayload[]) => {
     if (payload.length === 0) return Promise.resolve();
@@ -606,7 +612,7 @@ export function EpubReaderView({
   }, []);
 
   /**
-   * Loads and injects the given chapters, skipping any already in the DOM.
+   * Loads and injects the given chapters, skipping any already in the DOM or in-flight.
    *
    * On-demand hydration is what keeps continuous mode usable: the document asks
    * for the sections near the viewport, and nothing else has to be ready first.
@@ -615,29 +621,70 @@ export function EpubReaderView({
     async (indices: number[]) => {
       const archive = archiveRef.current;
       if (!archive || indices.length === 0) return;
+
+      const targetIndices = indices.filter(
+        (index) => !hydratedRef.current.has(index) && !inFlightHydrationRef.current.has(index)
+      );
+      if (targetIndices.length === 0) return;
+
+      for (const idx of targetIndices) {
+        inFlightHydrationRef.current.add(idx);
+      }
+
       const payload: ChapterPayload[] = [];
-      const seen = new Set<number>();
-      for (const index of indices) {
-        if (seen.has(index) || hydratedRef.current.has(index)) continue;
-        seen.add(index);
-        try {
-          const doc = await loadChapter(index);
-          if (!doc) continue;
-          if (archiveRef.current !== archive) return; // book switched mid-hydration
-          hydratedRef.current.add(index);
-          payload.push({
-            index,
-            body: doc.body,
-            sheets: doc.stylesheets,
-            hasHeading: doc.hasLeadingHeading,
-            title: doc.title,
-          });
-        } catch (err) {
-          logger.warn(TAG, `Failed loading continuous chapter ${index}`, err);
+      try {
+        for (const index of targetIndices) {
+          if (hydratedRef.current.has(index)) continue;
+          try {
+            const doc = await loadChapter(index);
+            if (!doc) {
+              const fails = (chapterFailuresRef.current.get(index) || 0) + 1;
+              chapterFailuresRef.current.set(index, fails);
+              if (fails >= 2) {
+                payload.push({
+                  index,
+                  body: `<div class="chapter-placeholder chapter-error"><p class="loading-hint">Failed to load chapter.</p><button type="button" class="retry-btn" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({type:'retryChapter',index:${index}}))">Retry</button></div>`,
+                  sheets: [],
+                  hasHeading: false,
+                  title: '',
+                });
+              }
+              continue;
+            }
+            if (archiveRef.current !== archive) return; // book switched mid-hydration
+            chapterFailuresRef.current.delete(index);
+            hydratedRef.current.add(index);
+            payload.push({
+              index,
+              body: doc.body,
+              sheets: doc.stylesheets,
+              hasHeading: doc.hasLeadingHeading,
+              title: doc.title,
+            });
+          } catch (err) {
+            logger.warn(TAG, `Failed loading continuous chapter ${index}`, err);
+            const fails = (chapterFailuresRef.current.get(index) || 0) + 1;
+            chapterFailuresRef.current.set(index, fails);
+            if (fails >= 2) {
+              payload.push({
+                index,
+                body: `<div class="chapter-placeholder chapter-error"><p class="loading-hint">Failed to load chapter.</p><button type="button" class="retry-btn" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({type:'retryChapter',index:${index}}))">Retry</button></div>`,
+                sheets: [],
+                hasHeading: false,
+                title: '',
+              });
+            }
+          }
+        }
+        if (payload.length > 0) {
+          payload.sort((a, b) => a.index - b.index);
+          await injectChapters(payload);
+        }
+      } finally {
+        for (const idx of targetIndices) {
+          inFlightHydrationRef.current.delete(idx);
         }
       }
-      payload.sort((a, b) => a.index - b.index);
-      await injectChapters(payload);
     },
     [injectChapters, loadChapter]
   );
@@ -688,6 +735,21 @@ export function EpubReaderView({
     if (position) {
       positionToRestoreRef.current = null;
       webViewRef.current?.injectJavaScript(restorePositionScript('continuous', position, 80));
+    } else if (initialPositionRef.current?.fraction !== undefined) {
+      const frac = initialPositionRef.current.fraction;
+      const sIdx = initialPositionRef.current.spineIndex;
+      webViewRef.current?.injectJavaScript(`
+        (function() {
+          var s = document.getElementById('chapter-${sIdx}');
+          if (s) {
+            var top = s.getBoundingClientRect().top + (window.pageYOffset || 0);
+            window.scrollTo(0, Math.max(0, top + ${frac} * (s.offsetHeight || 1)));
+          } else {
+            window.scrollTo(0, ${Math.max(0, initialScrollY)});
+          }
+          window.dispatchEvent(new Event('scroll'));
+        })(); true;
+      `);
     } else {
       webViewRef.current?.injectJavaScript(
         `window.scrollTo(0, ${Math.max(0, initialScrollY)}); window.dispatchEvent(new Event('scroll')); true;`
@@ -744,6 +806,8 @@ export function EpubReaderView({
         drainTimerRef.current = null;
       }
       hydratedRef.current = new Set();
+      inFlightHydrationRef.current = new Set();
+      chapterFailuresRef.current = new Map();
 
       // Multi-book isolation: the previous archive (index, image cache, font
       // cache, chapter cache) is dropped before the next book is touched.
@@ -823,6 +887,7 @@ export function EpubReaderView({
 
         let initialIdx = 0;
         const savedTarget = targetCfi ? parseSpineTarget(targetCfi) : null;
+        initialPositionRef.current = savedTarget;
         if (savedTarget && savedTarget.spineIndex < loadedChapters.length) {
           initialIdx = savedTarget.spineIndex;
           setInitialScrollY(savedTarget.scrollY || 0);
@@ -830,6 +895,10 @@ export function EpubReaderView({
           initialIdx = Math.min(loadedChapters.length - 1, Math.floor((book.progress / 100) * loadedChapters.length));
         }
         targetChapterIdx = initialIdx;
+
+        chapterSizesRef.current = loadedChapters.map(
+          (ch) => archive.sizeOf(ch.itemPath) ?? 8000
+        );
 
         currentPhase = 'load-chapter';
         perf.mark('loadEpub-extractInitialChapter');
@@ -871,6 +940,7 @@ export function EpubReaderView({
               css: initialChapter.css,
               index: initialIdx,
               hasLeadingHeading: initialChapter.hasLeadingHeading === true,
+              chapterSizes: chapterSizesRef.current,
             });
             hydratedRef.current = new Set([initialIdx]);
           }
@@ -1344,11 +1414,9 @@ if (!targetCfi || chapters.length === 0) return;
             currentIndexRef.current = chapterIndex;
             setCurrentChapterIndex(chapterIndex);
           }
-          const overallPercent = Math.min(
-            100,
-            Math.round(((chapterIndex + data.percent / 100) / Math.max(1, chaptersRef.current.length)) * 100)
-          );
-          const scrollCfi = `spine:${chapterIndex}:scroll:${Math.max(0, Math.round(data.scrollY || 0))}`;
+          const fraction = Number.isFinite(data.fraction) ? data.fraction : 0;
+          const overallPercent = computeSectionProgress(chapterIndex, fraction, chaptersRef.current.length);
+          const scrollCfi = formatScrollAnchor(chapterIndex, fraction);
           lastPublishedCfiRef.current = scrollCfi;
           publishedCfisRef.current.add(scrollCfi);
           if (publishedCfisRef.current.size > 120) {
@@ -1398,6 +1466,26 @@ if (!targetCfi || chapters.length === 0) return;
           break;
         }
 
+        case 'chaptersUnloaded': {
+          if (Array.isArray(data.indices)) {
+            for (const idx of data.indices) {
+              hydratedRef.current.delete(idx);
+              inFlightHydrationRef.current.delete(idx);
+            }
+          }
+          break;
+        }
+
+        case 'retryChapter': {
+          if (typeof data.index === 'number') {
+            chapterFailuresRef.current.delete(data.index);
+            hydratedRef.current.delete(data.index);
+            inFlightHydrationRef.current.delete(data.index);
+            void hydrateIndices([data.index]);
+          }
+          break;
+        }
+
         case 'internalLink': {
           const rawHref = data.href;
           if (!rawHref || typeof rawHref !== 'string') break;
@@ -1417,7 +1505,6 @@ if (!targetCfi || chapters.length === 0) return;
           }
 
           if (targetSpineIdx !== -1) {
-            const targetCfi = createSpineTarget(targetSpineIdx, resolved.fragment);
             lastAppliedCfiRef.current = null; // Ensure navigation takes effect
             setCurrentChapterIndex(targetSpineIdx);
 
@@ -1488,6 +1575,7 @@ if (!targetCfi || chapters.length === 0) return;
             {
               activeHasLeadingHeading: continuousSeed.hasLeadingHeading,
               coverHtml,
+              chapterSizes: continuousSeed.chapterSizes,
             }
           )
         : '<p>Loading…</p>'

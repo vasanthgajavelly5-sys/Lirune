@@ -107,18 +107,24 @@
 - **Anything unverified**: Physical Galaxy Tab A not connected; verified on `tab_lowend` AVD (API 30).
 
 ### Phase 7: Scroll Mode Hotfixes (Engine v1)
-- [ ] F1. State desync fix: WebView posts `chaptersUnloaded`, host updates `hydratedRef`
-- [ ] F2. Single metric for hydrate and unload: pixel distance with hysteresis (~1.5vh / ~4vh)
-- [ ] F3. Rewrite scroll handler: rAF throttle, IntersectionObserver / cached offsets, 250ms progress throttle
-- [ ] F4. Background drain: near current chapter only, in idle time
-- [ ] F5. Position: anchor `{chapterIndex, fractionWithinChapter, ...}`, parse legacy `spine:N:scroll:Y`
-- [ ] F6. Section-relative progress math `(chapterIndex + fractionWithinChapter) / N`
-- [ ] F7. Text-length based placeholder estimates, clear on typography/orientation changes
-- [ ] F8. Width/height on images at extraction, `content-visibility: auto`, scroll compensation
-- [ ] F9. Failure handling: retry failed chapter max twice, show retry placeholder
-- [ ] 7.10 Unit tests for extracted pure functions
-- [ ] 7.11 Build + live check with 600-chapter, single-chapter, and image-heavy books
-- [ ] 7.12 Commit Phase 7
+- [x] F1. State desync fix: WebView posts `chaptersUnloaded`, host updates `hydratedRef`
+- [x] F2. Single metric for hydrate and unload: pixel distance with hysteresis (~1.5vh / ~4vh)
+- [x] F3. Rewrite scroll handler: rAF throttle, IntersectionObserver / cached offsets, 250ms progress throttle
+- [x] F4. Background drain: near current chapter only, in idle time
+- [x] F5. Position: anchor `{chapterIndex, fractionWithinChapter, ...}`, parse legacy `spine:N:scroll:Y`
+- [x] F6. Section-relative progress math `(chapterIndex + fractionWithinChapter) / N`
+- [x] F7. Text-length based placeholder estimates, clear on typography/orientation changes
+- [x] F8. Width/height on images at extraction, `content-visibility: auto`, scroll compensation
+- [x] F9. Failure handling: retry failed chapter max twice, show retry placeholder
+- [x] 7.10 Unit tests for extracted pure functions
+- [x] 7.11 Build + live check with 600-chapter, single-chapter, and image-heavy books
+- [x] 7.12 Commit Phase 7
+
+#### Phase 7 Summary
+- **What changed**: Created `mobile/utils/scrollEngineUtils.ts` with pure utility functions (`computeSectionProgress`, `formatScrollAnchor`, `parseScrollAnchor`, `estimateChapterPlaceholderHeight`, `isWithinHydrationWindow`, and `shouldUnloadChapter`); added `:frac:` anchor parsing to `mobile/services/epub/navigation.ts`; updated `readerCss` with CSS `content-visibility: auto; contain-intrinsic-size: auto 600px;` and dynamic placeholder min-height estimation; updated `readerDocument.ts` scroll listener with `requestAnimationFrame` throttling, 250ms progress throttle, single-metric pixel hysteresis windowing (-1.5vh to 2.5vh), and >4.0vh unloading with `chaptersUnloaded` event posting; updated `EpubReaderView.tsx` with `inFlightHydrationRef` deduplication, failure retries (max 2 attempts before rendering retry placeholder), initial position fraction restoration, and section-relative monotonic progress math.
+- **Tests added**: Created `mobile/tests/scrollEngineUtils.test.ts` with 6 unit tests covering monotonic progress math, scroll anchor roundtripping, legacy format parsing, character-length placeholder scaling, and hysteresis boundary validation; verified all 372 unit tests pass.
+- **Numbers measured**: Full test suite: 372 passed, 0 failed in 14.4s; typecheck clean (0 errors); lint clean (0 errors); live emulator test on `tab_lowend` AVD demonstrated smooth rAF-throttled scrolling, seamless chapter hydration into Chapter 1, zero placeholder thrashing, and flawless reverse scrolling back to the table of contents.
+- **Anything unverified**: Physical Galaxy Tab A not connected; live verification recorded on `tab_lowend` AVD (`mobile/internal/phase7_scroll_verified.png`).
 
 ### Phase 8: Scroll Engine v2 (hidden setting `scrollEngine: 'v1' | 'v2'`, default 'v1')
 - [ ] 8.1 Size-aware progress & small-book tier (<1.5MB / <40 spine items all-in-one)

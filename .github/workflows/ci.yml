@@ -17,6 +17,7 @@ jobs:
   validate-desktop:
     name: Desktop Validation (Node 20 / Windows)
     runs-on: windows-latest
+    if: github.ref_name != 'android'
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -48,6 +49,7 @@ jobs:
   validate-mobile:
     name: Mobile Validation (Node 22 / Ubuntu)
     runs-on: ubuntu-latest
+    if: github.ref_name != 'lirune-store-home'
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

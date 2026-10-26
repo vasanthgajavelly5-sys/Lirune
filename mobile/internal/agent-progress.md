@@ -3,12 +3,19 @@
 ## Checklist
 
 ### Phase 0: Baseline and Tooling
-- [ ] 0.1 Check environment (Node 20+, JDK 17, Android SDK, adb, emulator, avdmanager)
-- [ ] 0.2 Check / create AVD "tab_lowend" and "tab_modern"
-- [ ] 0.3 Record baseline (typecheck, lint, tests, check:pdfjs, assembleDebug)
-- [ ] 0.4 Add performance instrumentation (`utils/perf.ts`)
-- [ ] 0.5 Capture baseline numbers in `mobile/internal/baseline.md`
-- [ ] 0.6 Commit Phase 0
+- [x] 0.1 Check environment (Node 20+, JDK 17, Android SDK, adb, emulator, avdmanager)
+- [x] 0.2 Check / create AVD "tab_lowend" and "tab_modern"
+- [x] 0.3 Record baseline (typecheck, lint, tests, check:pdfjs, assembleDebug)
+- [x] 0.4 Add performance instrumentation (`utils/perf.ts`)
+- [x] 0.5 Capture baseline numbers in `mobile/internal/baseline.md`
+- [x] 0.6 Commit Phase 0
+
+#### Phase 0 Summary
+- **What changed**: Verified Android SDK/JDK17/WHPX environment, created AVDs `tab_lowend` (API 30, 1280x800, 3072MB, 2 cores) and `tab_modern` (API 35), fixed Kotlin compilation errors in native storage plugins (`FormatRegistry.kt` visibility/blocked extensions and `Ingestor.kt` missing InputStream import), and built debug APK successfully.
+- **Tests added**: Created `mobile/tests/perf.test.ts` for `utils/perf.ts` mark/measure timing instrumentation; verified all 346 unit tests pass.
+- **Numbers measured**: Cold start TotalTime avg 1508.4ms (median 1422ms); book open time ~3.6s (small) and ~5.5s (large); scroll jank 79.5%-96.2% on reader v1 and 47.8% on library list (recorded in `baseline.md`).
+- **Anything unverified**: Physical Galaxy Tab A not connected; live baseline captured on exact hardware-matched `tab_lowend` AVD.
+
 
 ### Phase 1: Launch and Startup
 - [ ] 1.1 Remove adaptive icon `backgroundImage`, verify solid `backgroundColor` (#1A1A1D)

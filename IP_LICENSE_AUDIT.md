@@ -1,6 +1,6 @@
 # IP & License Audit — Lirune Reader 4.0.3
 
-**Repository:** `C:\Users\vasanth\Desktop\Programs\Epub reader`
+**Repository:** `vasanthgajavelly5-sys/Lirune`
 **Product:** Lirune Reader (package `lirune`, `productName: "Lirune Reader"`, version 4.0.3)
 **Former project name:** Novera (still the GitHub repository name and the internal compatibility namespace)
 **Branch audited:** `lirune-store-home` (HEAD `401a574 Remove dead duplicate renderBookCards declaration`)

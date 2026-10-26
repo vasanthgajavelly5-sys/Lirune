@@ -137,7 +137,7 @@ const DocumentAdapter = (() => {
       this.element = document.createElement('article');
       this.element.className = 'doc-body';
       this.element.innerHTML = this.sections
-        .map(section => `<section class="doc-section" data-section-id="${escapeAttr(section.id)}">${section.html}</section>`)
+        .map(section => `<section class="doc-section" data-section-id="${escapeAttr(section.id)}">${sanitizeHtml(section.html)}</section>`)
         .join('');
 
       this.viewport.appendChild(this.element);
@@ -606,5 +606,121 @@ const DocumentAdapter = (() => {
     }[ch]));
   }
 
-  return { Adapter, escapeAttr };
+  const FORBIDDEN_TAGS = new Set([
+    'script', 'iframe', 'object', 'embed', 'applet', 'form', 'input',
+    'button', 'select', 'textarea', 'link', 'meta', 'base', 'svg',
+    'math', 'foreignobject', 'noscript', 'template', 'audio', 'video',
+    'source', 'track', 'portal', 'frame', 'frameset'
+  ]);
+
+  const ALLOWED_TAGS = new Set([
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'span', 'blockquote',
+    'pre', 'code', 'em', 'strong', 'b', 'i', 'u', 's', 'strike', 'sub',
+    'sup', 'hr', 'br', 'a', 'img', 'table', 'thead', 'tbody', 'tfoot',
+    'tr', 'th', 'td', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'figure',
+    'figcaption', 'cite', 'small', 'mark', 'article', 'section'
+  ]);
+
+  const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
+
+  function sanitizeHtml(dirtyHtml) {
+    if (typeof dirtyHtml !== 'string' || !dirtyHtml) return '';
+    const parser = new DOMParser();
+    const wrapped = `<!DOCTYPE html><html><body>${dirtyHtml}</body></html>`;
+    const doc = parser.parseFromString(wrapped, 'text/html');
+    const targetRoot = doc.body || (doc.getElementsByTagName ? doc.getElementsByTagName('body')[0] : null) || doc.documentElement || doc;
+
+    function cleanNode(node) {
+      if (!node) return;
+      const children = Array.from(node.childNodes || []);
+      for (const child of children) {
+        if (child.nodeType === 1) { // Element
+          const tag = (child.localName || child.tagName || '').toLowerCase();
+          if (FORBIDDEN_TAGS.has(tag)) {
+            child.parentNode?.removeChild(child);
+            continue;
+          }
+          if (!ALLOWED_TAGS.has(tag)) {
+            cleanNode(child);
+            while (child.firstChild) {
+              child.parentNode.insertBefore(child.firstChild, child);
+            }
+            child.parentNode?.removeChild(child);
+            continue;
+          }
+
+          const attrs = Array.from(child.attributes || []);
+          for (const attr of attrs) {
+            const name = (attr.localName || attr.name || '').toLowerCase();
+            const val = (attr.value || '').trim();
+
+            if (name.startsWith('on')) {
+              child.removeAttribute(attr.name);
+              continue;
+            }
+
+            if (name === 'style') {
+              if (/url\s*\(|expression\s*\(|behavior\s*:|@import|javascript:/i.test(val)) {
+                child.removeAttribute(attr.name);
+              }
+              continue;
+            }
+
+            if (name === 'href' || name === 'xlink:href') {
+              if (val.startsWith('#')) {
+                continue;
+              }
+              try {
+                const url = new URL(val);
+                if (!ALLOWED_SCHEMES.has(url.protocol.toLowerCase())) {
+                  child.removeAttribute(attr.name);
+                }
+              } catch {
+                child.removeAttribute(attr.name);
+              }
+              continue;
+            }
+
+            if (name === 'src') {
+              if (/^data:image\/(jpeg|png|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(val)) {
+                continue;
+              }
+              try {
+                const url = new URL(val);
+                if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+                  child.removeAttribute(attr.name);
+                }
+              } catch {
+                child.removeAttribute(attr.name);
+              }
+              continue;
+            }
+
+            if (!['class', 'id', 'title', 'alt', 'depth', 'colspan', 'rowspan', 'dir', 'lang', 'data-section-id', 'rel', 'target', 'tabindex', 'role', 'aria-label', 'aria-hidden'].includes(name)) {
+              child.removeAttribute(attr.name);
+            }
+          }
+
+          if (tag === 'a') {
+            child.setAttribute('rel', 'noopener noreferrer');
+            child.setAttribute('target', '_blank');
+          }
+
+          cleanNode(child);
+        }
+      }
+    }
+
+    cleanNode(targetRoot);
+    let html = '';
+    if (typeof targetRoot.innerHTML === 'string') {
+      html = targetRoot.innerHTML;
+    } else if (typeof XMLSerializer !== 'undefined') {
+      const s = new XMLSerializer();
+      html = Array.from(targetRoot.childNodes || []).map(child => s.serializeToString(child)).join('');
+    }
+    return html.replace(/\s*xmlns(:[a-z0-9]+)?="http:\/\/www\.w3\.org\/1999\/xhtml"/gi, '');
+  }
+
+  return { Adapter, escapeAttr, sanitizeHtml };
 })();

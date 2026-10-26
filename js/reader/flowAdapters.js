@@ -187,56 +187,192 @@ const Fb2Adapter = (() => {
     async buildSections() {
       const bytes = await this.loadBytes();
       const source = TextAdapter.decodeText(bytes);
-      const parser = new DOMParser();
-      const error = parser.parseFromString(source, 'application/xml')?.querySelector('parsererror');
-      if (error) throw new Error('This FictionBook file is not valid XML.');
+      let isXmlError = false;
+      let parser;
+      try {
+        parser = new DOMParser({
+          errorHandler: {
+            warning: () => {},
+            error: () => { isXmlError = true; },
+            fatalError: () => { isXmlError = true; }
+          }
+        });
+      } catch {
+        parser = new DOMParser();
+      }
+      const parsed = parser.parseFromString(source, 'application/xml');
+      const errorTag = parsed?.querySelector ? parsed.querySelector('parsererror') : (parsed?.getElementsByTagName ? parsed.getElementsByTagName('parsererror')[0] : null);
+      if (isXmlError || errorTag) throw new Error('This FictionBook file is not valid XML.');
 
-      const doc = parser.parseFromString(source, 'application/xml');
+      const doc = parsed;
       const fictionBook = doc.documentElement;
       if (!fictionBook || fictionBook.nodeName.toLowerCase() !== 'fictionbook') {
         throw new Error('This file is not a FictionBook document.');
       }
 
-      // Inline <binary> image payloads so embedded covers render offline.
+      function getElementChildren(el) {
+        if (!el) return [];
+        if (el.children) return Array.from(el.children);
+        const res = [];
+        const nodes = el.childNodes || [];
+        for (let i = 0; i < nodes.length; i++) {
+          if (nodes[i].nodeType === 1) res.push(nodes[i]);
+        }
+        return res;
+      }
+
+      // Inline validated raster <binary> image payloads so embedded covers render offline.
+      const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
       const images = new Map();
-      [...doc.querySelectorAll('binary')].forEach(binary => {
+      const binaryNodes = doc.querySelectorAll ? doc.querySelectorAll('binary') : doc.getElementsByTagName('binary');
+      for (let i = 0; i < (binaryNodes?.length || 0); i++) {
+        const binary = binaryNodes[i];
         const id = binary.getAttribute('id');
-        if (!id) return;
-        const contentType = binary.getAttribute('content-type') || 'image/jpeg';
-        images.set(id, `data:${contentType};base64,${(binary.textContent || '').replace(/\s+/g, '')}`);
-      });
+        if (!id) continue;
+        const contentType = (binary.getAttribute('content-type') || 'image/jpeg').toLowerCase();
+        if (!ALLOWED_IMAGE_TYPES.has(contentType)) continue;
+        const rawBase64 = (binary.textContent || '').replace(/\s+/g, '');
+        if (!/^[A-Za-z0-9+/=]+$/.test(rawBase64)) continue;
+        const dataUri = `data:${contentType};base64,${rawBase64}`;
+        images.set(id, dataUri);
+        images.set(`#${id}`, dataUri);
+      }
       this.embeddedImages = images;
 
-      const body = doc.querySelector('body');
+      const body = doc.querySelector ? doc.querySelector('body') : (doc.getElementsByTagName ? doc.getElementsByTagName('body')[0] : null);
       if (!body) throw new Error('This FictionBook file has no body.');
+
+      function convertFb2Node(node, depth = 0) {
+        if (!node) return '';
+        if (node.nodeType === 3) { // Text node
+          return Utils.escapeHTML(node.nodeValue);
+        }
+        if (node.nodeType !== 1) return '';
+
+        const tag = (node.localName || node.nodeName.split(':').pop() || '').toLowerCase();
+
+        // Drop dangerous, active, or unsupported elements
+        if (['script', 'svg', 'math', 'foreignobject', 'binary', 'style', 'iframe', 'object', 'embed', 'applet', 'link', 'meta'].includes(tag)) {
+          return '';
+        }
+
+        const convertChildren = (n) => {
+          let out = '';
+          const children = n.childNodes || [];
+          for (let i = 0; i < children.length; i++) {
+            out += convertFb2Node(children[i], depth);
+          }
+          return out;
+        };
+
+        switch (tag) {
+          case 'section':
+            return `<div class="doc-section-content">${convertChildren(node)}</div>`;
+          case 'title': {
+            const hLevel = Math.min(6, Math.max(2, depth + 1));
+            return `<h${hLevel}>${convertChildren(node)}</h${hLevel}>`;
+          }
+          case 'subtitle':
+            return `<h4>${convertChildren(node)}</h4>`;
+          case 'p':
+            return `<p>${convertChildren(node)}</p>`;
+          case 'v':
+            return `<p class="doc-verse">${convertChildren(node)}</p>`;
+          case 'stanza':
+            return `<div class="doc-stanza">${convertChildren(node)}</div>`;
+          case 'poem':
+            return `<blockquote class="doc-poem">${convertChildren(node)}</blockquote>`;
+          case 'cite':
+            return `<blockquote class="doc-cite">${convertChildren(node)}</blockquote>`;
+          case 'epigraph':
+            return `<blockquote class="doc-epigraph">${convertChildren(node)}</blockquote>`;
+          case 'annotation':
+            return `<div class="doc-annotation">${convertChildren(node)}</div>`;
+          case 'text-author':
+            return `<p class="doc-author">${convertChildren(node)}</p>`;
+          case 'empty-line':
+            return `<p class="empty-line">&nbsp;</p>`;
+          case 'strong':
+          case 'b':
+            return `<strong>${convertChildren(node)}</strong>`;
+          case 'emphasis':
+          case 'i':
+            return `<em>${convertChildren(node)}</em>`;
+          case 'code':
+            return `<code>${convertChildren(node)}</code>`;
+          case 'strikethrough':
+            return `<s>${convertChildren(node)}</s>`;
+          case 'sub':
+            return `<sub>${convertChildren(node)}</sub>`;
+          case 'sup':
+            return `<sup>${convertChildren(node)}</sup>`;
+          case 'table':
+            return `<div class="doc-table-wrapper"><table class="doc-table">${convertChildren(node)}</table></div>`;
+          case 'tr':
+            return `<tr>${convertChildren(node)}</tr>`;
+          case 'th':
+            return `<th>${convertChildren(node)}</th>`;
+          case 'td':
+            return `<td>${convertChildren(node)}</td>`;
+          case 'image': {
+            const href = node.getAttribute('href') || node.getAttribute('l:href') || node.getAttribute('xlink:href') || '';
+            const dataUri = images.get(href) || images.get(`#${href.replace(/^#/, '')}`);
+            if (dataUri) {
+              return `<img src="${dataUri}" alt="Document Image" class="doc-image" />`;
+            }
+            return '';
+          }
+          case 'a': {
+            const href = node.getAttribute('href') || node.getAttribute('l:href') || node.getAttribute('xlink:href') || '';
+            const inner = convertChildren(node);
+            if (!inner) return '';
+            if (href.startsWith('#')) {
+              return `<a href="${Utils.escapeAttr(href)}">${inner}</a>`;
+            }
+            try {
+              const url = new URL(href);
+              if (url.protocol === 'http:' || url.protocol === 'https:') {
+                return `<a href="${Utils.escapeAttr(url.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+              }
+            } catch {}
+            return inner;
+          }
+          default:
+            return convertChildren(node);
+        }
+      }
 
       const sections = [];
       const walk = (parent, depth) => {
-        for (const node of parent.children) {
-          const name = node.nodeName.toLowerCase();
+        const parentChildren = getElementChildren(parent);
+        for (const node of parentChildren) {
+          const name = (node.localName || node.nodeName.split(':').pop() || '').toLowerCase();
           if (name === 'title') continue;
           if (name === 'section') {
-            const clone = node.cloneNode(true);
-            clone.querySelectorAll('title').forEach(t => t.remove());
-            clone.querySelectorAll('binary').forEach(b => b.remove());
-            clone.querySelectorAll('image').forEach(image => {
-              const href = image.getAttribute('href');
-              if (href && images.has(`#${href}`)) image.setAttribute('src', images.get(`#${href}`));
-            });
-            const title = node.querySelector(':scope > title')?.textContent?.trim();
+            const nodeChildren = getElementChildren(node);
+            const titleNode = node.querySelector ? node.querySelector(':scope > title') : nodeChildren.find(c => (c.localName || c.nodeName).toLowerCase() === 'title');
+            const titleText = titleNode?.textContent?.trim();
+            let sectionHtml = '';
+            for (const child of nodeChildren) {
+              const childName = (child.localName || child.nodeName.split(':').pop() || '').toLowerCase();
+              if (childName === 'section' || childName === 'title') continue;
+              sectionHtml += convertFb2Node(child, depth);
+            }
             sections.push({
               id: `sec-${sections.length + 1}`,
-              label: title || `Section ${sections.length + 1}`,
+              label: titleText || `Section ${sections.length + 1}`,
               depth: Math.min(2, depth),
-              html: new XMLSerializer().serializeToString(clone)
+              html: sectionHtml
             });
-            const nested = [...node.children].filter(child => child.nodeName.toLowerCase() === 'section');
+            const nested = nodeChildren.filter(child => {
+              const cName = (child.localName || child.nodeName.split(':').pop() || '').toLowerCase();
+              return cName === 'section';
+            });
             if (nested.length) walk(node, depth + 1);
           } else if (node.nodeType === 1) {
             const existing = sections[sections.length - 1];
             if (existing) {
-              const clone = node.cloneNode(true);
-              existing.html += new XMLSerializer().serializeToString(clone);
+              existing.html += convertFb2Node(node, depth);
             }
           }
         }
@@ -247,7 +383,7 @@ const Fb2Adapter = (() => {
           id: 'sec-1',
           label: this.record.title || 'Document',
           depth: 0,
-          html: new XMLSerializer().serializeToString(body)
+          html: convertFb2Node(body, 0)
         });
       }
       return sections;

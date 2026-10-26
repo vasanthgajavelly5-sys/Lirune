@@ -38,7 +38,7 @@ const BookFormat = (() => {
   // the ZIP signature is an archive, so if it cannot be opened as one it must
   // not quietly fall back to a plain-text reader just because it was named
   // .txt, which would render the raw bytes as a wall of nonsense.
-  const ZIP_CONTAINER_IDS = new Set(['epub', 'cbz', 'docx']);
+  const ZIP_CONTAINER_IDS = new Set(['epub', 'cbz', 'docx', 'odt']);
 
   function extensionOf(fileName) {
     const match = /\.([A-Za-z0-9]+)$/.exec(String(fileName || ''));
@@ -97,6 +97,7 @@ const BookFormat = (() => {
     if (head.length) {
       const text = decodeHead(head, 4096).toLowerCase();
       const leading = text.replace(/^[\s﻿]+/, '');
+      if (leading.startsWith('{\\rtf')) return finish('rtf', 'signature');
       if (leading.startsWith('<?xml') || leading.startsWith('<fictionbook')) return finish('fb2', 'signature');
       if (leading.startsWith('<!doctype html') || leading.startsWith('<html')) return finish('html', 'signature');
       if (leading.startsWith('<svg')) return finish('html', 'signature');
@@ -132,6 +133,15 @@ const BookFormat = (() => {
       }
       if (zip.file('word/document.xml')) {
         return { ...FORMATS.docx, source: 'signature' };
+      }
+      if (zip.file('mimetype')) {
+        const mime = (await zip.file('mimetype').async('text')).trim();
+        if (/^application\/vnd\.oasis\.opendocument\.text/i.test(mime)) {
+          return { ...FORMATS.odt, source: 'signature' };
+        }
+      }
+      if (zip.file('content.xml') && (zip.file('META-INF/manifest.xml') || zip.file('styles.xml'))) {
+        return { ...FORMATS.odt, source: 'signature' };
       }
 
       const images = names.filter(name => !zip.files[name].dir && IMAGE_EXT.includes(extensionOf(name)));

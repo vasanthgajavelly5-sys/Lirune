@@ -40,7 +40,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "electron": "^44.3.0",
+    "electron": "^44.8.0",
     "electron-builder": "^26.15.3"
   },
   "build": {
@@ -121,7 +121,10 @@
   },
   "dependencies": {
     "epubjs": "^0.3.93",
-    "jszip": "^3.10.1",
+    "jszip": "^3.10.2",
     "pdfjs-dist": "^4.10.38"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.15"
   }
 }

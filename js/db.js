@@ -75,10 +75,42 @@ const NoveraDB = (() => {
     return dbPromise;
   }
 
+  const SAFE_FORMAT_EXTENSIONS = {
+    epub: 'epub',
+    pdf: 'pdf',
+    txt: 'txt',
+    html: 'html',
+    htm: 'html',
+    fb2: 'fb2',
+    cbz: 'cbz',
+    docx: 'docx',
+    odt: 'odt',
+    rtf: 'rtf'
+  };
+
+  function deriveSafeExtension(book) {
+    const fmt = (book.format || '').toLowerCase();
+    if (SAFE_FORMAT_EXTENSIONS[fmt]) {
+      return SAFE_FORMAT_EXTENSIONS[fmt];
+    }
+    const name = book.originalName || book.fileName || book.title || '';
+    const match = /\.([A-Za-z0-9]+)$/.exec(name);
+    if (match) {
+      const ext = match[1].toLowerCase();
+      if (SAFE_FORMAT_EXTENSIONS[ext]) {
+        return SAFE_FORMAT_EXTENSIONS[ext];
+      }
+    }
+    return 'epub';
+  }
+
   function metadataOnly(book) {
     if (!book) return book;
-    const { fileData, ...metadata } = book;
-    return metadata;
+    if (book.storageId) {
+      const { fileData, ...metadata } = book;
+      return metadata;
+    }
+    return book;
   }
 
   async function migrateLegacyBooks() {
@@ -96,11 +128,26 @@ const NoveraDB = (() => {
       try {
         const digest = await crypto.subtle.digest('SHA-256', book.fileData);
         const fingerprint = Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
-        storageId = `${fingerprint}.epub`;
-        const result = await window.noveraDesktop.saveBookToStorage(book.originalName || `${book.title || book.id}.epub`, book.fileData, storageId);
-        if (!result?.success || result.storageId !== storageId) throw new Error('Managed storage did not confirm the EPUB write');
+        const extension = deriveSafeExtension(book);
+        storageId = `${fingerprint}.${extension}`;
+        const fileName = book.originalName || `${book.title || book.id}.${extension}`;
+
+        const result = await window.noveraDesktop.saveBookToStorage(fileName, book.fileData, storageId);
+        if (!result?.success || result.storageId !== storageId) {
+          throw new Error(`Managed storage did not confirm write for ${storageId}`);
+        }
         storageConfirmed = true;
-        const migrated = metadataOnly({ ...book, fingerprint, storageId, fileSize: book.fileSize || book.fileData.byteLength, schemaVersion: DB_VERSION });
+
+        const migrated = metadataOnly({
+          ...book,
+          fingerprint,
+          storageId,
+          fileSize: book.fileSize || book.fileData.byteLength,
+          schemaVersion: DB_VERSION,
+          migrationStatus: 'migrated',
+          availability: 'available'
+        });
+
         await new Promise((resolve, reject) => {
           const transaction = db.transaction('books', 'readwrite');
           transaction.objectStore('books').put(migrated);
@@ -109,8 +156,30 @@ const NoveraDB = (() => {
         });
       } catch (error) {
         console.error(`Could not migrate book ${book.id}:`, error);
-        if (storageConfirmed) {
-          try { await window.noveraDesktop.deleteBookFromStorage?.(storageId); } catch (_) {}
+        try {
+          await new Promise((resolve, reject) => {
+            const transaction = db.transaction('books', 'readwrite');
+            const unmigrated = {
+              ...book,
+              migrationStatus: 'failed',
+              availability: 'needs-migration',
+              migrationError: error?.message || 'Storage migration failed'
+            };
+            transaction.objectStore('books').put(unmigrated);
+            transaction.oncomplete = resolve;
+            transaction.onerror = () => reject(transaction.error);
+          });
+        } catch (dbErr) {
+          console.error(`Could not update failure status for book ${book.id}:`, dbErr);
+        }
+
+        if (storageConfirmed && storageId) {
+          try {
+            const otherUsingSameStorage = legacyBooks.some(b => b.id !== book.id && b.storageId === storageId);
+            if (!otherUsingSameStorage) {
+              await window.noveraDesktop.deleteBookFromStorage?.(storageId);
+            }
+          } catch (_) {}
         }
       }
     }
@@ -424,6 +493,10 @@ const NoveraDB = (() => {
       } catch (e) {
         return false;
       }
-    }
+    },
+
+    deriveSafeExtension,
+    metadataOnly,
+    migrateLegacyBooks
   };
 })();

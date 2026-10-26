@@ -713,52 +713,36 @@ const RENDER_BATCH_SIZE = 50;
         return;
       }
 
-      // 2. Read file to check fingerprint / import
+        // 2. Read file to check fingerprint / import
       try {
         const file = await window.noveraDesktop.readBookFile(filePath);
         if (!file?.data) throw new Error('Could not read file data');
 
-        const format = await BookFormat.detect(file.name, file.data);
-        if (!format.supported) {
-          Utils.toast(`${format.label} files are not supported.`, 'error');
-          return;
-        }
-
-        const fingerprint = await getFingerprint(file.data, file.size || file.data.byteLength, file.name);
-
-        // Check if book already exists in allBooks by fingerprint
-        existing = allBooks.find(b => b.fingerprint && b.fingerprint === fingerprint);
-        if (existing) {
-          if (!existing.sourcePath) {
-            existing.sourcePath = filePath;
-            await NoveraDB.updateBook(existing.id, { sourcePath: filePath });
-          }
-          App.openReader(existing.id);
-          return;
-        }
-
-        // New book: import and open immediately
-        const bookData = await parseBookMetadata(file.data, file.name, file.size, format);
-        bookData.fingerprint = fingerprint;
-        bookData.format = format.id;
-        bookData.sourcePath = filePath;
-
-        if (window.noveraDesktop?.saveBookToStorage) {
-          const extension = BookFormat.extensionOf(file.name) || 'epub';
-          const res = await window.noveraDesktop.saveBookToStorage(file.name, file.data, storageIdFor(fingerprint, extension));
-          if (res?.success) {
-            bookData.storageId = res.storageId;
+        const imported = await importOneFile(file.data, file.name, file.size || file.data.byteLength, filePath);
+        if (imported === 'duplicate') {
+          const fingerprint = await getFingerprint(file.data, file.size || file.data.byteLength, file.name);
+          const existingByFp = allBooks.find(b => b.fingerprint && b.fingerprint === fingerprint);
+          if (existingByFp) {
+            if (!existingByFp.sourcePath) {
+              existingByFp.sourcePath = filePath;
+              await NoveraDB.updateBook(existingByFp.id, { sourcePath: filePath });
+            }
+            App.openReader(existingByFp.id);
+            return;
           }
         }
 
-        const savedBook = await NoveraDB.saveBook(bookData);
-        allBooks.unshift(savedBook);
-        renderLibraryUI();
-        App.openReader(savedBook.id);
+        if (imported && imported.id) {
+          allBooks.unshift(imported);
+          renderLibraryUI();
+          App.openReader(imported.id);
+        } else {
+          throw new Error('Could not persist book record');
+        }
       } catch (err) {
         console.error('Failed to open book from OS:', err);
         window.noveraDesktop?.revokePendingBookFile?.(filePath);
-        Utils.toast('Could not open the selected file', 'error');
+        Utils.toast(err?.message || 'Could not open the selected file', 'error');
       }
     }
 
@@ -950,9 +934,10 @@ const RENDER_BATCH_SIZE = 50;
     if (sourcePath) bookData.sourcePath = sourcePath;
 
     if (window.noveraDesktop && window.noveraDesktop.saveBookToStorage) {
-      const extension = BookFormat.extensionOf(fileName) || 'epub';
-      const res = await window.noveraDesktop.saveBookToStorage(fileName, arrayBuffer, storageIdFor(fingerprint, extension));
-      if (res && res.success) {
+      const extension = BookFormat.extensionOf(fileName) || format.id || 'epub';
+      const expectedStorageId = storageIdFor(fingerprint, extension);
+      const res = await window.noveraDesktop.saveBookToStorage(fileName, arrayBuffer, expectedStorageId);
+      if (res && res.success && res.storageId === expectedStorageId) {
         bookData.storageId = res.storageId;
         bookData.fileSize = res.fileSize ?? bookData.fileSize;
       } else {
@@ -1106,12 +1091,34 @@ const RENDER_BATCH_SIZE = 50;
     if (info.description) record.description = String(info.description).slice(0, 400);
     try {
       const doc = new DOMParser().parseFromString(source, 'application/xml');
-      record.chapterCount = doc.querySelectorAll('body > section').length || null;
-      const cover = doc.querySelector('coverpage image');
+      record.chapterCount = (doc.querySelectorAll ? doc.querySelectorAll('body > section').length : doc.getElementsByTagName('section')?.length) || null;
+      let cover = doc.querySelector ? doc.querySelector('coverpage image') : null;
+      if (!cover && doc.getElementsByTagName) {
+        const coverpages = doc.getElementsByTagName('coverpage');
+        if (coverpages && coverpages.length > 0) {
+          const imgs = coverpages[0].getElementsByTagName('image');
+          if (imgs && imgs.length > 0) cover = imgs[0];
+        }
+      }
       if (cover) {
-        const binary = doc.querySelector(`binary[id="${cover.getAttribute('href')}"]`);
-        if (binary) {
-          record.coverDataUrl = `data:${binary.getAttribute('content-type') || 'image/jpeg'};base64,${(binary.textContent || '').replace(/\s+/g, '')}`;
+        const rawHref = cover.getAttribute('href') || cover.getAttribute('l:href') || cover.getAttribute('xlink:href') || '';
+        const coverId = rawHref.replace(/^#/, '');
+        if (coverId) {
+          const binaries = doc.getElementsByTagName('binary');
+          const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+          for (let i = 0; i < binaries.length; i++) {
+            const b = binaries[i];
+            if (b.getAttribute('id') === coverId) {
+              const contentType = (b.getAttribute('content-type') || 'image/jpeg').toLowerCase().trim();
+              if (ALLOWED_IMAGE_TYPES.has(contentType)) {
+                const rawBase64 = (b.textContent || '').replace(/\s+/g, '');
+                if (/^[A-Za-z0-9+/=]+$/.test(rawBase64)) {
+                  record.coverDataUrl = `data:${contentType};base64,${rawBase64}`;
+                }
+              }
+              break;
+            }
+          }
         }
       }
     } catch { /* optional */ }
@@ -3282,6 +3289,11 @@ a { color: inherit; text-decoration: underline; }
     restoreMetadata,
     getBookStats,
     deleteAllBooks,
-    processFiles
+    processFiles,
+    parseFb2Metadata
   };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = Library;
+}

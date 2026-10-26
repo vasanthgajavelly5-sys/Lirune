@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -7,7 +7,7 @@ const JSZip = require('jszip');
 const crypto = require('crypto');
 const { fingerprintBuffer, storageIdForFingerprint, isStorageId } = require('./scripts/storage-contract');
 
-if (process.platform === 'win32') {
+if (process.platform === 'win32' && app?.setAppUserModelId) {
   app.setAppUserModelId('com.novera.reader');
 }
 
@@ -50,11 +50,11 @@ function revokeAuthorizedBookPath(p) {
 }
 
 // Single instance lock
-const gotTheLock = app.requestSingleInstanceLock();
+const gotTheLock = app?.requestSingleInstanceLock ? app.requestSingleInstanceLock() : true;
 
-if (!gotTheLock) {
+if (!gotTheLock && app?.quit) {
   app.quit();
-} else {
+} else if (app?.on) {
   app.on('second-instance', (event, argv, workingDirectory) => {
     // Focus existing window or recreate if window was closed
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -139,17 +139,41 @@ function getStoragePath(storageId) {
 }
 
 const EXPECTED_SHELL_PATH = path.resolve(__dirname, 'index.html');
+const EXPECTED_SHELL_URL = pathToFileURL(EXPECTED_SHELL_PATH).href;
+
+function isExpectedShellUrl(targetUrl) {
+  if (typeof targetUrl !== 'string' || !targetUrl) return false;
+  try {
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol !== 'file:') return false;
+    let targetPath = decodeURIComponent(parsed.pathname);
+    targetPath = targetPath.replace(/^\/([A-Za-z]:)/, '$1');
+    return path.resolve(targetPath).toLowerCase() === EXPECTED_SHELL_PATH.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+function classifyNavigation(targetUrl) {
+  if (typeof targetUrl !== 'string' || !targetUrl) return 'deny';
+  try {
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return 'external';
+    }
+    if (isExpectedShellUrl(targetUrl)) {
+      return 'allow';
+    }
+    return 'deny';
+  } catch {
+    return 'deny';
+  }
+}
 
 function isTrustedSender(event) {
   const frame = event?.senderFrame;
   if (!frame || !frame.url || !frame.url.startsWith('file://')) return false;
-  try {
-    let senderPath = decodeURIComponent(new URL(frame.url).pathname);
-    senderPath = senderPath.replace(/^\/([A-Za-z]:)/, '$1');
-    return path.resolve(senderPath).toLowerCase() === EXPECTED_SHELL_PATH.toLowerCase();
-  } catch {
-    return false;
-  }
+  return isExpectedShellUrl(frame.url);
 }
 
 function requireTrustedSender(event) {
@@ -293,17 +317,26 @@ function createWindow() {
 
   // External web links open in user's default browser
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('http:') || url.startsWith('https:')) {
+    const action = classifyNavigation(url);
+    if (action === 'external') {
       event.preventDefault();
       shell.openExternal(url);
       return;
     }
-    if (url !== EXPECTED_SHELL_URL) event.preventDefault();
+    if (action === 'allow') {
+      return;
+    }
+    event.preventDefault();
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http:') || url.startsWith('https:')) {
-      shell.openExternal(url);
+    if (typeof url === 'string') {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          shell.openExternal(url);
+        }
+      } catch {}
     }
     return { action: 'deny' };
   });
@@ -629,31 +662,64 @@ ipcMain.handle('fs:list-managed-books', (event) => {
  * one file per call is deliberate: it lets the renderer report honest progress
  * as a large library is checked.
  */
-ipcMain.handle('fs:inspect-managed-book', (event, { storageId } = {}) => {
+function streamFileFingerprint(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', chunk => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
+ipcMain.handle('fs:inspect-managed-book', async (event, { storageId } = {}) => {
   requireTrustedSender(event);
   const managedPath = getStoragePath(storageId);
-  if (!fs.existsSync(managedPath)) return { exists: false, size: 0, fingerprint: null };
-  const stats = fs.statSync(managedPath);
-  if (!stats.isFile()) return { exists: false, size: 0, fingerprint: null };
-  return {
-    exists: true,
-    size: stats.size,
-    fingerprint: fingerprintBuffer(fs.readFileSync(managedPath))
-  };
+  try {
+    const stats = await fs.promises.stat(managedPath);
+    if (!stats.isFile()) return { exists: false, size: 0, fingerprint: null };
+    const fingerprint = await streamFileFingerprint(managedPath);
+    return {
+      exists: true,
+      size: stats.size,
+      fingerprint
+    };
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return { exists: false, size: 0, fingerprint: null };
+    }
+    throw err;
+  }
 });
 
 /**
  * Removes managed files that no library record refers to.
  *
- * Only the storage identities passed in are touched, and every one of them is
- * re-checked against the caller's own list of referenced identities so a bug in
- * the renderer can never delete a file a book still needs.
+ * Re-checked authoritatively so a bug or stale renderer state can never
+ * delete a live managed file.
  */
-ipcMain.handle('fs:delete-orphan-files', (event, { storageIds, referencedIds } = {}) => {
+ipcMain.handle('fs:delete-orphan-files', async (event, { storageIds, referencedIds } = {}) => {
   requireTrustedSender(event);
-  const referenced = new Set(Array.isArray(referencedIds) ? referencedIds : []);
+  const referenced = new Set((Array.isArray(referencedIds) ? referencedIds : []).filter(id => isStorageId(id)));
+
+  // Authoritatively verify against active renderer state if available
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    try {
+      const activeIds = await mainWindow.webContents.executeJavaScript(
+        `typeof NoveraDB !== 'undefined' ? NoveraDB.getAllBooks().then(books => books.map(b => b.storageId).filter(Boolean)) : []`,
+        true
+      );
+      if (Array.isArray(activeIds)) {
+        for (const id of activeIds) {
+          if (isStorageId(id)) referenced.add(id);
+        }
+      }
+    } catch (_) {}
+  }
+
   const removed = [];
   const skipped = [];
+  const booksDir = path.resolve(getBooksStorageDir());
 
   for (const storageId of Array.isArray(storageIds) ? storageIds : []) {
     if (!isStorageId(storageId)) {
@@ -666,11 +732,27 @@ ipcMain.handle('fs:delete-orphan-files', (event, { storageIds, referencedIds } =
     }
     try {
       const target = getStoragePath(storageId);
-      if (!fs.existsSync(target)) {
-        skipped.push({ storageId, reason: 'absent' });
+      const resolvedTarget = path.resolve(target);
+      if (!resolvedTarget.startsWith(booksDir + path.sep)) {
+        skipped.push({ storageId, reason: 'invalid-path' });
         continue;
       }
-      fs.unlinkSync(target);
+      try {
+        const stat = await fs.promises.stat(resolvedTarget);
+        if (!stat.isFile()) {
+          skipped.push({ storageId, reason: 'not-a-file' });
+          continue;
+        }
+      } catch (statErr) {
+        if (statErr.code === 'ENOENT') {
+          skipped.push({ storageId, reason: 'absent' });
+          continue;
+        }
+        skipped.push({ storageId, reason: 'failed' });
+        continue;
+      }
+
+      await fs.promises.unlink(resolvedTarget);
       removed.push(storageId);
     } catch (error) {
       skipped.push({ storageId, reason: 'failed' });
@@ -743,6 +825,15 @@ function ensureWindowsRegistryAssociation() {
 
 // Application Lifecycle
 app.whenReady().then(() => {
+  if (session?.defaultSession) {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      callback(false);
+    });
+    session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+      return false;
+    });
+  }
+
   createWindow();
   ensureWindowsRegistryAssociation();
 
@@ -758,3 +849,13 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    EXPECTED_SHELL_PATH,
+    EXPECTED_SHELL_URL,
+    isExpectedShellUrl,
+    classifyNavigation,
+    streamFileFingerprint
+  };
+}

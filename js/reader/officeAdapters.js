@@ -29,6 +29,26 @@ const DocxAdapter = (() => {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  function sanitizeDocxHyperlink(rawUrl) {
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+    const trimmed = rawUrl.trim();
+    try {
+      const parsed = new URL(trimmed);
+      const protocol = parsed.protocol.toLowerCase();
+      if (protocol === 'http:' || protocol === 'https:') {
+        return parsed.href;
+      }
+      if (protocol === 'mailto:') {
+        if (/^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
+          return trimmed;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   async function loadImageRelationships(zip) {
     const imageMap = new Map();
     const linkMap = new Map();
@@ -47,8 +67,9 @@ const DocxAdapter = (() => {
         if (!id || !target) continue;
 
         if (type.includes('/hyperlink') || /^https?:\/\//i.test(target)) {
-          linkMap.set(id, target);
-        } else if (type.includes('/image') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(target)) {
+          const safeLink = sanitizeDocxHyperlink(target);
+          if (safeLink) linkMap.set(id, safeLink);
+        } else if (type.includes('/image') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(target)) {
           let cleanTarget = target.replace(/^\.\.\//, '').replace(/^\//, '');
           let zipPath = cleanTarget.startsWith('word/') ? cleanTarget : `word/${cleanTarget}`;
           let file = zip.file(zipPath);
@@ -134,7 +155,7 @@ const DocxAdapter = (() => {
 
   function parseHyperlink(linkNode, imageMap, linkMap) {
     const rId = getAttr(linkNode, 'id');
-    const href = rId && linkMap.has(rId) ? linkMap.get(rId) : '';
+    const rawTarget = rId && linkMap.has(rId) ? linkMap.get(rId) : '';
     let inner = '';
     for (const child of linkNode.children || []) {
       const tag = nodeNameLocal(child);
@@ -142,8 +163,9 @@ const DocxAdapter = (() => {
       else if (tag === 'drawing') inner += parseDrawing(child, imageMap);
     }
     if (!inner) return '';
-    if (href) {
-      return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+    const safeHref = sanitizeDocxHyperlink(rawTarget);
+    if (safeHref) {
+      return `<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
     }
     return inner;
   }
@@ -328,7 +350,7 @@ const DocxAdapter = (() => {
     }
   }
 
-  return { Adapter };
+  return { Adapter, sanitizeDocxHyperlink, parseHyperlink };
 })();
 
 // ─────────────────────────────────────────────────── ODT ──────────

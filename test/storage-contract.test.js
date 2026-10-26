@@ -23,10 +23,14 @@ test('managed storage keeps the real format extension', () => {
   assert.equal(storageIdForFingerprint(fingerprint, 'pdf'), `${fingerprint}.pdf`);
   assert.equal(storageIdForFingerprint(fingerprint, 'cbz'), `${fingerprint}.cbz`);
   assert.equal(storageIdForFingerprint(fingerprint, 'docx'), `${fingerprint}.docx`);
+  assert.equal(storageIdForFingerprint(fingerprint, 'odt'), `${fingerprint}.odt`);
+  assert.equal(storageIdForFingerprint(fingerprint, 'rtf'), `${fingerprint}.rtf`);
   assert.equal(isStorageId(`${fingerprint}.cbz`), true);
   assert.equal(isStorageId(`${fingerprint}.docx`), true);
   assert.equal(isStorageId(`${fingerprint}.html`), true);
   assert.equal(isStorageId(`${fingerprint}.fb2`), true);
+  assert.equal(isStorageId(`${fingerprint}.odt`), true);
+  assert.equal(isStorageId(`${fingerprint}.rtf`), true);
 });
 
 test('unsupported or unsafe storage extensions are refused', () => {

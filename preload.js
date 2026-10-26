@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('noveraDesktop', {
+const desktopApi = {
   isDesktop: true,
   platform: process.platform,
 
@@ -48,4 +48,8 @@ contextBridge.exposeInMainWorld('noveraDesktop', {
   onNativeFullscreenChanged: (callback) => {
     ipcRenderer.on('native-fullscreen-changed', (_event, isFullscreen) => callback(Boolean(isFullscreen)));
   }
-});
+};
+
+// Expose under official Lirune branding and maintain noveraDesktop alias for compatibility
+contextBridge.exposeInMainWorld('liruneDesktop', desktopApi);
+contextBridge.exposeInMainWorld('noveraDesktop', desktopApi);

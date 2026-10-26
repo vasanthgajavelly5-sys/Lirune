@@ -38,6 +38,10 @@ yarn-error.log*
 *.key
 *.pfx
 *.p12
+*.jks
+*.keystore
+*.p8
+*.mobileprovision
 
 # OS and Editor files
 .DS_Store

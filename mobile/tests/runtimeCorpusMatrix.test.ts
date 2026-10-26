@@ -26,6 +26,10 @@ test('54-Artifact 19-Dimension Runtime QA Matrix', async (t) => {
   assert.ok(fs.existsSync(MANIFEST_PATH), `Manifest must exist at ${MANIFEST_PATH}`);
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf-8'));
   const corpusDir = manifest.corpus_directory;
+  if (!fs.existsSync(corpusDir)) {
+    t.skip(`Local QA corpus directory not present at ${corpusDir}; skipping local matrix verification.`);
+    return;
+  }
 
   const results: any[] = [];
 

@@ -64,6 +64,9 @@ jobs:
       - name: Clean install mobile dependencies
         run: npm --prefix mobile ci
 
+      - name: Generate PDF.js assets
+        run: npm --prefix mobile run gen:pdfjs
+
       - name: Mobile linting
         run: npm --prefix mobile run lint
 

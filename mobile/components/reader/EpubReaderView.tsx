@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, useWindowDimensions, Share } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, useWindowDimensions, Share, InteractionManager } from 'react-native';
 import { useStableInsets } from '@/hooks/useStableInsets';
 import { useWebViewRecovery } from '@/hooks/useWebViewRecovery';
 import { WebView } from 'react-native-webview';
@@ -23,6 +23,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
 import { parseSelectionMessage, type SelectionPayload } from '@/services/reader/selectionBridge';
 import { bookLocationService } from '@/services/reader/BookLocationService';
+import { perf } from '@/utils/perf';
+import { packageCache, getPackageCacheKey } from '@/services/epub/packageCache';
 import {
   REQUEST_POSITION_JS,
   isReadingPosition,
@@ -418,6 +420,9 @@ export function EpubReaderView({
   const hydrationWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Resolved path of the publication currently open; keys the session cache. */
   const sourcePathRef = useRef<string | null>(null);
+  /** Deferred location generation waiting for first paint */
+  const pendingLocationsBookIdRef = useRef<string | null>(null);
+  const pendingSpinesRef = useRef<{ idref: string; path: string }[] | null>(null);
   /** Chapter indices already present in the continuous-mode DOM. */
   const hydratedRef = useRef<Set<number>>(new Set());
   /** Token that invalidates an in-flight background hydration run. */
@@ -697,6 +702,18 @@ export function EpubReaderView({
       paintRevealRef.current = null;
     }
     setWebViewPainted(true);
+    perf.measure('loadEpub-total');
+
+    // Launch lazy location generation in the background AFTER first paint
+    if (pendingLocationsBookIdRef.current && pendingSpinesRef.current) {
+      const bookId = pendingLocationsBookIdRef.current;
+      const spines = pendingSpinesRef.current;
+      pendingLocationsBookIdRef.current = null;
+      pendingSpinesRef.current = null;
+      InteractionManager.runAfterInteractions(() => {
+        void bookLocationService.startLazyGeneration(bookId, spines);
+      });
+    }
   }, []);
 
   /* ---------------------------------------------------------------------- */
@@ -746,21 +763,43 @@ export function EpubReaderView({
       let targetChapterIdx = 0;
 
       try {
+        perf.mark('loadEpub-total');
         currentPhase = 'open';
+        perf.mark('loadEpub-fileRead');
         const buffer = await fileStorage.readAsArrayBuffer(bookPath);
+        perf.measure('loadEpub-fileRead');
         if (!buffer || buffer.byteLength === 0) {
           throw new Error('EPUB file is empty or missing from storage.');
         }
+        perf.mark('loadEpub-zipOpen');
         const archive = await EpubArchive.open(buffer);
         archiveRef.current = archive;
         sourcePathRef.current = bookPath;
+        perf.measure('loadEpub-zipOpen');
+
+        perf.mark('loadEpub-budgetCheck');
         validateArchiveBudget(archive.budgetEntries());
+        perf.measure('loadEpub-budgetCheck');
 
         currentPhase = 'parse-opf';
-        const epubPackage = await readEpubPackage(archive);
+        perf.mark('loadEpub-parseOpf');
+        const mtime = (book.metadata as { mtime?: number } | undefined)?.mtime || book.dateAdded;
+        const cacheKey = getPackageCacheKey({
+          id: book.id,
+          fileSize: book.fileSize,
+          mtime,
+        });
+
+        let epubPackage = packageCache.get(cacheKey);
+        if (!epubPackage) {
+          epubPackage = await readEpubPackage(archive);
+          packageCache.set(cacheKey, epubPackage);
+        }
         packageRef.current = epubPackage;
+        perf.measure('loadEpub-parseOpf');
 
         currentPhase = 'parse-toc';
+        perf.mark('loadEpub-parseToc');
         const loadedChapters: ChapterItem[] = epubPackage.spine.map((item, index) => {
           const navTitle = epubPackage.chapterTitles[index] || '';
           return {
@@ -780,6 +819,7 @@ export function EpubReaderView({
               label: chapter.title,
               href: createSpineTarget(index),
             }));
+        perf.measure('loadEpub-parseToc');
 
         let initialIdx = 0;
         const savedTarget = targetCfi ? parseSpineTarget(targetCfi) : null;
@@ -792,10 +832,12 @@ export function EpubReaderView({
         targetChapterIdx = initialIdx;
 
         currentPhase = 'load-chapter';
+        perf.mark('loadEpub-extractInitialChapter');
         const initialChapter = await extractChapterDocument(archive, loadedChapters[initialIdx].itemPath, {
           navigationTitle: loadedChapters[initialIdx].navTitle,
         });
         chapterCacheRef.current.set(initialIdx, initialChapter);
+        perf.measure('loadEpub-extractInitialChapter');
 
         currentPhase = 'render';
         continuousDocumentRef.current = settings.flow === 'scrolled';
@@ -807,11 +849,9 @@ export function EpubReaderView({
           setActiveChapter(initialChapter);
           setCurrentChapterIndex(initialIdx);
 
-          // Launch lazy location generation in the background without blocking the reader
-          void bookLocationService.startLazyGeneration(
-            book.id,
-            loadedChapters.map((c) => ({ idref: c.id, path: c.itemPath }))
-          );
+          // Queue lazy location generation for AFTER first paint
+          pendingLocationsBookIdRef.current = book.id;
+          pendingSpinesRef.current = loadedChapters.map((c) => ({ idref: c.id, path: c.itemPath }));
 
           // Adopt the geometry that is current *now* (the container has been
           // measured by this point) so the first render is already correct and
@@ -899,6 +939,8 @@ export function EpubReaderView({
         archiveRef.current.dispose();
         archiveRef.current = null;
       }
+      pendingLocationsBookIdRef.current = null;
+      pendingSpinesRef.current = null;
       bookLocationService.cancelActiveTask();
       chapterCache.clear();
       packageRef.current = null;

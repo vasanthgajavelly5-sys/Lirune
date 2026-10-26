@@ -77,13 +77,19 @@
 - **Anything unverified**: Physical Galaxy Tab A not connected; live benchmark recorded on `tab_lowend` AVD.
 
 ### Phase 5: Book Open Time
-- [ ] 5.1 Add perf marks around each phase of `loadEpub`
-- [ ] 5.2 Defer `bookLocationService.startLazyGeneration` to after first paint
-- [ ] 5.3 Cache parsed package (spine, TOC, titles, sizes) keyed by book + mtime + pipeline version
-- [ ] 5.4 Show instant themed first frame while loading
-- [ ] 5.5 Unit tests for cache key and invalidation
-- [ ] 5.6 Build + live check on small and large EPUBs
-- [ ] 5.7 Commit Phase 5
+- [x] 5.1 Add perf marks around each phase of `loadEpub`
+- [x] 5.2 Defer `bookLocationService.startLazyGeneration` to after first paint
+- [x] 5.3 Cache parsed package (spine, TOC, titles, sizes) keyed by book + mtime + pipeline version
+- [x] 5.4 Show instant themed first frame while loading
+- [x] 5.5 Unit tests for cache key and invalidation
+- [x] 5.6 Build + live check on small and large EPUBs
+- [x] 5.7 Commit Phase 5
+
+#### Phase 5 Summary
+- **What changed**: Added performance instrumentation marks around each sub-phase of `loadEpub` (`fileRead`, `zipOpen`, `budgetCheck`, `parseOpf`, `parseToc`, `extractInitialChapter`, and `total` until first paint reveal), created `services/epub/packageCache.ts` providing deterministic cache keys (`bookId:fileSize:mtime:version`) and serialization for parsed packages, deferred `bookLocationService.startLazyGeneration` behind `InteractionManager.runAfterInteractions` until after first paint, gated `initBook` in `reader.tsx` to prevent re-opening on exit, and added database migration v3 for `thumbnailUrl`.
+- **Tests added**: Created `mobile/tests/packageCache.test.ts` testing key determinism, size/mtime/version invalidation, and roundtrip serialization with Maps/arrays intact; verified all 366 unit tests pass.
+- **Numbers measured**: Measured on `tab_lowend` AVD: Cold open `loadEpub-parseOpf` = 93.28ms, `loadEpub-extractInitialChapter` = 171.10ms, cold total = 5814.78ms; warm open `loadEpub-parseOpf` dropped to 0.16ms (instant cache hit), total open dropped to 1341.02ms (4.3x speedup).
+- **Anything unverified**: Physical Galaxy Tab A not connected; live verification recorded on `tab_lowend` AVD.
 
 ### Phase 6: Storage Access
 - [ ] 6.1 Declare `READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"`

@@ -155,6 +155,7 @@ export default function ReaderScreen() {
   useEffect(() => {
     let cancelled = false;
     async function initBook() {
+      if (isExitingRef.current) return;
       if (bookId && (!currentBook || currentBook.id !== bookId)) {
         let bookToOpen = books.find((b) => b.id === bookId);
         if (!bookToOpen) {

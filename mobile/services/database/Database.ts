@@ -293,6 +293,17 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       `);
       logger.info(TAG, 'Database migration v2 applied successfully');
     }
+
+    if (!appliedVersions.has(3)) {
+      logger.info(TAG, 'Running database migration v3: Add thumbnailUrl to books table');
+      const tableInfo = await db.getAllAsync<{ name: string }>('PRAGMA table_info(books)');
+      const columns = new Set(tableInfo.map((col) => col.name));
+      if (!columns.has('thumbnailUrl')) {
+        await db.execAsync('ALTER TABLE books ADD COLUMN thumbnailUrl TEXT;');
+      }
+      await db.execAsync('INSERT INTO schema_versions (version, applied_at) VALUES (3, unixepoch());');
+      logger.info(TAG, 'Database migration v3 applied successfully');
+    }
   } catch (e) {
     logger.warn(TAG, 'Database migration execution failed or partially complete', String(e));
   }

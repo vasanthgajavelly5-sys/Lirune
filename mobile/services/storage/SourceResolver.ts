@@ -8,7 +8,8 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Book } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
-import { fileStorage } from '@/services/storage/FileStorage';
+import { fileStorage, MAX_BASE64_FILE_BYTES } from '@/services/storage/FileStorage';
+import { nativeStorage } from '@/services/storage/NativeStorageBridge';
 import { SourceUnavailableError } from '@/utils/errors';
 import { logger } from '@/utils/logger';
 
@@ -129,27 +130,49 @@ export class SourceResolver {
       }
 
       if (canonicalUri.startsWith('content://')) {
-        // Try direct copy first
-        try {
-          await FileSystem.copyAsync({
-            from: canonicalUri,
-            to: cachedFilePath,
-          });
-        } catch (copyErr) {
-          logger.warn(TAG, `copyAsync failed for SAF URI, falling back to base64 stream`, copyErr);
-          let base64Data: string;
-          if (FileSystem.StorageAccessFramework?.readAsStringAsync) {
-            base64Data = await FileSystem.StorageAccessFramework.readAsStringAsync(canonicalUri, {
-              encoding: FileSystem.EncodingType.Base64,
+        let copied = false;
+        // Try native stream copy first for Android content URIs
+        if (nativeStorage.isAvailable()) {
+          try {
+            const nativeBytes = await nativeStorage.copyContentUriToStorage(canonicalUri, cachedFilePath);
+            if (nativeBytes !== null && nativeBytes > 0) {
+              copied = true;
+              logger.info(TAG, `Native stream staged ${nativeBytes} bytes into cache`);
+            }
+          } catch (nativeErr) {
+            logger.warn(TAG, `nativeStorage copy failed for ${canonicalUri}`, nativeErr);
+          }
+        }
+
+        if (!copied) {
+          // Try direct copy next
+          try {
+            await FileSystem.copyAsync({
+              from: canonicalUri,
+              to: cachedFilePath,
             });
-          } else {
-            base64Data = await FileSystem.readAsStringAsync(canonicalUri, {
+          } catch (copyErr) {
+            logger.warn(TAG, `copyAsync failed for SAF URI, checking fallback options`, copyErr);
+            const sourceSize = book.fileSize ?? 0;
+            if (sourceSize > MAX_BASE64_FILE_BYTES) {
+              throw new Error(
+                `Book file is too large (${Math.round(sourceSize / (1024 * 1024))}MB) to stage via base64 buffer. Please re-import the book.`
+              );
+            }
+            let base64Data: string;
+            if (FileSystem.StorageAccessFramework?.readAsStringAsync) {
+              base64Data = await FileSystem.StorageAccessFramework.readAsStringAsync(canonicalUri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+            } else {
+              base64Data = await FileSystem.readAsStringAsync(canonicalUri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+            }
+            await FileSystem.writeAsStringAsync(cachedFilePath, base64Data, {
               encoding: FileSystem.EncodingType.Base64,
             });
           }
-          await FileSystem.writeAsStringAsync(cachedFilePath, base64Data, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
         }
       } else {
         await FileSystem.copyAsync({

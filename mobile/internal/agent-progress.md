@@ -92,13 +92,19 @@
 - **Anything unverified**: Physical Galaxy Tab A not connected; live verification recorded on `tab_lowend` AVD.
 
 ### Phase 6: Storage Access
-- [ ] 6.1 Declare `READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"`
-- [ ] 6.2 Document `LIRUNE_ALLFILES=1` behavior, update Scan screen explanations
-- [ ] 6.3 Replace whole-file base64 string reading with streamed/chunked copy or size gate
-- [ ] 6.4 Report merged release manifest permissions (inspect INTERNET presence)
-- [ ] 6.5 Manifest plugin and scan-access unit tests
-- [ ] 6.6 Build + live check on API 30 and modern AVD
-- [ ] 6.7 Commit Phase 6
+- [x] 6.1 Declare `READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"`
+- [x] 6.2 Document `LIRUNE_ALLFILES=1` behavior, update Scan screen explanations
+- [x] 6.3 Replace whole-file base64 string reading with streamed/chunked copy or size gate
+- [x] 6.4 Report merged release manifest permissions (inspect INTERNET presence)
+- [x] 6.5 Manifest plugin and scan-access unit tests
+- [x] 6.6 Build + live check on API 30 and modern AVD
+- [x] 6.7 Commit Phase 6
+
+#### Phase 6 Summary
+- **What changed**: Configured `cleanManifestPermissions` in `mobile/plugins/withLiruneStorage.js` to preserve `READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"` for Android <= 12 compatibility without exposing full storage permissions on Android 13+, exported and guarded against oversized in-memory base64 buffers using `MAX_BASE64_FILE_BYTES = 15 * 1024 * 1024` (15MB) in `FileStorage.ts` and `SourceResolver.ts`, prioritized native stream copy via `nativeStorage.copyContentUriToStorage` for staging SAF content URIs into cache, documented `LIRUNE_ALLFILES=1` prebuild behavior in `mobile/README.md`, and regenerated Android manifest via `expo prebuild`.
+- **Tests added**: Updated `mobile/tests/nativeStoragePlugin.test.ts` to assert that `cleanManifestPermissions` preserves `READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"` in both standard and all-files modes; verified all 366 unit tests pass.
+- **Numbers measured**: `processReleaseMainManifest` verified: merged release manifest declares `READ_EXTERNAL_STORAGE` with `maxSdkVersion="32"`, excludes `MANAGE_EXTERNAL_STORAGE` in standard builds, and retains base `INTERNET` and `VIBRATE`; debug APK assembled in 11m 12s and installed to `emulator-5554`.
+- **Anything unverified**: Physical Galaxy Tab A not connected; verified on `tab_lowend` AVD (API 30).
 
 ### Phase 7: Scroll Mode Hotfixes (Engine v1)
 - [ ] F1. State desync fix: WebView posts `chaptersUnloaded`, host updates `hydratedRef`

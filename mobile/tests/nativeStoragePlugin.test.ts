@@ -75,7 +75,7 @@ test('fails loudly when the generated template no longer matches', () => {
   );
 });
 
-test('cleanManifestPermissions strips MANAGE_DOCUMENTS, READ_MEDIA_*, READ_EXTERNAL_STORAGE', () => {
+test('cleanManifestPermissions strips MANAGE_DOCUMENTS, READ_MEDIA_* and retains READ_EXTERNAL_STORAGE with maxSdkVersion 32', () => {
   const manifest = {
     'uses-permission': [
       { $: { 'android:name': 'android.permission.INTERNET' } },
@@ -89,10 +89,14 @@ test('cleanManifestPermissions strips MANAGE_DOCUMENTS, READ_MEDIA_*, READ_EXTER
 
   const cleaned = cleanManifestPermissions(manifest, false);
   const names = cleaned['uses-permission'].map((p: any) => p.$['android:name']);
-  assert.deepEqual(names, ['android.permission.INTERNET', 'android.permission.VIBRATE']);
+  assert.deepEqual(names, ['android.permission.INTERNET', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.VIBRATE']);
+  const readExt = cleaned['uses-permission'].find(
+    (p: any) => p.$['android:name'] === 'android.permission.READ_EXTERNAL_STORAGE'
+  );
+  assert.equal(readExt?.$?.['android:maxSdkVersion'], '32');
 });
 
-test('cleanManifestPermissions adds MANAGE_EXTERNAL_STORAGE when isAllFiles is true', () => {
+test('cleanManifestPermissions adds MANAGE_EXTERNAL_STORAGE when isAllFiles is true and retains READ_EXTERNAL_STORAGE', () => {
   const manifest = {
     'uses-permission': [
       { $: { 'android:name': 'android.permission.VIBRATE' } },
@@ -102,7 +106,11 @@ test('cleanManifestPermissions adds MANAGE_EXTERNAL_STORAGE when isAllFiles is t
 
   const cleaned = cleanManifestPermissions(manifest, true);
   const names = cleaned['uses-permission'].map((p: any) => p.$['android:name']);
-  assert.deepEqual(names, ['android.permission.VIBRATE', 'android.permission.MANAGE_EXTERNAL_STORAGE']);
+  assert.deepEqual(names, ['android.permission.VIBRATE', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.MANAGE_EXTERNAL_STORAGE']);
+  const readExt = cleaned['uses-permission'].find(
+    (p: any) => p.$['android:name'] === 'android.permission.READ_EXTERNAL_STORAGE'
+  );
+  assert.equal(readExt?.$?.['android:maxSdkVersion'], '32');
 });
 
 test('cleanAndConfigureIntentFilters removes catch-alls and configures explicit intent filters', () => {

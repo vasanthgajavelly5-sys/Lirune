@@ -36,7 +36,6 @@ function cleanManifestPermissions(manifest, isAllFiles = false) {
     'android.permission.READ_MEDIA_IMAGES',
     'android.permission.READ_MEDIA_VIDEO',
     'android.permission.READ_MEDIA_AUDIO',
-    'android.permission.READ_EXTERNAL_STORAGE',
     'android.permission.WRITE_EXTERNAL_STORAGE',
   ]);
   if (!isAllFiles) {
@@ -48,6 +47,21 @@ function cleanManifestPermissions(manifest, isAllFiles = false) {
     const name = perm?.$?.['android:name'];
     return !prohibited.has(name);
   });
+
+  const readExt = filtered.find(
+    (perm) => perm?.$?.['android:name'] === 'android.permission.READ_EXTERNAL_STORAGE'
+  );
+  if (readExt) {
+    if (!readExt.$) readExt.$ = { 'android:name': 'android.permission.READ_EXTERNAL_STORAGE' };
+    readExt.$['android:maxSdkVersion'] = '32';
+  } else {
+    filtered.push({
+      $: {
+        'android:name': 'android.permission.READ_EXTERNAL_STORAGE',
+        'android:maxSdkVersion': '32',
+      },
+    });
+  }
 
   if (isAllFiles) {
     const hasManage = filtered.some(

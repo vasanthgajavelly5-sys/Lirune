@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Windows Desktop Application Dependencies
+  # Windows Desktop Application Dependencies (Root)
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -9,8 +9,11 @@ updates:
     labels:
       - "dependencies"
       - "desktop"
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
 
-  # Android Mobile Application Dependencies
+  # Android Mobile Application Dependencies (Mobile)
   - package-ecosystem: "npm"
     directory: "/mobile"
     schedule:
@@ -19,11 +22,20 @@ updates:
     labels:
       - "dependencies"
       - "mobile"
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
 
   # GitHub Actions Workflows
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 10
     labels:
-      - "ci"
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions:
+        patterns:
+          - "*"

@@ -1042,8 +1042,33 @@ const LINK_INTERCEPTOR_JS = `
 })();
 `;
 
+/**
+ * Development-only debugging helper exposed on window.__lirune.debugState().
+ * Disabled/omitted in release builds.
+ */
+const DEBUG_HELPER_JS = `
+(function () {
+  window.__lirune = window.__lirune || {};
+  window.__lirune.debugState = function () {
+    var v2 = window.__liruneV2;
+    var sections = document.querySelectorAll('.chapter-section');
+    var loaded = document.querySelectorAll('.chapter-section[data-loaded="true"]');
+    return {
+      engine: v2 ? 'v2' : 'v1',
+      scrollY: window.pageYOffset || 0,
+      viewportHeight: window.innerHeight || 0,
+      scrollHeight: document.documentElement ? document.documentElement.scrollHeight : 0,
+      totalSections: sections ? sections.length : 0,
+      loadedSections: loaded ? loaded.length : 0,
+      timestamp: Date.now()
+    };
+  };
+})();
+`;
+
 /** Builds the complete reader document for either mode. */
 export function buildReaderDocument(input: ReaderDocumentInput): string {
+  const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV !== 'production';
   const bookCss = input.bookCss ? `<style id="book-css">${input.bookCss}</style>` : '';
   const script =
     input.mode === 'paginated'
@@ -1074,6 +1099,7 @@ export function buildReaderDocument(input: ReaderDocumentInput): string {
     ${SELECTION_WATCHER_JS}
     ${LINK_INTERCEPTOR_JS}
     ${FIRST_PAINT_JS}
+    ${isDev ? DEBUG_HELPER_JS : ''}
   </script>
 </body>
 </html>`;

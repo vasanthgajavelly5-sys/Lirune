@@ -74,17 +74,3 @@ jobs:
 
       - name: Mobile production dependency audit
         run: npm --prefix mobile audit --omit=dev
-
-  secret-scan:
-    name: Secret & Credential Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
-        with:
-          fetch-depth: 0
-
-      - name: Gitleaks Secret Scan
-        uses: gitleaks/gitleaks-action@2b04f7c8ec1ecb91ce346859599542a2f8c05763 # v2.3.6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,11 @@
+# .gitleaksignore
+# Documented allowlist for verified Gitleaks false positives.
+#
+# When Gitleaks flags an inert test token, mock hash, or public documentation string
+# that is confirmed NOT to be a real credential:
+# 1. Obtain the exact finding fingerprint from the Gitleaks run report.
+# 2. Add the fingerprint on a new line below.
+# 3. Add a clear explanatory comment stating why the finding is inert.
+#
+# WARNING: NEVER ignore genuine API keys, private keys, tokens, or production credentials.
+# Any real credential must be revoked/rotated immediately, not suppressed in this file.

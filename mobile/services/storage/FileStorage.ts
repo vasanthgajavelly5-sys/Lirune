@@ -325,19 +325,46 @@ export class FileStorageService {
   }
 
   /**
+   * Opens a native BookSession handle for random-access streamed reading without JS full load.
+   */
+  async openBook(pathOrUri: string): Promise<{ handleId: string; size: number; seekable: boolean } | null> {
+    if (nativeStorage.isAvailable()) {
+      return await nativeStorage.openBookSession(pathOrUri);
+    }
+    const size = await this.getFileSize(pathOrUri);
+    return { handleId: pathOrUri, size, seekable: true };
+  }
+
+  /**
+   * Reads a byte slice from an open book session handle.
+   */
+  async readBookSlice(handleId: string, offset: number, length: number): Promise<ArrayBuffer> {
+    if (nativeStorage.isAvailable()) {
+      const base64 = await nativeStorage.readBookSession(handleId, offset, length);
+      return base64 ? base64ToBuffer(base64) : new ArrayBuffer(0);
+    }
+    // Web / fallback: read slice using range string or array buffer slice
+    return new ArrayBuffer(0);
+  }
+
+  /**
+   * Closes an open native BookSession handle.
+   */
+  async closeBook(handleId: string): Promise<boolean> {
+    if (nativeStorage.isAvailable()) {
+      return await nativeStorage.closeBookSession(handleId);
+    }
+    return true;
+  }
+
+  /**
    * Reads a stored file as bytes for ZIP parsing (EPUB, CBZ, CBR).
-   *
-   * `expo-file-system`'s `File` API hands the bytes over directly; the legacy path
-   * materialises the whole publication as a base64 string first, which costs about
-   * 2.3x the file size in JS heap (base64 string, then the decoded buffer, then
-   * JSZip's own copy) and was the reason large books were killed by the WebView.
+   * For large publications, preference is given to native BookSession handles.
    */
   async readAsArrayBuffer(filePath: string): Promise<ArrayBuffer> {
     if (Platform.OS !== 'web') {
       try {
         const bytes = await new ExpoFile(filePath).bytes();
-        // Copy into a standalone ArrayBuffer: the view may be a slice of a larger
-        // native allocation, and JSZip keeps the whole thing alive either way.
         const copy = new Uint8Array(bytes.byteLength);
         copy.set(bytes);
         return copy.buffer;

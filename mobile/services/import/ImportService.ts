@@ -207,11 +207,18 @@ export class ImportService {
               rawBytes[i] = binaryString.charCodeAt(i);
             }
             const detected = FormatDetector.fromMagicBytes(rawBytes, fileName);
+            if (detected.isDrm) {
+              throw new ImportFailureError(
+                fileName,
+                `This book is protected by DRM (${detected.drmReason || 'encryption detected'}) and cannot be read.`
+              );
+            }
             if (detected.supported) {
               resolvedFormat = detected.id as BookFormat;
             }
           }
-        } catch {
+        } catch (err: any) {
+          if (err instanceof AppError) throw err;
           // If sample read fails, fallback to preliminary format
         }
 

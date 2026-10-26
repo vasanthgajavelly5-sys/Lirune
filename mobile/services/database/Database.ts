@@ -165,23 +165,132 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_notes_book ON notes(bookId);
     CREATE INDEX IF NOT EXISTS idx_saved_words_word ON saved_words(word);
     CREATE INDEX IF NOT EXISTS idx_saved_words_book ON saved_words(bookId);
+
+    CREATE TABLE IF NOT EXISTS schema_versions (
+      version INTEGER PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    );
   `);
 
-  // Safe idempotent migration: add columns to existing books table only if they don't exist
+  // Versioned migration runner
   try {
-    const tableInfo = await db.getAllAsync<{ name: string }>('PRAGMA table_info(books)');
-    const columns = new Set(tableInfo.map((col) => col.name));
-    if (!columns.has('uri')) {
-      await db.execAsync("ALTER TABLE books ADD COLUMN uri TEXT DEFAULT '';");
-    }
-    if (!columns.has('availability')) {
-      await db.execAsync("ALTER TABLE books ADD COLUMN availability TEXT DEFAULT 'available';");
-    }
-    if (!columns.has('metadata')) {
-      await db.execAsync("ALTER TABLE books ADD COLUMN metadata TEXT DEFAULT '{}';");
+    const appliedRows = await db.getAllAsync<{ version: number }>('SELECT version FROM schema_versions');
+    const appliedVersions = new Set(appliedRows.map((r) => r.version));
+
+    if (!appliedVersions.has(2)) {
+      logger.info(TAG, 'Running database migration v2: Storage and Format Architecture tables');
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS sources (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tree_uri TEXT UNIQUE,
+          label TEXT,
+          volume_id TEXT,
+          status TEXT,
+          last_scan_at INTEGER,
+          grant_valid INTEGER DEFAULT 1,
+          import_mode TEXT DEFAULT 'managed'
+        );
+
+        CREATE TABLE IF NOT EXISTS entries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          source_id INTEGER REFERENCES sources(id) ON DELETE CASCADE,
+          doc_id TEXT,
+          uri TEXT,
+          parent_doc_id TEXT,
+          name TEXT,
+          size INTEGER,
+          mtime INTEGER,
+          sniff_format TEXT,
+          confidence REAL,
+          quick_fp TEXT,
+          state TEXT,
+          fail_reason TEXT,
+          UNIQUE(source_id, doc_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS book_files (
+          book_id TEXT REFERENCES books(id) ON DELETE CASCADE,
+          mode TEXT CHECK(mode IN ('managed','linked')),
+          path_or_uri TEXT,
+          size INTEGER,
+          seekable INTEGER,
+          PRIMARY KEY (book_id, path_or_uri)
+        );
+
+        CREATE TABLE IF NOT EXISTS jobs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type TEXT,
+          entry_id INTEGER,
+          state TEXT,
+          progress REAL,
+          error TEXT,
+          updated_at INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS book_locations (
+          book_id TEXT NOT NULL,
+          spine_index INTEGER NOT NULL,
+          cfi TEXT,
+          char_count INTEGER,
+          progress REAL,
+          PRIMARY KEY (book_id, spine_index)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_entries_state ON entries(state);
+        CREATE INDEX IF NOT EXISTS idx_entries_fp ON entries(quick_fp);
+      `);
+
+      // Add columns to books if not already present
+      const tableInfo = await db.getAllAsync<{ name: string }>('PRAGMA table_info(books)');
+      const columns = new Set(tableInfo.map((col) => col.name));
+
+      if (!columns.has('uri')) {
+        await db.execAsync("ALTER TABLE books ADD COLUMN uri TEXT DEFAULT '';");
+      }
+      if (!columns.has('availability')) {
+        await db.execAsync("ALTER TABLE books ADD COLUMN availability TEXT DEFAULT 'available';");
+      }
+      if (!columns.has('metadata')) {
+        await db.execAsync("ALTER TABLE books ADD COLUMN metadata TEXT DEFAULT '{}';");
+      }
+      if (!columns.has('authors')) {
+        await db.execAsync('ALTER TABLE books ADD COLUMN authors TEXT;');
+        await db.execAsync('UPDATE books SET authors = author WHERE authors IS NULL;');
+      }
+      if (!columns.has('sha256')) {
+        await db.execAsync('ALTER TABLE books ADD COLUMN sha256 TEXT;');
+      }
+      if (!columns.has('quick_fp')) {
+        await db.execAsync('ALTER TABLE books ADD COLUMN quick_fp TEXT;');
+      }
+      if (!columns.has('cover_path')) {
+        await db.execAsync('ALTER TABLE books ADD COLUMN cover_path TEXT;');
+        await db.execAsync('UPDATE books SET cover_path = coverUrl WHERE cover_path IS NULL;');
+      }
+      if (!columns.has('meta_json')) {
+        await db.execAsync("ALTER TABLE books ADD COLUMN meta_json TEXT DEFAULT '{}';");
+        await db.execAsync('UPDATE books SET meta_json = metadata WHERE meta_json IS NULL OR meta_json = "{}"');
+      }
+      if (!columns.has('added_at')) {
+        await db.execAsync('ALTER TABLE books ADD COLUMN added_at INTEGER;');
+        await db.execAsync('UPDATE books SET added_at = dateAdded WHERE added_at IS NULL;');
+      }
+
+      await db.execAsync(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_books_sha256 ON books(sha256) WHERE sha256 IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_books_quick_fp ON books(quick_fp);
+
+        INSERT OR IGNORE INTO book_files (book_id, mode, path_or_uri, size, seekable)
+        SELECT id, 'managed', COALESCE(NULLIF(filePath, ''), uri), fileSize, 1
+        FROM books
+        WHERE uri IS NOT NULL OR filePath IS NOT NULL;
+
+        INSERT INTO schema_versions (version, applied_at) VALUES (2, unixepoch());
+      `);
+      logger.info(TAG, 'Database migration v2 applied successfully');
     }
   } catch (e) {
-    logger.warn('Database', 'Column migration check failed or unnecessary', String(e));
+    logger.warn(TAG, 'Database migration execution failed or partially complete', String(e));
   }
 }
 

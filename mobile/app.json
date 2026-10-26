@@ -249,9 +249,7 @@
         }
       ],
       "permissions": [
-        "VIBRATE",
-        "MANAGE_EXTERNAL_STORAGE",
-        "READ_EXTERNAL_STORAGE"
+        "VIBRATE"
       ],
       "predictiveBackGestureEnabled": false
     },

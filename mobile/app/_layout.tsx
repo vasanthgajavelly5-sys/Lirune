@@ -21,6 +21,9 @@ import { logger } from '@/utils/logger';
 
 const TAG = 'RootLayout';
 
+import { getDatabase } from '@/services/database/Database';
+import { useImportQueueStore } from '@/state/importQueueStore';
+
 function AppInitializer({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { loadSettings } = useSettingsStore();
@@ -32,6 +35,28 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
     // Housekeeping, off the critical path: an import interrupted by a crash left a
     // `.part` file behind, which is never a usable book.
     void fileStorage.cleanupPartialImports();
+
+    // Workstream A: Validate persisted SAF grants at launch and recover journal
+    void (async () => {
+      try {
+        const db = await getDatabase();
+        if (db) {
+          const rows = await db.getAllAsync<{ id: number; tree_uri: string }>('SELECT id, tree_uri FROM sources');
+          if (rows.length > 0) {
+            const uris = rows.map((r) => r.tree_uri).filter(Boolean);
+            const res = await nativeStorage.validatePersistedGrants(uris);
+            const revokedSet = new Set(res.revokedUris);
+            for (const r of rows) {
+              const isValid = revokedSet.has(r.tree_uri) ? 0 : 1;
+              await db.runAsync('UPDATE sources SET grant_valid = ? WHERE id = ?', [isValid, r.id]);
+            }
+          }
+        }
+        await useImportQueueStore.getState().recoverJournalOnLaunch();
+      } catch (err) {
+        logger.warn(TAG, 'Launch grant validation or journal recovery failed', err);
+      }
+    })();
   }, [loadSettings, loadLibrary]);
 
   /**

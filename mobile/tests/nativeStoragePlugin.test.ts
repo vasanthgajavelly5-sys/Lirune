@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { registerPackageInMainApplication } = require('../plugins/withLiruneStorage.js');
+const { registerPackageInMainApplication, cleanManifestPermissions } = require('../plugins/withLiruneStorage.js');
 
 const APPLY_SHAPE = `package com.lirune.reader
 
@@ -67,4 +67,34 @@ test('fails loudly when the generated template no longer matches', () => {
     () => registerPackageInMainApplication('package com.lirune.reader\n\nclass MainApplication\n'),
     /withLiruneStorage/
   );
+});
+
+test('cleanManifestPermissions strips MANAGE_DOCUMENTS, READ_MEDIA_*, READ_EXTERNAL_STORAGE', () => {
+  const manifest = {
+    'uses-permission': [
+      { $: { 'android:name': 'android.permission.INTERNET' } },
+      { $: { 'android:name': 'android.permission.READ_EXTERNAL_STORAGE' } },
+      { $: { 'android:name': 'android.permission.MANAGE_DOCUMENTS' } },
+      { $: { 'android:name': 'android.permission.READ_MEDIA_IMAGES' } },
+      { $: { 'android:name': 'android.permission.VIBRATE' } },
+      { $: { 'android:name': 'android.permission.MANAGE_EXTERNAL_STORAGE' } },
+    ],
+  };
+
+  const cleaned = cleanManifestPermissions(manifest, false);
+  const names = cleaned['uses-permission'].map((p: any) => p.$['android:name']);
+  assert.deepEqual(names, ['android.permission.INTERNET', 'android.permission.VIBRATE']);
+});
+
+test('cleanManifestPermissions adds MANAGE_EXTERNAL_STORAGE when isAllFiles is true', () => {
+  const manifest = {
+    'uses-permission': [
+      { $: { 'android:name': 'android.permission.VIBRATE' } },
+      { $: { 'android:name': 'android.permission.READ_EXTERNAL_STORAGE' } },
+    ],
+  };
+
+  const cleaned = cleanManifestPermissions(manifest, true);
+  const names = cleaned['uses-permission'].map((p: any) => p.$['android:name']);
+  assert.deepEqual(names, ['android.permission.VIBRATE', 'android.permission.MANAGE_EXTERNAL_STORAGE']);
 });

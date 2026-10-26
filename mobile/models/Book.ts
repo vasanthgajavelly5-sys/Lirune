@@ -10,6 +10,8 @@ export type BookFormat =
   | 'html'
   | 'fb2'
   | 'cbz'
+  | 'cbr'
+  | 'cb7'
   | 'mobi'
   | 'azw'
   | 'azw3'
@@ -19,7 +21,6 @@ export type BookFormat =
   | 'rtf'
   | 'odt'
   | 'chm'
-  | 'cbr'
   | 'zip'
   | 'rar';
 
@@ -80,6 +81,13 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
     label: 'Comic Book Archive (CBR)',
     extensions: ['cbr'],
     mime: 'application/vnd.comicbook-rar',
+    supported: true,
+  },
+  cb7: {
+    id: 'cb7',
+    label: 'Comic Book Archive (CB7)',
+    extensions: ['cb7', '7z'],
+    mime: 'application/x-7z-compressed',
     supported: true,
   },
   mobi: {

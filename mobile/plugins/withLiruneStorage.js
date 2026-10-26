@@ -19,7 +19,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { withDangerousMod, withMainApplication } = require('@expo/config-plugins');
+const { withDangerousMod, withMainApplication, withAndroidManifest } = require('@expo/config-plugins');
 
 const PACKAGE_CLASS = 'LiruneStoragePackage';
 const PACKAGE_IMPORT = `com.lirune.reader.storage.${PACKAGE_CLASS}`;
@@ -28,6 +28,48 @@ const KOTLIN_SOURCE_DIR = path.join(__dirname, 'native', 'lirune-storage');
 /** Absolute path of the generated Android package source directory. */
 function androidKotlinDir(platformProjectRoot) {
   return path.join(platformProjectRoot, 'app', 'src', 'main', 'java', 'com', 'lirune', 'reader', 'storage');
+}
+
+function cleanManifestPermissions(manifest, isAllFiles = false) {
+  const prohibited = new Set([
+    'android.permission.MANAGE_DOCUMENTS',
+    'android.permission.READ_MEDIA_IMAGES',
+    'android.permission.READ_MEDIA_VIDEO',
+    'android.permission.READ_MEDIA_AUDIO',
+    'android.permission.READ_EXTERNAL_STORAGE',
+    'android.permission.WRITE_EXTERNAL_STORAGE',
+  ]);
+  if (!isAllFiles) {
+    prohibited.add('android.permission.MANAGE_EXTERNAL_STORAGE');
+  }
+
+  const permissions = manifest['uses-permission'] || [];
+  const filtered = permissions.filter((perm) => {
+    const name = perm?.$?.['android:name'];
+    return !prohibited.has(name);
+  });
+
+  if (isAllFiles) {
+    const hasManage = filtered.some(
+      (perm) => perm?.$?.['android:name'] === 'android.permission.MANAGE_EXTERNAL_STORAGE'
+    );
+    if (!hasManage) {
+      filtered.push({ $: { 'android:name': 'android.permission.MANAGE_EXTERNAL_STORAGE' } });
+    }
+  }
+
+  manifest['uses-permission'] = filtered;
+  return manifest;
+}
+
+function withStorageManifest(config, options = {}) {
+  const isAllFiles = Boolean(options.allFiles || process.env.LIRUNE_ALLFILES === '1');
+  return withAndroidManifest(config, (cfg) => {
+    if (cfg.modResults && cfg.modResults.manifest) {
+      cfg.modResults.manifest = cleanManifestPermissions(cfg.modResults.manifest, isAllFiles);
+    }
+    return cfg;
+  });
 }
 
 function copyKotlinSources(config) {
@@ -97,8 +139,9 @@ function withPackageRegistration(config) {
   });
 }
 
-module.exports = function withLiruneStorage(config) {
-  return withPackageRegistration(copyKotlinSources(config));
+module.exports = function withLiruneStorage(config, options = {}) {
+  return withStorageManifest(withPackageRegistration(copyKotlinSources(config)), options);
 };
 
 module.exports.registerPackageInMainApplication = registerPackageInMainApplication;
+module.exports.cleanManifestPermissions = cleanManifestPermissions;

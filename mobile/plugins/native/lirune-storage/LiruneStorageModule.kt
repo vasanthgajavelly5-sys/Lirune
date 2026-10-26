@@ -11,15 +11,18 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Base64
 import android.webkit.MimeTypeMap
 import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.ArrayDeque
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
@@ -27,278 +30,474 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
 
     override fun getName(): String = "LiruneStorage"
 
-    companion object {
-        private val SUPPORTED_EXTENSIONS = setOf(
-            "epub", "pdf", "mobi", "azw", "azw3", "cbz", "cbr",
-            "fb2", "txt", "html", "htm", "djvu", "docx", "doc", "odt", "rtf", "chm"
-        )
-
-        private fun getFormatFromExtension(ext: String): String {
-            return when (ext.lowercase(Locale.ROOT)) {
-                "htm" -> "html"
-                "azw", "azw3" -> "mobi"
-                else -> ext.lowercase(Locale.ROOT)
-            }
-        }
-
-        /**
- * Reads one text entry out of a ZIP container without copying the archive.
- *
- * Discovery needs the OPF of an EPUB to show a real title and author in the file
- * list. Reading the whole book (base64 in JS) to get 2KB of metadata is what made
- * the Files screen slow, and `content://` sources cannot be streamed at all, so
- * discovery only uses this for `file://` paths — the ones the full-storage scan
- * produces — and falls back to the file name everywhere else.
- *
- * Returns null when the archive cannot be opened or the entry does not exist.
- */
-@ReactMethod
-fun readZipEntryText(path: String, entryPath: String, maxBytes: Double, promise: Promise) {
-    Thread {
-        try {
-            val file = File(path)
-            if (!file.isFile) {
-                promise.resolve(null)
-                return@Thread
-            }
-            val limit = if (maxBytes > 0 && maxBytes < Int.MAX_VALUE) maxBytes.toInt() else 1024 * 1024
-            java.util.zip.ZipFile(file).use { zip ->
-                val entry = zip.getEntry(entryPath)
-                    ?: zip.getEntry(entryPath.removePrefix("/"))
-                    ?: return@use promise.resolve(null)
-                if (entry.size > Int.MAX_VALUE) {
-                    promise.resolve(null)
-                    return@use
-                }
-                zip.getInputStream(entry).use { stream ->
-                    val buffer = ByteArray(minOf(limit.coerceAtLeast(1), 1024 * 1024))
-                    var read = 0
-                    while (read < buffer.size) {
-                        val count = stream.read(buffer, read, buffer.size - read)
-                        if (count <= 0) break
-                        read += count
-                    }
-                    promise.resolve(String(buffer, 0, read, Charsets.UTF_8))
-                }
-            }
-        } catch (e: Exception) {
-            // A corrupt or unsupported archive is not an error the Files screen
-            // should surface; it falls back to the file name.
-            promise.resolve(null)
-        }
-    }.start()
-}
-
-private fun getExtensionFromName(name: String): String {
-            val idx = name.lastIndexOf('.')
-            return if (idx >= 0 && idx < name.length - 1) {
-                name.substring(idx + 1).lowercase(Locale.ROOT)
-            } else ""
-        }
-
-        /** Folders a book collection is actually kept in; scanned before the rest of root. */
-        private val PRIORITY_FOLDERS = listOf("Download", "Downloads", "Documents", "Books", "Ebooks", "EPUB")
-
-        /**
-         * Directories that never contain user books and are expensive or huge to walk.
-         * `Android` holds the app's own data and is unreadable without all-files access.
-         */
-        private val SKIPPED_DIRECTORIES = setOf(
-            "android", "node_modules", ".thumbnails", "cache", "lost.dir", "dcim"
-        )
+    private val moduleScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val sourceManager by lazy { SourceManager(reactContext) }
+    private val sessionManager by lazy { BookSessionManager(reactContext) }
+    private val resourceServer by lazy { ResourceServer(sessionManager).also { it.start() } }
+    private val scanner by lazy { Scanner(reactContext, ::emitEventMap) }
+    private val ingestor by lazy {
+        val booksDir = File(reactContext.filesDir, "books")
+        Ingestor(reactContext, booksDir, ::emitEventMap)
     }
 
-    /** Set by `cancelScan()`; checked by the iterative walk. */
+    private val activeListings = ConcurrentHashMap<String, Job>()
     private val scanCancelled = AtomicBoolean(false)
 
-    private fun emitScanProgress(found: Int, currentDir: String) {
+    private fun emitEventMap(eventName: String, params: Map<String, Any?>) {
         try {
-            val payload = Arguments.createMap().apply {
-                putInt("found", found)
-                putString("currentDir", currentDir)
+            val map = Arguments.createMap()
+            for ((key, value) in params) {
+                when (value) {
+                    null -> map.putNull(key)
+                    is String -> map.putString(key, value)
+                    is Int -> map.putInt(key, value)
+                    is Long -> map.putDouble(key, value.toDouble())
+                    is Double -> map.putDouble(key, value)
+                    is Float -> map.putDouble(key, value.toDouble())
+                    is Boolean -> map.putBoolean(key, value)
+                    is List<*> -> {
+                        val arr = Arguments.createArray()
+                        for (item in value) {
+                            if (item is Map<*, *>) {
+                                val itemMap = Arguments.createMap()
+                                @Suppress("UNCHECKED_CAST")
+                                for ((k, v) in item as Map<String, Any?>) {
+                                    when (v) {
+                                        null -> itemMap.putNull(k)
+                                        is String -> itemMap.putString(k, v)
+                                        is Int -> itemMap.putInt(k, v)
+                                        is Long -> itemMap.putDouble(k, v.toDouble())
+                                        is Double -> itemMap.putDouble(k, v)
+                                        is Boolean -> itemMap.putBoolean(k, v)
+                                        else -> itemMap.putString(k, v.toString())
+                                    }
+                                }
+                                arr.pushMap(itemMap)
+                            } else if (item is String) {
+                                arr.pushString(item)
+                            }
+                        }
+                        map.putArray(key, arr)
+                    }
+                }
             }
             reactContext
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                .emit("LiruneScanProgress", payload)
-        } catch (_: Exception) {
-            // Progress is cosmetic; never fail the scan over it.
+                .emit(eventName, map)
+        } catch (_: Exception) {}
+    }
+
+    // ==========================================
+    // SAF Grants & Source Management
+    // ==========================================
+
+    @ReactMethod
+    fun validatePersistedGrants(knownUris: ReadableArray, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val list = ArrayList<String>()
+                for (i in 0 until knownUris.size()) {
+                    knownUris.getString(i)?.let { list.add(it) }
+                }
+                val result = sourceManager.validatePersistedGrants(list)
+                val map = Arguments.createMap().apply {
+                    val validArr = Arguments.createArray()
+                    val revokedArr = Arguments.createArray()
+                    result.validUris.forEach { validArr.pushString(it) }
+                    result.revokedUris.forEach { revokedArr.pushString(it) }
+                    putArray("validUris", validArr)
+                    putArray("revokedUris", revokedArr)
+                }
+                promise.resolve(map)
+            } catch (e: Exception) {
+                promise.reject("VALIDATE_GRANTS_ERROR", e.message, e)
+            }
         }
     }
 
-    /**
-     * Stops an in-flight `scanAllStorage`.
-     *
-     * A full-storage walk of a phone with a few hundred thousand files can take
-     * tens of seconds; the Scan screen exposes this as a Cancel button.
-     */
+    @ReactMethod
+    fun takePersistableGrant(treeUriString: String, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val success = sourceManager.takePersistableGrant(Uri.parse(treeUriString))
+                promise.resolve(success)
+            } catch (e: Exception) {
+                promise.reject("TAKE_GRANT_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun releasePersistableGrant(treeUriString: String, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val success = sourceManager.releasePersistableGrant(Uri.parse(treeUriString))
+                promise.resolve(success)
+            } catch (e: Exception) {
+                promise.reject("RELEASE_GRANT_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun pruneGrantsIfNeeded(lruUris: ReadableArray, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val list = ArrayList<String>()
+                for (i in 0 until lruUris.size()) {
+                    lruUris.getString(i)?.let { list.add(it) }
+                }
+                sourceManager.pruneIfApproachingLimit(list)
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.reject("PRUNE_GRANTS_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun getStorageVolumes(promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val volumes = sourceManager.getStorageVolumes()
+                val arr = Arguments.createArray()
+                for (v in volumes) {
+                    val map = Arguments.createMap().apply {
+                        putString("id", v.id)
+                        putString("label", v.label)
+                        putBoolean("isRemovable", v.isRemovable)
+                        putDouble("freeBytes", v.freeBytes.toDouble())
+                        putDouble("totalBytes", v.totalBytes.toDouble())
+                        putBoolean("isPrimary", v.isPrimary)
+                        putString("path", v.path)
+                    }
+                    arr.pushMap(map)
+                }
+                promise.resolve(arr)
+            } catch (e: Exception) {
+                promise.reject("VOLUMES_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun buildInitialPickerIntent(volumeId: String?, hint: String?, promise: Promise) {
+        try {
+            val intent = sourceManager.buildInitialPickerIntent(volumeId, hint)
+            promise.resolve(intent.toUri(0))
+        } catch (e: Exception) {
+            promise.reject("PICKER_INTENT_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun observeDirectory(treeUri: String, docId: String?, promise: Promise) {
+        try {
+            val uri = if (docId != null) {
+                DocumentsContract.buildDocumentUriUsingTree(Uri.parse(treeUri), docId).toString()
+            } else {
+                treeUri
+            }
+            sourceManager.observeDirectory(uri) {
+                emitEventMap("onDirectoryChanged", mapOf("treeUri" to treeUri, "docId" to docId))
+            }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("OBSERVE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun stopObserving(treeUri: String, promise: Promise) {
+        try {
+            sourceManager.stopObserving(treeUri)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("STOP_OBSERVE_ERROR", e.message, e)
+        }
+    }
+
+    // ==========================================
+    // Streaming Scanner
+    // ==========================================
+
+    @ReactMethod
+    fun startScan(options: ReadableMap, promise: Promise) {
+        try {
+            val treeUri = if (options.hasKey("treeUri")) options.getString("treeUri") else null
+            val localPath = if (options.hasKey("localPath")) options.getString("localPath") else null
+            val maxDepth = if (options.hasKey("maxDepth")) options.getInt("maxDepth") else 10
+
+            scanner.startScan(treeUri, localPath, maxDepth, moduleScope)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("START_SCAN_ERROR", e.message, e)
+        }
+    }
+
     @ReactMethod
     fun cancelScan(promise: Promise) {
-        scanCancelled.set(true)
+        try {
+            scanner.cancelScan()
+            scanCancelled.set(true)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("CANCEL_SCAN_ERROR", e.message, e)
+        }
+    }
+
+    // ==========================================
+    // Content-Based Format Sniffer
+    // ==========================================
+
+    @ReactMethod
+    fun sniffFile(uriOrPath: String, fallbackFilename: String?, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val result = if (uriOrPath.startsWith("file://") || uriOrPath.startsWith("/")) {
+                    val path = if (uriOrPath.startsWith("file://")) Uri.parse(uriOrPath).path ?: uriOrPath.removePrefix("file://") else uriOrPath
+                    FormatRegistry.sniffFile(File(path), fallbackFilename)
+                } else {
+                    FormatRegistry.sniff(reactContext, Uri.parse(uriOrPath), fallbackFilename)
+                }
+
+                val map = Arguments.createMap().apply {
+                    putString("format", result.format)
+                    putDouble("confidence", result.confidence.toDouble())
+                    putString("reason", result.reason)
+                    putBoolean("isDrm", result.isDrm)
+                    putString("drmReason", result.drmReason)
+                    putString("quickFp", result.quickFp)
+                }
+                promise.resolve(map)
+            } catch (e: Exception) {
+                promise.reject("SNIFF_ERROR", e.message, e)
+            }
+        }
+    }
+
+    // ==========================================
+    // Ingestor
+    // ==========================================
+
+    @ReactMethod
+    fun ingestFile(options: ReadableMap, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val uri = options.getString("uri") ?: throw IllegalArgumentException("Missing uri")
+                val mode = if (options.hasKey("mode")) options.getString("mode") ?: "managed" else "managed"
+                val name = options.getString("name") ?: "book"
+                val format = if (options.hasKey("format")) options.getString("format") ?: "epub" else "epub"
+                val jobId = if (options.hasKey("jobId")) options.getDouble("jobId").toLong() else 0L
+
+                val existingShaList = HashSet<String>()
+                if (options.hasKey("existingSha256List")) {
+                    val arr = options.getArray("existingSha256List")
+                    if (arr != null) {
+                        for (i in 0 until arr.size()) {
+                            arr.getString(i)?.let { existingShaList.add(it) }
+                        }
+                    }
+                }
+
+                val res = ingestor.ingest(uri, mode, name, format, existingShaList, jobId)
+                val map = Arguments.createMap().apply {
+                    putString("bookId", res.bookId)
+                    putString("sha256", res.sha256)
+                    putDouble("size", res.size.toDouble())
+                    putString("mode", res.mode)
+                    putString("pathOrUri", res.pathOrUri)
+                    putString("title", res.title)
+                    putString("author", res.author)
+                    putString("format", res.format)
+                    putBoolean("isDuplicate", res.isDuplicate)
+                }
+                promise.resolve(map)
+            } catch (e: Exception) {
+                promise.reject("INGEST_ERROR", e.message, e)
+            }
+        }
+    }
+
+    // ==========================================
+    // BookSession & ResourceServer
+    // ==========================================
+
+    @ReactMethod
+    fun openBookSession(pathOrUri: String, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val session = sessionManager.openSession(pathOrUri)
+                val map = Arguments.createMap().apply {
+                    putString("handleId", session.handleId)
+                    putDouble("size", session.size.toDouble())
+                    putBoolean("seekable", session.seekable)
+                }
+                promise.resolve(map)
+            } catch (e: Exception) {
+                promise.reject("OPEN_SESSION_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun readBookSession(handleId: String, offset: Double, length: Double, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val bytes = sessionManager.readBytes(handleId, offset.toLong(), length.toInt())
+                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                promise.resolve(base64)
+            } catch (e: Exception) {
+                promise.reject("READ_SESSION_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun closeBookSession(handleId: String, promise: Promise) {
+        try {
+            sessionManager.closeSession(handleId)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("CLOSE_SESSION_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun getResourceServerUrl(handleId: String, promise: Promise) {
+        try {
+            val url = "http://127.0.0.1:${resourceServer.port}/book/$handleId"
+            promise.resolve(url)
+        } catch (e: Exception) {
+            promise.reject("SERVER_URL_ERROR", e.message, e)
+        }
+    }
+
+    // ==========================================
+    // Custom In-App Directory Listing (Workstream C)
+    // ==========================================
+
+    @ReactMethod
+    fun listDirectory(treeUri: String, docId: String?, options: ReadableMap, promise: Promise) {
+        val requestId = java.util.UUID.randomUUID().toString()
+        val batchSize = if (options.hasKey("batchSize")) options.getInt("batchSize") else 100
+        val isAllFiles = options.hasKey("backend") && options.getString("backend") == "allFiles"
+
+        val backend: StorageBackend = if (isAllFiles) AllFilesStorageBackend() else SafStorageBackend(reactContext)
+
+        val job = moduleScope.launch(Dispatchers.IO) {
+            try {
+                val total = backend.listDirectory(treeUri, docId, batchSize) { batch ->
+                    val arr = Arguments.createArray()
+                    for (entry in batch) {
+                        val item = Arguments.createMap().apply {
+                            putString("docId", entry.docId)
+                            putString("name", entry.name)
+                            putBoolean("isDirectory", entry.isDirectory)
+                            putDouble("size", entry.size.toDouble())
+                            putDouble("mtime", entry.mtime.toDouble())
+                            putString("mimeType", entry.mimeType)
+                            putString("format", entry.format)
+                            putString("uri", entry.uri)
+                        }
+                        arr.pushMap(item)
+                    }
+                    val payload = Arguments.createMap().apply {
+                        putString("requestId", requestId)
+                        putArray("entries", arr)
+                    }
+                    reactContext
+                        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                        .emit("onDirBatch", payload)
+                }
+
+                val donePayload = Arguments.createMap().apply {
+                    putString("requestId", requestId)
+                    putInt("total", total)
+                }
+                reactContext
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    .emit("onDirDone", donePayload)
+            } catch (e: CancellationException) {
+                // Cancelled
+            } catch (e: Exception) {
+                val errPayload = Arguments.createMap().apply {
+                    putString("requestId", requestId)
+                    putString("error", e.message ?: "Listing failed")
+                }
+                reactContext
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    .emit("onDirError", errPayload)
+            } finally {
+                activeListings.remove(requestId)
+            }
+        }
+
+        activeListings[requestId] = job
+        val map = Arguments.createMap().apply {
+            putString("requestId", requestId)
+        }
+        promise.resolve(map)
+    }
+
+    @ReactMethod
+    fun cancelListing(requestId: String, promise: Promise) {
+        activeListings.remove(requestId)?.cancel()
         promise.resolve(true)
     }
 
-    /**
-     * Every volume the app can see: the primary external storage plus every
-     * secondary volume (SD cards), derived from the app's external files dirs.
-     */
-    private fun storageRoots(): List<File> {
-        val roots = ArrayList<File>()
-        val seen = HashSet<String>()
-
-        fun add(path: String?) {
-            if (path.isNullOrBlank()) return
-            val normalized = path.trimEnd('/')
-            if (seen.add(normalized)) roots.add(File(normalized))
-        }
-
-        add(Environment.getExternalStorageDirectory()?.absolutePath)
-        add("/storage/emulated/0")
-        try {
-            reactContext.getExternalFilesDirs(null)?.forEach { dir ->
-                // /storage/XXXX-XXXX/Android/data/<pkg>/files -> /storage/XXXX-XXXX
-                val marker = dir.absolutePath.indexOf("/Android/")
-                if (marker > 0) add(dir.absolutePath.substring(0, marker))
-            }
-        } catch (_: Exception) {
-            // No secondary storage on this device.
-        }
-        return roots
-    }
-
-    /**
-     * Full-storage discovery with all-files access.
-     *
-     * MediaStore cannot list EPUBs or PDFs (they are not media), and the SAF
-     * picker cannot hand out the storage root or the Download folder itself, so
-     * neither can find a book library stored there. This walks the volumes
-     * directly instead: priority folders first, bounded by depth, result count and
-     * a wall-clock budget, and cancellable from JS.
-     */
     @ReactMethod
-    fun scanAllStorage(options: ReadableMap, promise: Promise) {
-        Thread {
+    fun getDocumentInfo(treeUri: String, docId: String?, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
             try {
-                scanCancelled.set(false)
-
-                val maxDepth = if (options.hasKey("maxDepth")) options.getInt("maxDepth") else 8
-                val depthLimit = if (maxDepth in 1..16) maxDepth else 8
-                val maxResults = if (options.hasKey("maxResults")) options.getInt("maxResults") else 5000
-                val resultLimit = if (maxResults in 1..50000) maxResults else 5000
-                val budgetMs = if (options.hasKey("timeBudgetMs")) options.getInt("timeBudgetMs").toLong() else 45000L
-                val minBytes = if (options.hasKey("minBytes")) options.getInt("minBytes").toLong() else 4096L
-
-                val extensions = HashSet<String>()
-                if (options.hasKey("extensions")) {
-                    val array = options.getArray("extensions")
-                    if (array != null) {
-                        for (i in 0 until array.size()) {
-                            val raw = array.getString(i) ?: continue
-                            extensions.add(getExtensionFromName(raw))
-                        }
+                val backend = SafStorageBackend(reactContext)
+                val entry = backend.stat(treeUri, docId)
+                if (entry != null) {
+                    val map = Arguments.createMap().apply {
+                        putString("docId", entry.docId)
+                        putString("name", entry.name)
+                        putBoolean("isDirectory", entry.isDirectory)
+                        putDouble("size", entry.size.toDouble())
+                        putDouble("mtime", entry.mtime.toDouble())
+                        putString("mimeType", entry.mimeType)
+                        putString("format", entry.format)
+                        putString("uri", entry.uri)
                     }
-                }
-                // Archives are opt-in: a phone's .zip files outnumber its books.
-                val effectiveExtensions = if (extensions.isEmpty()) {
-                    SUPPORTED_EXTENSIONS.filter { it != "zip" && it != "rar" }.toSet()
+                    promise.resolve(map)
                 } else {
-                    extensions
+                    promise.resolve(null)
                 }
-
-                val packageDir = "/Android/data/${reactContext.packageName}"
-                val results = Arguments.createArray()
-                val seenPaths = HashSet<String>()
-                val startedAt = System.currentTimeMillis()
-                var lastProgressAt = 0L
-
-                for (root in storageRoots()) {
-                    if (scanCancelled.get()) break
-                    if (!root.exists() || !root.isDirectory) continue
-
-                    // Priority folders first so the books a user just downloaded
-                    // appear at the top of the list instead of after a full walk.
-                    val queue = ArrayDeque<Pair<File, Int>>()
-                    for (name in PRIORITY_FOLDERS) {
-                        val candidate = File(root, name)
-                        if (candidate.isDirectory) queue.add(Pair(candidate, 1))
-                    }
-                    queue.add(Pair(root, 0))
-
-                    while (queue.isNotEmpty()) {
-                        if (scanCancelled.get()) break
-                        if (results.size() >= resultLimit) break
-                        if (System.currentTimeMillis() - startedAt > budgetMs) break
-
-                        val (currentDir, currentDepth) = queue.poll() ?: break
-                        val now = System.currentTimeMillis()
-                        if (now - lastProgressAt > 250) {
-                            lastProgressAt = now
-                            emitScanProgress(results.size(), currentDir.absolutePath)
-                        }
-
-                        val children = try {
-                            currentDir.listFiles()
-                        } catch (_: Exception) {
-                            null
-                        } ?: continue
-
-                        for (child in children) {
-                            if (scanCancelled.get()) break
-                            if (results.size() >= resultLimit) break
-
-                            try {
-                                if (child.isDirectory) {
-                                    if (currentDepth + 1 > depthLimit) continue
-                                    val name = child.name
-                                    if (name.startsWith(".") || SKIPPED_DIRECTORIES.contains(name.lowercase(Locale.ROOT))) continue
-                                    if (child.absolutePath.contains(packageDir)) continue
-                                    queue.add(Pair(child, currentDepth + 1))
-                                    continue
-                                }
-                                if (!child.isFile) continue
-                                val length = child.length()
-                                if (length < minBytes) continue
-
-                                val effectiveName = child.name
-                                val ext = getExtensionFromName(effectiveName)
-                                if (!effectiveExtensions.contains(ext)) continue
-
-                                val absPath = child.absolutePath
-                                if (!seenPaths.add(absPath)) continue
-
-                                val fileUri = "file://$absPath"
-                                val mimeType = MimeTypeMap.getSingleton()
-                                    .getMimeTypeFromExtension(ext)
-                                    ?: "application/octet-stream"
-                                val item = Arguments.createMap().apply {
-                                    putString("id", fileUri)
-                                    putString("uri", fileUri)
-                                    putString("path", absPath)
-                                    putString("name", effectiveName)
-                                    putDouble("size", length.toDouble())
-                                    putString("mimeType", mimeType)
-                                    putString("folderName", child.parentFile?.name ?: root.name)
-                                    // Format is resolved in JS, where the extension table lives.
-                                    putNull("format")
-                                }
-                                results.pushMap(item)
-                            } catch (_: Exception) {
-                                // Ignore an individual unreadable entry.
-                            }
-                        }
-                    }
-                }
-
-                promise.resolve(results)
             } catch (e: Exception) {
-                promise.reject("FULL_SCAN_ERROR", e.message, e)
+                promise.reject("DOC_INFO_ERROR", e.message, e)
             }
-        }.start()
+        }
     }
 
-    /**
-     * Checks if the app has All Files Access (MANAGE_EXTERNAL_STORAGE) on Android 11+
-     * or standard storage permissions on older Android.
-     */
+    @ReactMethod
+    fun getParentChain(treeUri: String, docId: String?, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val backend = SafStorageBackend(reactContext)
+                val chain = backend.getParentChain(treeUri, docId)
+                val arr = Arguments.createArray()
+                for (p in chain) {
+                    val map = Arguments.createMap().apply {
+                        putString("docId", p.first)
+                        putString("name", p.second)
+                    }
+                    arr.pushMap(map)
+                }
+                promise.resolve(arr)
+            } catch (e: Exception) {
+                promise.reject("PARENT_CHAIN_ERROR", e.message, e)
+            }
+        }
+    }
+
+    // ==========================================
+    // Backward Compatibility Bridge Methods
+    // ==========================================
+
     @ReactMethod
     fun hasAllFilesAccess(promise: Promise) {
         try {
@@ -316,9 +515,6 @@ private fun getExtensionFromName(name: String): String {
         }
     }
 
-    /**
-     * Launches the system settings screen for MANAGE_APP_ALL_FILES_ACCESS_PERMISSION.
-     */
     @ReactMethod
     fun requestAllFilesAccess(promise: Promise) {
         try {
@@ -349,9 +545,6 @@ private fun getExtensionFromName(name: String): String {
         }
     }
 
-    /**
-     * Checks if the app has basic storage permissions (READ_EXTERNAL_STORAGE or media permissions).
-     */
     @ReactMethod
     fun hasStoragePermission(promise: Promise) {
         try {
@@ -369,13 +562,9 @@ private fun getExtensionFromName(name: String): String {
         }
     }
 
-    /**
-     * Scans Android MediaStore for supported book and document files.
-     * Works on modern Android without MANAGE_EXTERNAL_STORAGE.
-     */
     @ReactMethod
     fun scanMediaStore(promise: Promise) {
-        Thread {
+        moduleScope.launch(Dispatchers.IO) {
             try {
                 val results = Arguments.createArray()
                 val seenUris = HashSet<String>()
@@ -390,7 +579,6 @@ private fun getExtensionFromName(name: String): String {
                     MediaStore.Files.FileColumns.DATE_MODIFIED
                 )
 
-                // Query external files table
                 val queryUri = MediaStore.Files.getContentUri("external")
                 val cursor: Cursor? = resolver.query(
                     queryUri,
@@ -415,9 +603,9 @@ private fun getExtensionFromName(name: String): String {
                         val size = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
 
                         val effectiveName = if (name.isNotBlank()) name else File(path).name
-                        val ext = getExtensionFromName(effectiveName)
+                        val ext = getExt(effectiveName)
 
-                        if (SUPPORTED_EXTENSIONS.contains(ext)) {
+                        if (FormatRegistry.isSupported(ext)) {
                             val contentUri = if (id >= 0) {
                                 ContentUris.withAppendedId(queryUri, id).toString()
                             } else if (path.isNotBlank()) {
@@ -432,7 +620,7 @@ private fun getExtensionFromName(name: String): String {
                                     putString("name", effectiveName)
                                     putDouble("size", size.toDouble())
                                     putString("mimeType", mime)
-                                    putString("format", getFormatFromExtension(ext))
+                                    putString("format", ext)
                                     val parentName = if (path.isNotBlank()) {
                                         File(path).parentFile?.name ?: "Downloads"
                                     } else "Downloads"
@@ -443,77 +631,16 @@ private fun getExtensionFromName(name: String): String {
                         }
                     }
                 }
-
-                // Also query MediaStore.Downloads directly on API 29+ if available
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    try {
-                        val downloadUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-                        val dlCursor = resolver.query(
-                            downloadUri,
-                            projection,
-                            null,
-                            null,
-                            "${MediaStore.Downloads.DATE_MODIFIED} DESC"
-                        )
-                        dlCursor?.use { c ->
-                            val idCol = c.getColumnIndex(MediaStore.Downloads._ID)
-                            val nameCol = c.getColumnIndex(MediaStore.Downloads.DISPLAY_NAME)
-                            val dataCol = c.getColumnIndex(MediaStore.Downloads.DATA)
-                            val mimeCol = c.getColumnIndex(MediaStore.Downloads.MIME_TYPE)
-                            val sizeCol = c.getColumnIndex(MediaStore.Downloads.SIZE)
-
-                            while (c.moveToNext()) {
-                                val id = if (idCol >= 0) c.getLong(idCol) else -1L
-                                val name = if (nameCol >= 0) c.getString(nameCol) ?: "" else ""
-                                val path = if (dataCol >= 0) c.getString(dataCol) ?: "" else ""
-                                val mime = if (mimeCol >= 0) c.getString(mimeCol) ?: "" else ""
-                                val size = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
-
-                                val effectiveName = if (name.isNotBlank()) name else File(path).name
-                                val ext = getExtensionFromName(effectiveName)
-
-                                if (SUPPORTED_EXTENSIONS.contains(ext)) {
-                                    val contentUri = if (id >= 0) {
-                                        ContentUris.withAppendedId(downloadUri, id).toString()
-                                    } else if (path.isNotBlank()) {
-                                        "file://$path"
-                                    } else continue
-
-                                    if (seenUris.add(contentUri)) {
-                                        val item = Arguments.createMap().apply {
-                                            putString("id", contentUri)
-                                            putString("uri", contentUri)
-                                            putString("path", path)
-                                            putString("name", effectiveName)
-                                            putDouble("size", size.toDouble())
-                                            putString("mimeType", mime)
-                                            putString("format", getFormatFromExtension(ext))
-                                            putString("folderName", "Downloads")
-                                        }
-                                        results.pushMap(item)
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // MediaStore.Downloads might not be available on all devices
-                    }
-                }
-
                 promise.resolve(results)
             } catch (e: Exception) {
                 promise.reject("MEDIA_STORE_SCAN_ERROR", e.message, e)
             }
-        }.start()
+        }
     }
 
-    /**
-     * Fast native directory tree scanner for accessible filesystem paths.
-     * Recursively traverses folders using java.io.File up to maxDepth.
-     */
     @ReactMethod
     fun scanDirectories(paths: ReadableArray, maxDepth: Int, promise: Promise) {
-        Thread {
+        moduleScope.launch(Dispatchers.IO) {
             try {
                 val results = Arguments.createArray()
                 val seenPaths = HashSet<String>()
@@ -524,7 +651,6 @@ private fun getExtensionFromName(name: String): String {
                     val rootDir = File(rootPath)
                     if (!rootDir.exists() || !rootDir.isDirectory) continue
 
-                    // BFS queue: Pair of Directory and current depth
                     val queue = ArrayDeque<Pair<File, Int>>()
                     queue.add(Pair(rootDir, 0))
 
@@ -532,7 +658,7 @@ private fun getExtensionFromName(name: String): String {
                         val (currentDir, currentDepth) = queue.poll() ?: break
                         val files = try {
                             currentDir.listFiles()
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             null
                         } ?: continue
 
@@ -540,7 +666,6 @@ private fun getExtensionFromName(name: String): String {
                             try {
                                 if (file.isDirectory) {
                                     val name = file.name
-                                    // Skip hidden and restricted system folders
                                     if (name.startsWith(".") || name.equals("Android", ignoreCase = true)) {
                                         continue
                                     }
@@ -548,8 +673,8 @@ private fun getExtensionFromName(name: String): String {
                                         queue.add(Pair(file, currentDepth + 1))
                                     }
                                 } else if (file.isFile) {
-                                    val ext = getExtensionFromName(file.name)
-                                    if (SUPPORTED_EXTENSIONS.contains(ext)) {
+                                    val ext = getExt(file.name)
+                                    if (FormatRegistry.isSupported(ext)) {
                                         val absPath = file.absolutePath
                                         if (seenPaths.add(absPath)) {
                                             val fileUri = "file://$absPath"
@@ -559,44 +684,34 @@ private fun getExtensionFromName(name: String): String {
                                                 putString("path", absPath)
                                                 putString("name", file.name)
                                                 putDouble("size", file.length().toDouble())
-                                                putString("format", getFormatFromExtension(ext))
+                                                putString("format", ext)
                                                 putString("folderName", file.parentFile?.name ?: rootDir.name)
                                             }
                                             results.pushMap(item)
                                         }
                                     }
                                 }
-                            } catch (_: Exception) {
-                                // Ignore individual file inspection failure
-                            }
+                            } catch (_: Exception) {}
                         }
                     }
                 }
-
                 promise.resolve(results)
             } catch (e: Exception) {
                 promise.reject("DIRECTORY_SCAN_ERROR", e.message, e)
             }
-        }.start()
+        }
     }
 
-    /**
-     * Traverses a Storage Access Framework (SAF) tree URI recursively using DocumentsContract.
-     */
     @ReactMethod
     fun scanSafTree(treeUriString: String, maxDepth: Int, promise: Promise) {
-        Thread {
+        moduleScope.launch(Dispatchers.IO) {
             try {
                 val results = Arguments.createArray()
                 val treeUri = Uri.parse(treeUriString)
                 val resolver = reactContext.contentResolver
 
-                // Persist read permission if not already done
                 try {
-                    resolver.takePersistableUriPermission(
-                        treeUri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
+                    sourceManager.takePersistableGrant(treeUri)
                 } catch (_: Exception) {}
 
                 val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
@@ -624,7 +739,7 @@ private fun getExtensionFromName(name: String): String {
 
                     val cursor: Cursor? = try {
                         resolver.query(childrenUri, projection, null, null, null)
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         null
                     }
 
@@ -648,8 +763,8 @@ private fun getExtensionFromName(name: String): String {
                                     queue.add(Pair(childDocId, currentDepth + 1))
                                 }
                             } else {
-                                val ext = getExtensionFromName(name)
-                                if (SUPPORTED_EXTENSIONS.contains(ext)) {
+                                val ext = getExt(name)
+                                if (FormatRegistry.isSupported(ext)) {
                                     val docUri = DocumentsContract.buildDocumentUriUsingTree(
                                         treeUri,
                                         childDocId
@@ -661,9 +776,8 @@ private fun getExtensionFromName(name: String): String {
                                         putString("name", name)
                                         putDouble("size", size.toDouble())
                                         putString("mimeType", mime)
-                                        putString("format", getFormatFromExtension(ext))
-                                        val folder = decodeFolderName(treeUriString)
-                                        putString("folderName", folder)
+                                        putString("format", ext)
+                                        putString("folderName", "Storage")
                                     }
                                     results.pushMap(item)
                                 }
@@ -671,50 +785,84 @@ private fun getExtensionFromName(name: String): String {
                         }
                     }
                 }
-
                 promise.resolve(results)
             } catch (e: Exception) {
                 promise.reject("SAF_SCAN_ERROR", e.message, e)
             }
-        }.start()
-    }
-
-    private fun decodeFolderName(uriString: String): String {
-        return try {
-            val decoded = Uri.decode(uriString)
-            decoded.substringAfterLast(':').substringAfterLast('/')
-        } catch (_: Exception) {
-            "Storage"
         }
     }
 
-    /**
-     * Efficient native streaming copy from content:// or file:// URI to app destination.
-     * Completely avoids Base64 memory overhead.
-     */
+    @ReactMethod
+    fun scanAllStorage(options: ReadableMap, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                scanCancelled.set(false)
+                val results = Arguments.createArray()
+                val roots = storageRoots()
+                val seenPaths = HashSet<String>()
+
+                for (root in roots) {
+                    if (scanCancelled.get()) break
+                    if (!root.exists() || !root.isDirectory) continue
+
+                    val queue = ArrayDeque<Pair<File, Int>>()
+                    queue.add(Pair(root, 0))
+
+                    while (queue.isNotEmpty()) {
+                        if (scanCancelled.get()) break
+                        val (currentDir, currentDepth) = queue.poll() ?: break
+                        if (currentDepth > 8) continue
+
+                        val files = try { currentDir.listFiles() } catch (_: Exception) { null } ?: continue
+                        for (child in files) {
+                            if (scanCancelled.get()) break
+                            if (child.isDirectory) {
+                                val n = child.name.lowercase(Locale.ROOT)
+                                if (!n.startsWith(".") && n != "android") {
+                                    queue.add(Pair(child, currentDepth + 1))
+                                }
+                            } else if (child.isFile) {
+                                val ext = getExt(child.name)
+                                if (FormatRegistry.isSupported(ext) && child.length() >= 1024L) {
+                                    if (seenPaths.add(child.absolutePath)) {
+                                        val fileUri = "file://${child.absolutePath}"
+                                        val item = Arguments.createMap().apply {
+                                            putString("id", fileUri)
+                                            putString("uri", fileUri)
+                                            putString("path", child.absolutePath)
+                                            putString("name", child.name)
+                                            putDouble("size", child.length().toDouble())
+                                            putString("format", ext)
+                                            putString("folderName", child.parentFile?.name ?: root.name)
+                                        }
+                                        results.pushMap(item)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                promise.resolve(results)
+            } catch (e: Exception) {
+                promise.reject("FULL_SCAN_ERROR", e.message, e)
+            }
+        }
+    }
+
     @ReactMethod
     fun copyContentUriToStorage(sourceUriString: String, destPath: String, promise: Promise) {
-        Thread {
+        moduleScope.launch(Dispatchers.IO) {
             try {
                 val sourceUri = Uri.parse(sourceUriString)
                 val destFile = File(destPath)
                 destFile.parentFile?.mkdirs()
 
-                val inputStream = when {
-                    sourceUriString.startsWith("file://") || sourceUriString.startsWith("/") -> {
-                        val rawPath = if (sourceUriString.startsWith("file://")) {
-                            sourceUri.path ?: sourceUriString.removePrefix("file://")
-                        } else {
-                            sourceUriString
-                        }
-                        val decodedPath = try { Uri.decode(rawPath) } catch (_: Exception) { rawPath }
-                        val f = File(decodedPath)
-                        if (f.exists() && f.isFile) f.inputStream() else File(rawPath).inputStream()
-                    }
-                    else -> {
-                        reactContext.contentResolver.openInputStream(sourceUri)
-                            ?: throw IOException("Cannot open input stream for $sourceUriString")
-                    }
+                val inputStream = if (sourceUriString.startsWith("file://") || sourceUriString.startsWith("/")) {
+                    val rawPath = if (sourceUriString.startsWith("file://")) sourceUri.path ?: sourceUriString.removePrefix("file://") else sourceUriString
+                    File(rawPath).inputStream()
+                } else {
+                    reactContext.contentResolver.openInputStream(sourceUri)
+                        ?: throw IOException("Cannot open input stream for $sourceUriString")
                 }
 
                 val outputStream = FileOutputStream(destFile)
@@ -735,19 +883,50 @@ private fun getExtensionFromName(name: String): String {
                 if (!destFile.exists() || destFile.length() == 0L) {
                     destFile.delete()
                     promise.reject("COPY_ERROR", "Copied file is empty or missing")
-                    return@Thread
+                    return@launch
                 }
-
                 promise.resolve(copiedBytes.toDouble())
             } catch (e: Exception) {
                 promise.reject("COPY_STREAM_ERROR", e.message, e)
             }
-        }.start()
+        }
     }
 
-    /**
-     * Clears any active launch intent on MainActivity so cold/warm relaunches don't re-trigger.
-     */
+    @ReactMethod
+    fun readZipEntryText(path: String, entryPath: String, maxBytes: Double, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val file = File(path)
+                if (!file.isFile) {
+                    promise.resolve(null)
+                    return@launch
+                }
+                val limit = if (maxBytes > 0 && maxBytes < Int.MAX_VALUE) maxBytes.toInt() else 1024 * 1024
+                java.util.zip.ZipFile(file).use { zip ->
+                    val entry = zip.getEntry(entryPath)
+                        ?: zip.getEntry(entryPath.removePrefix("/"))
+                        ?: return@use promise.resolve(null)
+                    if (entry.size > Int.MAX_VALUE) {
+                        promise.resolve(null)
+                        return@use
+                    }
+                    zip.getInputStream(entry).use { stream ->
+                        val buffer = ByteArray(minOf(limit.coerceAtLeast(1), 1024 * 1024))
+                        var read = 0
+                        while (read < buffer.size) {
+                            val count = stream.read(buffer, read, buffer.size - read)
+                            if (count <= 0) break
+                            read += count
+                        }
+                        promise.resolve(String(buffer, 0, read, Charsets.UTF_8))
+                    }
+                }
+            } catch (_: Exception) {
+                promise.resolve(null)
+            }
+        }
+    }
+
     @ReactMethod
     fun clearCurrentIntent(promise: Promise) {
         try {
@@ -763,5 +942,29 @@ private fun getExtensionFromName(name: String): String {
         } catch (_: Exception) {
             promise.resolve(false)
         }
+    }
+
+    private fun storageRoots(): List<File> {
+        val roots = ArrayList<File>()
+        val seen = HashSet<String>()
+        fun add(path: String?) {
+            if (path.isNullOrBlank()) return
+            val normalized = path.trimEnd('/')
+            if (seen.add(normalized)) roots.add(File(normalized))
+        }
+        add(Environment.getExternalStorageDirectory()?.absolutePath)
+        add("/storage/emulated/0")
+        try {
+            reactContext.getExternalFilesDirs(null)?.forEach { dir ->
+                val marker = dir.absolutePath.indexOf("/Android/")
+                if (marker > 0) add(dir.absolutePath.substring(0, marker))
+            }
+        } catch (_: Exception) {}
+        return roots
+    }
+
+    private fun getExt(name: String): String {
+        val idx = name.lastIndexOf('.')
+        return if (idx >= 0 && idx < name.length - 1) name.substring(idx + 1).lowercase(Locale.ROOT) else ""
     }
 }

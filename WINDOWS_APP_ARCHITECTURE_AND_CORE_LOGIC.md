@@ -82,9 +82,10 @@ graph TD
 * **`sandbox: true`:** The renderer process runs inside the Chromium OS-level sandbox with restricted system privilege.
 * **`webSecurity: true`:** Same-Origin Policy and local file access restrictions are strictly enforced.
 * **Permission Request Block:** `session.defaultSession.setPermissionRequestHandler` and `setPermissionCheckHandler` unconditionally return `false`, rejecting microphone, camera, geolocation, notification, and sensor requests.
-* **Shell URL Navigation Guard (`classifyNavigation`):**
+* **Shell URL Navigation Guard (`classifyNavigation` & `will-navigate`):**
   * `index.html` via `file://` is the **only** permitted navigation target for the main window.
-  * External web URLs (`http:`, `https:`) intercepted via `will-navigate` and `setWindowOpenHandler` are blocked from rendering in the application and redirected to the user's default external browser via `shell.openExternal`.
+  * Top-level `will-navigate` unconditionally cancels (`event.preventDefault()`) all external redirects from untrusted book content, preventing auto-launching external browser windows without explicit user intent.
+  * Explicit external web links intercepted via `setWindowOpenHandler` or the scoped `shell:open-external` IPC bridge are validated with the URL API (`isValidExternalHttpUrl`), allowing only `http:` and `https:` schemes without userinfo/credentials.
   * Arbitrary local schemes, directory browsing, or remote injections are denied with `event.preventDefault()`.
 
 ---
@@ -107,26 +108,36 @@ if (!gotTheLock) {
 ```
 * **Argument Sanitization (`extractBookArg`):** Inspects incoming process arguments, strips wrapping shell quotation marks, discards Electron flags (`--inspect`, `-psn`), filters against supported extensions, and verifies via `fs.existsSync` and `fs.statSync` that the target is a real file.
 
-### 3.2 Dynamic Path Authorization Contract
-To prevent a compromised renderer or DOM script from reading arbitrary files from the user's filesystem (such as `C:\Windows\System32` or user documents), Lirune implements an **Authorization Map with Time-To-Live**:
+### 3.2 Dynamic Path Authorization & Trusted Sender Validation
+To prevent a compromised renderer or DOM script from reading arbitrary files from the user's filesystem (such as `C:\Windows\System32` or user documents), Lirune enforces **Trusted Sender Verification** and an **Authorization Map with Point-of-Consumption TTL Checking**:
 ```javascript
 const pendingBookReadPaths = new Map();
 const PENDING_PATH_TTL_MS = 5 * 60 * 1000; // 5 minutes
 ```
-1. **Authorization:** When a book is opened via OS CLI, double-click, file association, or native file dialog (`dialog:open-files`), the absolute normalized path is added to `pendingBookReadPaths`.
-2. **Consumption:** When the renderer calls `fs:read-book`, the Main process calls `consumeAuthorizedBookPath(resolvedPath)`.
-3. **One-Time Token:** If the path was not explicitly authorized or has expired, access is **denied immediately**, throwing `"This file was not opened by the operating system"`.
-4. **Revocation:** Once read or if canceled, the path is deleted from the map.
+1. **Trusted-Sender Verification (`requireTrustedSender`):** Every privileged IPC handler inspects `event.senderFrame.url`, verifying it matches the canonical `EXPECTED_SHELL_URL` (`index.html`). IPC calls from unexpected or rogue frames are rejected immediately.
+2. **Authorization:** When a book is opened via OS CLI, double-click, file association, native file dialog (`dialog:open-files`), or folder scan (`dialog:open-folder`), the absolute canonical path is added to `pendingBookReadPaths` with the current timestamp. The renderer cannot authorize arbitrary paths.
+3. **Point-of-Consumption Expiration & One-Time Token (`consumeAuthorizedBookPath`):** When the renderer requests `fs:read-book`:
+   * The path is matched against `pendingBookReadPaths`.
+   * The entry is deleted immediately (one-time consumption enforced; duplicate reads fail).
+   * The timestamp is checked at the exact moment of consumption: if `Date.now() - timestamp > PENDING_PATH_TTL_MS`, access is **denied immediately**, throwing `"This file was not opened by the operating system"`.
+4. **Revocation:** Once read or if canceled, the path is revoked and removed from the map.
 
-### 3.3 Managed AppData Storage Engine
+### 3.3 Managed AppData Storage Engine & Resource Limits
 To protect book contents from accidental external deletion or relocation by the user, Lirune copies imported books into its isolated application directory:
 * **Storage Location:** `%APPDATA%\Lirune Reader\books\` (resolved via `app.getPath('userData')`).
 * **Content Addressability:** Every book receives an immutable filename based on the SHA-256 digest of its contents:
   $$\text{Storage ID} = \text{SHA256}(\text{fileBuffer}) + \text{"."} + \text{extension}$$
+* **Resource Bounds:**
+  * Maximum book file size: **512 MB** (`MAX_BOOK_FILE_SIZE`).
+  * Maximum ZIP archive entries: **10,000** (`MAX_ZIP_ENTRIES`).
+  * Maximum single entry uncompressed size: **64 MB** (`MAX_ZIP_SINGLE_ENTRY_SIZE`).
+  * Maximum aggregate uncompressed archive size: **512 MB** (`MAX_ZIP_AGGREGATE_BYTES`).
+  * Maximum folder import batch size: **2,000 books** (`MAX_FOLDER_IMPORT_FILES`).
+  * Zip Slip path traversal rejection: any entry with `..`, leading `/` or `\\`, or null bytes is rejected before extraction.
 * **Atomic Non-Destructive Write (`writeManagedBook`):**
   1. If a file with the storage ID already exists on disk, its SHA-256 fingerprint is verified. If identical, the write is a no-op (deduplication).
   2. If new, the buffer is written to a temporary file (`${destination}.${pid}.${timestamp}.tmp`) with the exclusive flag `wx`.
-  3. The file is atomically renamed to its permanent storage ID via `fs.renameSync`. This prevents corrupted zero-byte files if power is lost during import.
+  3. The file is atomically renamed to its permanent storage ID via `fs.renameSync`. On failure, the temporary file is cleaned up safely.
 
 ### 3.4 Windows Registry File Associations (`ensureWindowsRegistryAssociation`)
 When running as a packaged executable, Lirune automatically configures user-level Windows Registry keys in `HKCU\Software\Classes` without requiring administrator privileges:

@@ -216,7 +216,7 @@ const Library = (() => {
     const pct = Math.max(0, Math.min(100, Math.round(Number(book.progressPercent) || 0)));
     const safeCoverUrl = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(book.coverDataUrl) : null;
     const coverHtml = safeCoverUrl
-      ? `<img src="${Utils.escapeAttr(safeCoverUrl)}" alt="${Utils.escapeHTML(book.title)}" class="continue-cover">`
+      ? `<img src="${Utils.escapeAttr(safeCoverUrl)}" alt="${Utils.escapeAttr(book.title)}" class="continue-cover">`
       : `<div class="continue-cover-fallback">
            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
          </div>`;
@@ -447,7 +447,7 @@ const RENDER_BATCH_SIZE = 50;
 
     const safeCoverUrl = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(book.coverDataUrl) : null;
     const coverHtml = safeCoverUrl
-      ? `<img src="${Utils.escapeAttr(safeCoverUrl)}" alt="${Utils.escapeHTML(book.title)}" class="card-cover" loading="lazy">`
+      ? `<img src="${Utils.escapeAttr(safeCoverUrl)}" alt="${Utils.escapeAttr(book.title)}" class="card-cover" loading="lazy">`
       : `<div class="card-cover-fallback">
            <svg class="card-fallback-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
            <span class="card-fallback-title">${Utils.escapeHTML(book.title)}</span>
@@ -465,7 +465,7 @@ const RENDER_BATCH_SIZE = 50;
         <span class="card-format-badge" title="File format">${Utils.escapeHTML(formatLabel)}</span>
       </div>
       <div class="card-meta">
-        <div class="card-title" title="${Utils.escapeHTML(book.title)}">${Utils.escapeHTML(book.title)}</div>
+        <div class="card-title" title="${Utils.escapeAttr(book.title)}">${Utils.escapeHTML(book.title)}</div>
         <div class="card-author-row">
           <span class="card-author">${Utils.escapeHTML(book.author || 'Unknown')}</span>
           <span class="card-format-pill">${Utils.escapeHTML(formatLabel)}</span>
@@ -1092,9 +1092,18 @@ const RENDER_BATCH_SIZE = 50;
     if (info.author) record.author = info.author;
     if (info.description) record.description = String(info.description).slice(0, 400);
     try {
-      const doc = new DOMParser().parseFromString(source, 'application/xml');
+      const Parser = (typeof DOMParser !== 'undefined') ? DOMParser : (typeof require !== 'undefined' ? require('@xmldom/xmldom').DOMParser : null);
+      if (!Parser) return record;
+      const doc = new Parser().parseFromString(source, 'application/xml');
       record.chapterCount = (doc.querySelectorAll ? doc.querySelectorAll('body > section').length : doc.getElementsByTagName('section')?.length) || null;
-      let cover = doc.querySelector ? doc.querySelector('coverpage image') : null;
+      let cover = doc.querySelector ? (doc.querySelector('coverpage image') || doc.querySelector('image')) : null;
+      if (!cover && doc.getElementsByTagNameNS) {
+        const coverpages = doc.getElementsByTagNameNS('*', 'coverpage');
+        if (coverpages && coverpages.length > 0) {
+          const imgs = coverpages[0].getElementsByTagNameNS('*', 'image');
+          if (imgs && imgs.length > 0) cover = imgs[0];
+        }
+      }
       if (!cover && doc.getElementsByTagName) {
         const coverpages = doc.getElementsByTagName('coverpage');
         if (coverpages && coverpages.length > 0) {
@@ -1103,19 +1112,26 @@ const RENDER_BATCH_SIZE = 50;
         }
       }
       if (cover) {
-        const rawHref = cover.getAttribute('href') || cover.getAttribute('l:href') || cover.getAttribute('xlink:href') || '';
-        const coverId = rawHref.replace(/^#/, '');
+        const rawHref = (cover.getAttributeNS && (cover.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || cover.getAttributeNS('http://www.w3.org/1999/xlink', 'l:href')))
+          || cover.getAttribute('xlink:href') || cover.getAttribute('l:href') || cover.getAttribute('href') || '';
+        const coverId = rawHref.trim().replace(/^#/, '').trim();
         if (coverId) {
-          const binaries = doc.getElementsByTagName('binary');
+          const binaries = doc.querySelectorAll ? doc.querySelectorAll('binary') : (doc.getElementsByTagNameNS ? doc.getElementsByTagNameNS('*', 'binary') : doc.getElementsByTagName('binary'));
           const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-          for (let i = 0; i < binaries.length; i++) {
+          for (let i = 0; i < (binaries?.length || 0); i++) {
             const b = binaries[i];
-            if (b.getAttribute('id') === coverId) {
-              const contentType = (b.getAttribute('content-type') || 'image/jpeg').toLowerCase().trim();
+            const bId = b.getAttribute('id') || b.getAttribute('xml:id') || (b.getAttributeNS && b.getAttributeNS(null, 'id')) || '';
+            if (bId.trim() === coverId) {
+              const contentType = (b.getAttribute('content-type') || b.getAttribute('contentType') || 'image/jpeg').toLowerCase().trim();
               if (ALLOWED_IMAGE_TYPES.has(contentType)) {
                 const rawBase64 = (b.textContent || '').replace(/\s+/g, '');
-                if (/^[A-Za-z0-9+/=]+$/.test(rawBase64)) {
-                  record.coverDataUrl = `data:${contentType};base64,${rawBase64}`;
+                if (/^[A-Za-z0-9+/=]+$/.test(rawBase64) && rawBase64.length >= 4) {
+                  const candidateDataUrl = `data:${contentType};base64,${rawBase64}`;
+                  const safeUtils = (typeof Utils !== 'undefined') ? Utils : (typeof require !== 'undefined' ? require('./utils.js') : null);
+                  const safeCover = safeUtils?.sanitizeCoverUrl ? safeUtils.sanitizeCoverUrl(candidateDataUrl) : null;
+                  if (safeCover) {
+                    record.coverDataUrl = safeCover;
+                  }
                 }
               }
               break;
@@ -2225,6 +2241,9 @@ const RENDER_BATCH_SIZE = 50;
    */
   async function inspectBackupFile(file) {
     if (!file) return { ok: false, error: 'No file was selected.' };
+    if (file.size > 15 * 1024 * 1024) {
+      return { ok: false, error: 'Backup file exceeds maximum allowed size (15 MB).' };
+    }
 
     let parsed;
     try {
@@ -2237,8 +2256,6 @@ const RENDER_BATCH_SIZE = 50;
       return { ok: false, error: 'This file does not contain a Lirune backup.' };
     }
     if (parsed.format !== BACKUP_FORMAT) {
-      // Backups from before the product was renamed are still readable, but
-      // they are identified as such rather than being treated as arbitrary JSON.
       if (parsed.format === 'NOVERA_METADATA_BACKUP') {
         return { ok: false, error: 'This is a backup from an older version of the app and cannot be restored safely.' };
       }
@@ -2255,6 +2272,10 @@ const RENDER_BATCH_SIZE = 50;
       return { ok: false, error: 'This backup is missing its books or annotations and cannot be restored.' };
     }
 
+    if (parsed.books.length > 10000 || parsed.annotations.length > 50000 || (parsed.collections || []).length > 1000) {
+      return { ok: false, error: 'Backup exceeds maximum allowed record count.' };
+    }
+
     const existing = await NoveraDB.getAllBooks();
     const existingByFingerprint = new Map();
     const existingIds = new Set();
@@ -2263,8 +2284,6 @@ const RENDER_BATCH_SIZE = 50;
       if (book.fingerprint) existingByFingerprint.set(String(book.fingerprint).toLowerCase(), book);
     }
 
-    // A book already in the library, matched on content, is reported as already
-    // present rather than being added a second time.
     let newBooks = 0;
     let alreadyPresent = 0;
     let withProgress = 0;
@@ -2307,14 +2326,92 @@ const RENDER_BATCH_SIZE = 50;
     };
   }
 
-  /**
-   * Applies a previously inspected backup.
-   *
-   * Merge is the only mode on purpose. Nothing already in the library is
-   * deleted, and a book already present is left exactly as it is rather than
-   * being overwritten, so restoring a backup can only ever add information the
-   * user already chose to keep.
-   */
+  function sanitizeRestoredBookRecord(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim().slice(0, 128) : null;
+    if (!id) return null;
+
+    const title = typeof raw.title === 'string' ? raw.title.slice(0, 1000) : 'Untitled';
+    const author = typeof raw.author === 'string' ? raw.author.slice(0, 500) : 'Unknown Author';
+    const description = typeof raw.description === 'string' ? raw.description.slice(0, 5000) : '';
+    const format = typeof raw.format === 'string' && BookFormat.FORMATS[raw.format.toLowerCase()] ? raw.format.toLowerCase() : 'epub';
+    const originalName = typeof raw.originalName === 'string' ? raw.originalName.slice(0, 500) : '';
+    const fileSize = Number.isFinite(Number(raw.fileSize)) && Number(raw.fileSize) >= 0 ? Number(raw.fileSize) : null;
+    const fingerprint = typeof raw.fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(raw.fingerprint) ? raw.fingerprint.toLowerCase() : null;
+    const storageId = typeof raw.storageId === 'string' && /^[a-f0-9-]{16,80}\.[a-z0-9]+$/i.test(raw.storageId) ? raw.storageId : null;
+    const chapterCount = Number.isInteger(Number(raw.chapterCount)) && Number(raw.chapterCount) > 0 ? Number(raw.chapterCount) : null;
+
+    // Validate cover data URL strictly
+    const coverDataUrl = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(raw.coverDataUrl) : null;
+    const favorite = Boolean(raw.favorite);
+    const collectionIds = Array.isArray(raw.collectionIds) ? raw.collectionIds.filter(cid => typeof cid === 'string' && cid.length <= 128).slice(0, 100) : [];
+    const dateAdded = Number.isFinite(Number(raw.dateAdded)) ? Number(raw.dateAdded) : Date.now();
+    const lastReadDate = Number.isFinite(Number(raw.lastReadDate)) ? Number(raw.lastReadDate) : null;
+    const currentCfi = typeof raw.currentCfi === 'string' ? raw.currentCfi.slice(0, 1000) : null;
+    const rawProgress = Number(raw.progressPercent);
+    const progressPercent = Number.isFinite(rawProgress) ? Math.max(0, Math.min(100, Math.round(rawProgress))) : 0;
+    const currentChapter = typeof raw.currentChapter === 'string' ? raw.currentChapter.slice(0, 500) : '';
+
+    return {
+      id,
+      title,
+      author,
+      description,
+      format,
+      originalName,
+      fileSize,
+      fingerprint,
+      storageId,
+      chapterCount,
+      coverDataUrl,
+      favorite,
+      collectionIds,
+      dateAdded,
+      lastReadDate,
+      currentCfi,
+      progressPercent,
+      currentChapter,
+      availability: raw.availability === 'unavailable' ? 'unavailable' : 'needs-file'
+    };
+  }
+
+  function sanitizeRestoredAnnotationRecord(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim().slice(0, 128) : null;
+    const bookId = typeof raw.bookId === 'string' && raw.bookId.trim() ? raw.bookId.trim().slice(0, 128) : null;
+    if (!id || !bookId) return null;
+
+    const validTypes = ['highlight', 'note', 'bookmark'];
+    const type = validTypes.includes(raw.type) ? raw.type : 'note';
+
+    return {
+      id,
+      bookId,
+      type,
+      text: typeof raw.text === 'string' ? raw.text.slice(0, 10000) : '',
+      note: typeof raw.note === 'string' ? raw.note.slice(0, 10000) : '',
+      chapter: typeof raw.chapter === 'string' ? raw.chapter.slice(0, 500) : '',
+      cfi: typeof raw.cfi === 'string' ? raw.cfi.slice(0, 1000) : null,
+      page: Number.isFinite(Number(raw.page)) ? Number(raw.page) : null,
+      dateAdded: Number.isFinite(Number(raw.dateAdded)) ? Number(raw.dateAdded) : Date.now(),
+      color: typeof raw.color === 'string' ? raw.color.slice(0, 50) : null
+    };
+  }
+
+  function sanitizeRestoredCollectionRecord(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim().slice(0, 128) : null;
+    const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 100) : null;
+    if (!id || !name) return null;
+
+    return {
+      id,
+      name,
+      description: typeof raw.description === 'string' ? raw.description.slice(0, 500) : '',
+      dateCreated: Number.isFinite(Number(raw.dateCreated)) ? Number(raw.dateCreated) : Date.now()
+    };
+  }
+
   async function applyBackup(inspection, { includePreferences = false } = {}) {
     if (!inspection?.ok) return { ok: false, error: 'The backup was not validated.' };
     const document = inspection.document;
@@ -2329,44 +2426,39 @@ const RENDER_BATCH_SIZE = 50;
     let booksSkipped = 0;
     const importedIds = new Set();
 
-    for (const book of document.books) {
-      if (!book || typeof book !== 'object' || !book.id) {
+    for (const rawBook of document.books) {
+      const sanitized = sanitizeRestoredBookRecord(rawBook);
+      if (!sanitized) {
         booksSkipped += 1;
         continue;
       }
-      const fingerprint = book.fingerprint ? String(book.fingerprint).toLowerCase() : null;
-      if (existingIds.has(book.id) || (fingerprint && existingFingerprints.has(fingerprint))) {
+      const fingerprint = sanitized.fingerprint ? String(sanitized.fingerprint).toLowerCase() : null;
+      if (existingIds.has(sanitized.id) || (fingerprint && existingFingerprints.has(fingerprint))) {
         booksSkipped += 1;
         continue;
       }
 
-      // A restored record has no book file. It is kept as metadata with progress
-      // so the user can see what they had, and re-importing the file restores it
-      // to a readable state. Saying otherwise would claim a book the
-      // application does not actually have.
-      await NoveraDB.saveBook({
-        ...book,
-        availability: book.availability === 'unavailable' ? 'unavailable' : 'needs-file',
-        fileData: undefined
-      });
-      importedIds.add(book.id);
-      existingFingerprints.add(fingerprint || book.id);
+      await NoveraDB.saveBook(sanitized);
+      importedIds.add(sanitized.id);
+      if (fingerprint) existingFingerprints.add(fingerprint);
+      existingIds.add(sanitized.id);
       booksAdded += 1;
     }
 
     let annotationsAdded = 0;
-    for (const annotation of document.annotations || []) {
-      if (!annotation || typeof annotation !== 'object' || !annotation.id) continue;
-      // An annotation for a book that was not restored has nothing to attach to.
-      if (!importedIds.has(annotation.bookId)) continue;
-      await NoveraDB.saveAnnotation(annotation);
+    for (const rawAnnotation of document.annotations || []) {
+      const sanitized = sanitizeRestoredAnnotationRecord(rawAnnotation);
+      if (!sanitized) continue;
+      if (!importedIds.has(sanitized.bookId) && !existingIds.has(sanitized.bookId)) continue;
+      await NoveraDB.saveAnnotation(sanitized);
       annotationsAdded += 1;
     }
 
     let collectionsAdded = 0;
-    for (const collection of document.collections || []) {
-      if (!collection || typeof collection !== 'object' || !collection.id) continue;
-      await NoveraDB.saveCollection(collection);
+    for (const rawCollection of document.collections || []) {
+      const sanitized = sanitizeRestoredCollectionRecord(rawCollection);
+      if (!sanitized) continue;
+      await NoveraDB.saveCollection(sanitized);
       collectionsAdded += 1;
     }
 

@@ -8,8 +8,9 @@ const desktopApi = {
   openFileDialog: () => ipcRenderer.invoke('dialog:open-files'),
   openFolderDialog: () => ipcRenderer.invoke('dialog:open-folder'),
 
-  // Windows Explorer Integration
+  // Windows Explorer / Shell Integration
   showInExplorer: (filePath) => ipcRenderer.invoke('shell:show-in-folder', filePath),
+  openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
 
   // Storage Management
   saveBookToStorage: (fileName, arrayBuffer, storageId) => ipcRenderer.invoke('fs:save-book', { fileName, storageId, buffer: arrayBuffer }),

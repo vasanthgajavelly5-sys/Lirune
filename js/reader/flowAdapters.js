@@ -224,18 +224,21 @@ const Fb2Adapter = (() => {
       // Inline validated raster <binary> image payloads so embedded covers render offline.
       const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
       const images = new Map();
-      const binaryNodes = doc.querySelectorAll ? doc.querySelectorAll('binary') : doc.getElementsByTagName('binary');
+      const binaryNodes = doc.querySelectorAll ? doc.querySelectorAll('binary') : (doc.getElementsByTagNameNS ? doc.getElementsByTagNameNS('*', 'binary') : doc.getElementsByTagName('binary'));
       for (let i = 0; i < (binaryNodes?.length || 0); i++) {
         const binary = binaryNodes[i];
-        const id = binary.getAttribute('id');
+        const id = binary.getAttribute('id') || binary.getAttribute('xml:id') || (binary.getAttributeNS && binary.getAttributeNS(null, 'id'));
         if (!id) continue;
-        const contentType = (binary.getAttribute('content-type') || 'image/jpeg').toLowerCase();
+        const contentType = (binary.getAttribute('content-type') || binary.getAttribute('contentType') || 'image/jpeg').toLowerCase().trim();
         if (!ALLOWED_IMAGE_TYPES.has(contentType)) continue;
         const rawBase64 = (binary.textContent || '').replace(/\s+/g, '');
-        if (!/^[A-Za-z0-9+/=]+$/.test(rawBase64)) continue;
-        const dataUri = `data:${contentType};base64,${rawBase64}`;
-        images.set(id, dataUri);
-        images.set(`#${id}`, dataUri);
+        if (!/^[A-Za-z0-9+/=]+$/.test(rawBase64) || rawBase64.length < 4) continue;
+        const candidateUri = `data:${contentType};base64,${rawBase64}`;
+        const dataUri = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(candidateUri) : candidateUri;
+        if (!dataUri) continue;
+        const cleanId = id.trim().replace(/^#/, '');
+        images.set(cleanId, dataUri);
+        images.set(`#${cleanId}`, dataUri);
       }
       this.embeddedImages = images;
 
@@ -315,22 +318,29 @@ const Fb2Adapter = (() => {
           case 'td':
             return `<td>${convertChildren(node)}</td>`;
           case 'image': {
-            const href = node.getAttribute('href') || node.getAttribute('l:href') || node.getAttribute('xlink:href') || '';
-            const dataUri = images.get(href) || images.get(`#${href.replace(/^#/, '')}`);
+            const href = (node.getAttributeNS && (node.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'l:href')))
+              || node.getAttribute('xlink:href') || node.getAttribute('l:href') || node.getAttribute('href') || '';
+            const cleanHref = href.trim().replace(/^#/, '');
+            const dataUri = images.get(cleanHref) || images.get(`#${cleanHref}`) || images.get(href);
             if (dataUri) {
-              return `<img src="${dataUri}" alt="Document Image" class="doc-image" />`;
+              const safeSrc = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(dataUri) : dataUri;
+              if (safeSrc) {
+                return `<img src="${Utils.escapeAttr(safeSrc)}" alt="Document Image" class="doc-image" />`;
+              }
             }
             return '';
           }
           case 'a': {
-            const href = node.getAttribute('href') || node.getAttribute('l:href') || node.getAttribute('xlink:href') || '';
+            const href = (node.getAttributeNS && (node.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'l:href')))
+              || node.getAttribute('xlink:href') || node.getAttribute('l:href') || node.getAttribute('href') || '';
             const inner = convertChildren(node);
             if (!inner) return '';
-            if (href.startsWith('#')) {
-              return `<a href="${Utils.escapeAttr(href)}">${inner}</a>`;
+            const trimmedHref = href.trim();
+            if (trimmedHref.startsWith('#')) {
+              return `<a href="${Utils.escapeAttr(trimmedHref)}">${inner}</a>`;
             }
             try {
-              const url = new URL(href);
+              const url = new URL(trimmedHref);
               if (url.protocol === 'http:' || url.protocol === 'https:') {
                 return `<a href="${Utils.escapeAttr(url.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
               }
@@ -391,15 +401,41 @@ const Fb2Adapter = (() => {
 
     extractMetadata(bytes) {
       try {
-        const doc = new DOMParser().parseFromString(TextAdapter.decodeText(bytes), 'application/xml');
-        const info = doc.querySelector('title-info');
+        const Parser = (typeof DOMParser !== 'undefined') ? DOMParser : (typeof require !== 'undefined' ? require('@xmldom/xmldom').DOMParser : null);
+        if (!Parser) return {};
+        const doc = new Parser().parseFromString(TextAdapter.decodeText(bytes), 'application/xml');
+        const info = doc.querySelector ? doc.querySelector('title-info') : (doc.getElementsByTagName ? doc.getElementsByTagName('title-info')[0] : null);
         if (!info) return {};
-        const get = (tag) => info.querySelector(`:scope > ${tag}`)?.textContent?.trim() || '';
+        const get = (tag) => {
+          if (info.querySelector) return info.querySelector(`:scope > ${tag}`)?.textContent?.trim() || '';
+          const el = info.getElementsByTagName ? info.getElementsByTagName(tag)[0] : null;
+          return el?.textContent?.trim() || '';
+        };
+        let coverImg = doc.querySelector ? (doc.querySelector('coverpage image') || doc.querySelector('image')) : null;
+        if (!coverImg && doc.getElementsByTagNameNS) {
+          const cp = doc.getElementsByTagNameNS('*', 'coverpage');
+          if (cp && cp.length > 0) {
+            const imgs = cp[0].getElementsByTagNameNS('*', 'image');
+            if (imgs && imgs.length > 0) coverImg = imgs[0];
+          }
+        }
+        if (!coverImg && doc.getElementsByTagName) {
+          const cp = doc.getElementsByTagName('coverpage');
+          if (cp && cp.length > 0) {
+            const imgs = cp[0].getElementsByTagName('image');
+            if (imgs && imgs.length > 0) coverImg = imgs[0];
+          }
+        }
+        const rawCoverHref = coverImg
+          ? ((coverImg.getAttributeNS && (coverImg.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || coverImg.getAttributeNS('http://www.w3.org/1999/xlink', 'l:href')))
+             || coverImg.getAttribute('xlink:href') || coverImg.getAttribute('l:href') || coverImg.getAttribute('href') || '')
+          : '';
+        const coverId = rawCoverHref.trim().replace(/^#/, '').trim();
         return {
           title: get('title'),
           author: get('author'),
-          description: get('annotation') ? doc.querySelector('annotation')?.textContent?.trim() : '',
-          coverId: doc.querySelector('coverpage image')?.getAttribute('href') || ''
+          description: get('annotation') ? (doc.querySelector ? doc.querySelector('annotation')?.textContent?.trim() : doc.getElementsByTagName('annotation')[0]?.textContent?.trim()) : '',
+          coverId
         };
       } catch {
         return {};

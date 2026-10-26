@@ -89,6 +89,10 @@ const Utils = {
     if (/^data:image\/(?:png|jpeg|jpg|webp|gif|bmp);base64,[A-Za-z0-9+/=]+$/i.test(trimmed)) {
       return trimmed;
     }
+    // Allow safe in-memory blob URLs
+    if (/^blob:[a-zA-Z0-9_\-\.\/:]+$/.test(trimmed) && !trimmed.includes(';') && !trimmed.includes('"') && !trimmed.includes('<')) {
+      return trimmed;
+    }
     return null;
   },
 
@@ -125,3 +129,7 @@ const Utils = {
     }, duration);
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = Utils;
+}

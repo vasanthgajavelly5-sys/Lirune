@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "lint": "node scripts/lint.js",
-    "test": "node --test test/audit-fixes.test.js test/currently-reading.test.js test/hardening.test.js test/storage-contract.test.js",
+    "test": "node --test test/audit-fixes.test.js test/currently-reading.test.js test/hardening.test.js test/storage-contract.test.js test/remediation-suite.test.js",
     "audit": "npm audit --omit=dev",
     "pack": "electron-builder --dir",
     "validate:corpus": "node scripts/validate-corpus.js",

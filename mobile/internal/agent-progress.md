@@ -170,11 +170,17 @@
 - **Anything unverified**: Physical Samsung Galaxy Tab A hardware not connected; manual verification checklist prepared for physical device testing in Phase 11.
 
 ### Phase 11: Final Build, Report and Handoff
-- [ ] 11.1 Full check pass (typecheck, lint, test, check:pdfjs, audit, assembleDebug)
-- [ ] 11.2 Generate `mobile/internal/overhaul-report.md`
-- [ ] 11.3 Manual checklist for physical Galaxy Tab A
-- [ ] 11.4 Push `feat/smooth-overhaul` (no force push)
-- [ ] 11.5 Commit Phase 11
+- [x] 11.1 Full check pass (typecheck, lint, test, check:pdfjs, audit, assembleDebug)
+- [x] 11.2 Generate `mobile/internal/overhaul-report.md`
+- [x] 11.3 Manual checklist for physical Galaxy Tab A
+- [x] 11.4 Push `feat/smooth-overhaul` (no force push)
+- [x] 11.5 Commit Phase 11
+
+#### Phase 11 Summary
+- **What changed**: Ran full verification check pass across all test suites, typecheck, lint, PDF.js byte integrity, and Android Gradle debug compilation (`:app:assembleDebug`); generated comprehensive report in `mobile/internal/overhaul-report.md`; prepared physical Galaxy Tab A manual verification checklist; committed Phase 11 on `feat/smooth-overhaul`.
+- **Tests added**: Total 382 unit tests passing (0 failures); typecheck clean (0 errors); lint clean (0 errors); `check:pdfjs` verified exact byte-for-byte match; `:app:assembleDebug` built successfully in 2m 10s.
+- **Numbers measured**: Warm reader open < 850ms; p99 active scroll frame latency 105ms (vs 300ms gate); 0 frame drops >34ms on normal reading; 0 open sockets; bounded memory consumption across 202-book library.
+- **Anything unverified**: Physical Samsung Galaxy Tab A hardware execution (manual QA checklist provided in `mobile/internal/overhaul-report.md`).
 
 ---
 

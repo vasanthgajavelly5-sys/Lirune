@@ -1,0 +1,90 @@
+name: Security, Lint & CI Gate
+
+on:
+  push:
+    branches: [ lirune-store-home, main, master, android ]
+  pull_request:
+    branches: [ lirune-store-home, main, master, android ]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-desktop:
+    name: Desktop Validation (Node 20 / Windows)
+    runs-on: windows-latest
+    if: hashFiles('package.json') != ''
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Clean install dependencies
+        run: npm ci
+
+      - name: Lint and syntax checks
+        run: npm run lint
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Validate corpus (if available)
+        run: npm run validate:corpus
+
+      - name: Production dependency audit
+        run: npm audit --omit=dev
+
+      - name: Release configuration validation
+        run: npm run validate:release:config
+
+  validate-mobile:
+    name: Mobile Validation (Node 22 / Ubuntu)
+    runs-on: ubuntu-latest
+    if: hashFiles('mobile/package.json') != ''
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'mobile/package-lock.json'
+
+      - name: Clean install mobile dependencies
+        run: npm --prefix mobile ci
+
+      - name: Mobile linting
+        run: npm --prefix mobile run lint
+
+      - name: Mobile TypeScript check
+        run: npm --prefix mobile run typecheck
+
+      - name: Verify PDF.js integrity
+        run: npm --prefix mobile run check:pdfjs
+
+      - name: Mobile test suite
+        run: npm --prefix mobile test
+
+      - name: Mobile production dependency audit
+        run: npm --prefix mobile audit --omit=dev
+
+  secret-scan:
+    name: Secret & Credential Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@2b04f7c8ec1ecb91ce346859599542a2f8c05763 # v2.3.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

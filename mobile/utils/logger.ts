@@ -1,9 +1,9 @@
 /**
- * Lirune Reader Mobile — Lightweight Logger
- * Does not log sensitive book contents or personal data.
+ * Lirune Reader Mobile — Lightweight, Privacy-Preserving Logger
+ * Strictly avoids logging sensitive book titles, local file paths, or personal reading history.
  */
 
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const LOG_LEVELS: Record<LogLevel, number> = {
   debug: 0,
@@ -12,12 +12,24 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   error: 3,
 };
 
-// Default to info in production, debug in development
+// Production builds default to error only, ensuring user reading habits and file structures
+// are never broadcast into Android system logcat.
 const isDev = typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production');
-const CURRENT_LOG_LEVEL: LogLevel = isDev ? 'debug' : 'info';
+let currentLogLevel: LogLevel = isDev ? 'debug' : 'error';
 
 const LOG_BUFFER: string[] = [];
 const MAX_LOG_BUFFER = 200;
+
+const PATH_OR_URI_PATTERN = /(?:\/data\/user\/\d+\/[^\s"']+|\/storage\/emulated\/\d+\/[^\s"']+|content:\/\/[^\s"']+|file:\/\/[^\s"']+|[A-Za-z]:\\[^\s"']+)/g;
+
+/**
+ * Redacts absolute system filesystem paths, content URIs, and user directories
+ * so errors reported in production do not reveal private filesystem structures.
+ */
+export function redactSensitive(input: string): string {
+  if (typeof input !== 'string') return String(input);
+  return input.replace(PATH_OR_URI_PATTERN, '[REDACTED_PATH]');
+}
 
 function pushToBuffer(line: string) {
   LOG_BUFFER.push(line);
@@ -28,10 +40,19 @@ function pushToBuffer(line: string) {
 
 function formatMessage(level: LogLevel, tag: string, message: string): string {
   const timestamp = new Date().toISOString();
-  return `[${timestamp}] [${level.toUpperCase()}] [${tag}] ${message}`;
+  const safeMessage = isDev ? message : redactSensitive(message);
+  return `[${timestamp}] [${level.toUpperCase()}] [${tag}] ${safeMessage}`;
 }
 
 export const logger = {
+  getLogLevel(): LogLevel {
+    return currentLogLevel;
+  },
+
+  setLogLevel(level: LogLevel) {
+    currentLogLevel = level;
+  },
+
   getLogBuffer(): string[] {
     return [...LOG_BUFFER];
   },
@@ -43,7 +64,7 @@ export const logger = {
   debug(tag: string, message: string, ...args: unknown[]) {
     const formatted = formatMessage('debug', tag, message);
     pushToBuffer(formatted);
-    if (LOG_LEVELS.debug >= LOG_LEVELS[CURRENT_LOG_LEVEL]) {
+    if (LOG_LEVELS.debug >= LOG_LEVELS[currentLogLevel]) {
       console.log(formatted, ...args);
     }
   },
@@ -51,7 +72,7 @@ export const logger = {
   info(tag: string, message: string, ...args: unknown[]) {
     const formatted = formatMessage('info', tag, message);
     pushToBuffer(formatted);
-    if (LOG_LEVELS.info >= LOG_LEVELS[CURRENT_LOG_LEVEL]) {
+    if (LOG_LEVELS.info >= LOG_LEVELS[currentLogLevel]) {
       console.info(formatted, ...args);
     }
   },
@@ -59,15 +80,16 @@ export const logger = {
   warn(tag: string, message: string, ...args: unknown[]) {
     const formatted = formatMessage('warn', tag, message);
     pushToBuffer(formatted);
-    if (LOG_LEVELS.warn >= LOG_LEVELS[CURRENT_LOG_LEVEL]) {
+    if (LOG_LEVELS.warn >= LOG_LEVELS[currentLogLevel]) {
       console.warn(formatted, ...args);
     }
   },
 
   error(tag: string, message: string, error?: unknown, ...args: unknown[]) {
-    const formatted = formatMessage('error', tag, message) + (error ? ` | Error: ${String(error)}` : '');
+    const errStr = error ? ` | Error: ${redactSensitive(String(error))}` : '';
+    const formatted = formatMessage('error', tag, message) + errStr;
     pushToBuffer(formatted);
-    if (LOG_LEVELS.error >= LOG_LEVELS[CURRENT_LOG_LEVEL]) {
+    if (LOG_LEVELS.error >= LOG_LEVELS[currentLogLevel]) {
       console.error(formatted, error ?? '', ...args);
     }
   },

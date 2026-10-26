@@ -45,6 +45,13 @@
     "prepare": "node scripts/gen-pdfjs.js"
   },
   "private": true,
+  "overrides": {
+    "decode-uri-component": "^0.5.1",
+    "react-dom": "19.2.3",
+    "shell-quote": "^1.10.1",
+    "source-map-js": "^1.2.2",
+    "uuid": "^11.1.1"
+  },
   "engines": {
     "node": ">=22.18"
   }

@@ -209,14 +209,14 @@ export default function ReaderScreen() {
     setResolvedSource(null);
     setErrorMessage(null);
     try {
-      logger.info(TAG, `Resolving source for "${book.title}" (${book.id})`);
+      logger.debug(TAG, `Resolving source for book (${book.id})`);
       const resolved = await SourceResolver.resolve(book);
       if (useReaderStore.getState().currentBook?.id !== book.id) return;
       setResolvedSource({ bookId: book.id, path: resolved.localPath });
       setResolutionStatus('ready');
-      logger.info(TAG, `Source ready at: ${resolved.localPath}`);
+      logger.debug(TAG, `Source ready for book (${book.id})`);
     } catch (err: any) {
-      logger.error(TAG, `Source resolution error for "${book.title}"`, err);
+      logger.error(TAG, `Source resolution error for book (${book.id})`, err);
       if (err instanceof UnsupportedFormatError || err.name === 'UnsupportedFormatError') {
         setResolutionStatus('unsupported');
         setErrorMessage(err.message || 'This document format is not supported.');

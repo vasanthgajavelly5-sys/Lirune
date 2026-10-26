@@ -123,7 +123,7 @@ export class ImportService {
     const repo = getBookRepository();
 
     try {
-      logger.info(TAG, `Processing import for file: ${fileName}`);
+      logger.debug(TAG, 'Processing file import');
 
       // 1. Initial format check by extension
       let formatInfo = getFormatFromExtension(fileName);
@@ -154,7 +154,7 @@ export class ImportService {
         existingBooks
       );
       if (duplicate) {
-        logger.info(TAG, `Book already exists in library: ${duplicate.title}`);
+        logger.debug(TAG, `Book already exists in library (${duplicate.id})`);
         return { success: true, book: duplicate, isDuplicate: true };
       }
 
@@ -253,7 +253,7 @@ export class ImportService {
 
         // 6. Persist to SQLite
         await repo.addBook(newBook);
-        logger.info(TAG, `Book successfully imported: "${newBook.title}" (${newBook.id})`);
+        logger.debug(TAG, `Book successfully imported (${newBook.id})`);
 
         return { success: true, book: newBook };
       } catch (innerErr) {
@@ -262,7 +262,7 @@ export class ImportService {
         throw innerErr;
       }
     } catch (err) {
-      logger.error(TAG, `Import failed for "${fileName}"`, err);
+      logger.error(TAG, 'Import failed', err);
       const appErr =
         err instanceof AppError
           ? err

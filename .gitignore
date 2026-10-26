@@ -3,13 +3,25 @@ node_modules/
 
 # Production builds and installers
 dist/
-*.apk
 
 # Test corpus / EPUB library
 Master_EPUB_Library_All/
 *.epub
 corpus-inventory.txt
 corpus-failures.txt
+qa/artifacts/
+.qa-userdata/
+downloads/
+
+# Scratch material from development sessions. None of this belongs in the
+# repository, and none of it should ever reach a build; these entries exist so
+# an accidental `git add -A` cannot commit them.
+Batch1-Fixes/
+Batch2-Fixes/
+Batch3-Fixes/
+Lirune-Reader-*.zip
+debug_page.html
+download_*.py
 
 # Logs
 logs/
@@ -26,6 +38,10 @@ yarn-error.log*
 *.key
 *.pfx
 *.p12
+*.jks
+*.keystore
+*.p8
+*.mobileprovision
 
 # OS and Editor files
 .DS_Store
@@ -34,45 +50,3 @@ ehthumbs.db
 [Dd]esktop.ini
 .vscode/
 .idea/
-
-# QA artifacts & scratch
-.qa-userdata/
-.kilo/
-*.zip
-Lirune-RealFile-QA*
-# QA corpus: generated sample book files are gitignored, but the README and
-# the generator/verifier scripts are tracked so the corpus stays reproducible.
-Lirune-Android-RealFile-QA/*
-!Lirune-Android-RealFile-QA/README.md
-!Lirune-Android-RealFile-QA/generate_corpus.py
-!Lirune-Android-RealFile-QA/verify_corpus.py
-!Lirune-Android-RealFile-QA/verify_corpus.mjs
-.tempmediaStorage/
-scratch/
-Batch*-Fixes/
-start-emulator.bat
-
-# Live-QA scratch captured by adb/Maestro during device runs.
-# Screenshots and UI dumps under mobile/internal/kilo-live-qa-evidence/ are tracked on
-# purpose; the loose copies in mobile/internal/ are transient run output.
-.maestro-mcp/
-mobile/internal/*.png
-mobile/internal/*.xml
-mobile/internal/*.db
-mobile/internal/lirune_*.db
-mobile/internal/*_sample_qa.*
-mobile/internal/current-*.bundle.js
-mobile/internal/check_rtf_regex.mjs
-mobile/internal/inspect_epub.js
-mobile/internal/test_extract.js
-mobile/internal/query_qa_db.py
-Screenshot_*.png
-*.png
-mobile/*.png
-mobile/run_adb.ps1
-mobile/capture_screen.ps1
-mobile/current_state
-mobile/qa-screenshots/
-launch_emulator.bat
-start_visible_emulator.ps1
-

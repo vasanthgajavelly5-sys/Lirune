@@ -11,7 +11,7 @@ import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { DjvuParser, DjvuPage } from '@/services/djvu/DjvuParser';
 import { SELECTION_WATCHER_JS, SelectionPayload } from '@/services/reader/selectionBridge';
-import { allowReaderNavigation } from '@/services/security/webviewPolicy';
+import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
 import { logger } from '@/utils/logger';
 
 const TAG = 'DjvuReaderView';
@@ -195,11 +195,10 @@ export function DjvuReaderView({
     <View style={[styles.container, { backgroundColor: palette.bg }]}>
       <WebView
         ref={webViewRef}
-        originWhitelist={['*']}
+        {...READER_WEBVIEW_PROPS}
         source={{ html: injectedHtml }}
         style={{ backgroundColor: palette.bg }}
         onMessage={handleMessage}
-        onShouldStartLoadWithRequest={allowReaderNavigation}
         scrollEnabled={true}
       />
     </View>

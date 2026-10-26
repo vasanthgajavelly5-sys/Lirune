@@ -85,8 +85,8 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
           const cleanUrl = url.split('?')[0].split('#')[0];
           const decoded = decodeURIComponent(cleanUrl);
           const parts = decoded.includes('/') ? decoded.split('/') : decoded.split('%2F');
-          let fileName = parts[parts.length - 1] || 'document';
-          logger.info(TAG, `Received external file intent: ${fileName} (${url})`);
+          const fileName = parts[parts.length - 1] || 'book';
+          logger.debug(TAG, 'Received external file intent');
 
           let targetUri = url;
           if (targetUri.startsWith('file:///sdcard/')) {

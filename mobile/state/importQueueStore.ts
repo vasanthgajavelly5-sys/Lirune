@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import { nativeStorage, ScanBatchEntry } from '@/services/storage/NativeStorageBridge';
+import { nativeStorage } from '@/services/storage/NativeStorageBridge';
 import { getDatabase } from '@/services/database/Database';
 import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
@@ -125,7 +125,6 @@ async function processQueue(): Promise<void> {
   if (isProcessingQueue) return;
   isProcessingQueue = true;
 
-  const store = useImportQueueStore.getState();
   const db = await getDatabase();
   const repo = getBookRepository();
 

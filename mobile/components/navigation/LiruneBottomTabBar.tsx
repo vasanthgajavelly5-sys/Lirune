@@ -10,7 +10,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, usePathname } from 'expo-router';
@@ -35,11 +34,18 @@ export const BOTTOM_TAB_ITEMS: BottomTabItem[] = [
     activeIcon: 'book',
   },
   {
+    id: 'folders',
+    label: 'Folders',
+    route: '/folders',
+    icon: 'folder-outline',
+    activeIcon: 'folder',
+  },
+  {
     id: 'collections',
     label: 'Collections',
     route: '/collections',
-    icon: 'folder-outline',
-    activeIcon: 'folder',
+    icon: 'albums-outline',
+    activeIcon: 'albums',
   },
   {
     id: 'files',

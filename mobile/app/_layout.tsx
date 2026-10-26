@@ -17,12 +17,11 @@ import { useReaderStore } from '@/state/readerStore';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { nativeStorage } from '@/services/storage/NativeStorageBridge';
 import { ImportService } from '@/services/import/ImportService';
+import { getDatabase } from '@/services/database/Database';
+import { useImportQueueStore } from '@/state/importQueueStore';
 import { logger } from '@/utils/logger';
 
 const TAG = 'RootLayout';
-
-import { getDatabase } from '@/services/database/Database';
-import { useImportQueueStore } from '@/state/importQueueStore';
 
 function AppInitializer({ children }: { children: React.ReactNode }) {
   const router = useRouter();

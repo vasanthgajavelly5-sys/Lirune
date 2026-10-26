@@ -74,11 +74,18 @@ const NAV_ITEMS: NavItem[] = [
     activeIcon: 'book',
   },
   {
+    id: 'folders',
+    label: 'Folders',
+    route: '/folders',
+    icon: 'folder-outline',
+    activeIcon: 'folder',
+  },
+  {
     id: 'collections',
     label: 'Collections',
     route: '/collections',
-    icon: 'folder-outline',
-    activeIcon: 'folder',
+    icon: 'albums-outline',
+    activeIcon: 'albums',
   },
   {
     id: 'files',

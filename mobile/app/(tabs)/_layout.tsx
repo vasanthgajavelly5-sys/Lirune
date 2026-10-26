@@ -35,6 +35,12 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="folders"
+          options={{
+            title: 'Folders',
+          }}
+        />
+        <Tabs.Screen
           name="search"
           options={{
             title: 'Files',

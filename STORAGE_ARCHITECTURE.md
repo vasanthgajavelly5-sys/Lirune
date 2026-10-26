@@ -1,6 +1,6 @@
 # Lirune Reader Mobile — Storage Architecture Technical Specification
 
-**Version:** 1.0  
+**Version:** 2.0  
 **Branch:** `android`  
 **Date:** 2026-10-26
 
@@ -8,231 +8,249 @@
 
 ## Table of Contents
 
-1. [Permission Model](#1-permission-model)
+1. [Permission Model & Manifest Compliance](#1-permission-model--manifest-compliance)
 2. [Architecture Overview](#2-architecture-overview)
-3. [App-Private Storage](#3-app-private-storage)
-4. [SAF / User Storage](#4-saf--user-storage)
-5. [Import Pipeline](#5-import-pipeline)
-6. [Reading Access](#6-reading-access)
-7. [AndroidManifest Permissions](#7-androidmanifest-permissions)
-8. [Security Design Decisions](#8-security-design-decisions)
-9. [Folders Screen Implementation Path](#9-folders-screen-implementation-path)
+3. [Format Detection & DRM Inspection](#3-format-detection--drm-inspection)
+4. [Storage Access Framework (SAF) & Grant Lifecycle](#4-storage-access-framework-saf--grant-lifecycle)
+5. [Scanner & Incremental Identity (`quick_fp`)](#5-scanner--incremental-identity-quick_fp)
+6. [Ingestion Pipeline & Job Journaling](#6-ingestion-pipeline--job-journaling)
+7. [Random-Access Reading: BookSession & ResourceServer](#7-random-access-reading-booksession--resourceserver)
+8. [SQLite Schema & Versioned Migrations](#8-sqlite-schema--versioned-migrations)
+9. [Two-Layer Folders & Custom File Manager](#9-two-layer-folders--custom-file-manager)
+10. [Optional "All Files" Build Flavor (`LIRUNE_ALLFILES=1`)](#10-optional-all-files-build-flavor-lirune_allfiles1)
 
 ---
 
-## 1. Permission Model
+## 1. Permission Model & Manifest Compliance
 
-| API Level | Android Version | Storage Access | Required Permission |
-|-----------|-----------------|----------------|---------------------|
-| 29 | Android 10 | App-private only (`/data/data/...`) | None |
-| 30 | Android 11 | App-private + MediaStore | `READ_EXTERNAL_STORAGE` (legacy) |
-| 33 | Android 13+ | App-private + MediaStore + SAF | `READ_MEDIA_IMAGES/VIDEO/AUDIO` + SAF intents |
+### Corrected Android Storage Matrix
 
-**This app uses SAF (Storage Access Framework) exclusively — no `MANAGE_EXTERNAL_STORAGE` (All Files Access).**
+| API Level | Android Version | Storage Mechanism | Required Permissions |
+|---|---|---|---|
+| **29** | Android 10 | App-private files + SAF | None for app-private or SAF (`ACTION_OPEN_DOCUMENT_TREE`) |
+| **30** | Android 11 | App-private files + SAF | None. Root and `Download` restricted by SAF security policy |
+| **33** | Android 13 | App-private files + SAF | None. (`READ_MEDIA_*` does not cover document/book formats) |
+| **34+** | Android 14+ | App-private files + SAF | None. All SAF access mediated through ContentResolver grants |
+| **Optional Flavor** | Android 11+ (`LIRUNE_ALLFILES=1`) | Root filesystem direct access | `MANAGE_EXTERNAL_STORAGE` (Settings flow, non-Play Store) |
+
+### Key Clarifications & Corrected Assumptions
+1. **No Storage Permissions in Default Build:** Storage Access Framework (SAF) grants read/write permissions directly through URI permission tokens. No `<uses-permission>` tags (`READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, `MANAGE_DOCUMENTS`, `READ_MEDIA_*`) are needed or permitted in the Play Store build.
+2. **`MANAGE_DOCUMENTS` Removed:** `android.permission.MANAGE_DOCUMENTS` is a signature-level permission reserved strictly for system document providers. Third-party applications cannot hold this permission.
+3. **App-Private Storage Deletion:** Files in app-private storage (`context.filesDir` / `documentDirectory`) are deleted by the operating system upon application uninstall. To preserve managed files across uninstalls, the user can configure a persistent SAF library directory.
 
 ---
 
 ## 2. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  JavaScript Layer (React Native / Expo)                     │
-│  ├── FileStorage.ts          → App-private directory        │
-│  ├── NativeStorageBridge.ts  → SAF / ContentProvider        │
-│  └── ImportService.ts        → DocumentPicker + copy        │
-└─────────────────────────────────────────────────────────────┘
-                              ↓ JSI / TurboModule
-┌─────────────────────────────────────────────────────────────┐
-│  Native Layer (Kotlin)                                      │
-│  ├── LiruneStorageModule.kt   → SAF, MediaStore, file I/O  │
-│  └── LiruneStoragePackage.kt  → TurboModule registration    │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        JavaScript / UI Layer                           │
+│  ├── /folders (Layer 1: Locations, Layer 2: Custom In-App Browser)     │
+│  ├── /search  (Files discovery & quick filters)                        │
+│  ├── scanStore.ts, importQueueStore.ts, libraryStore.ts                │
+│  └── NativeStorageBridge.ts (Strict TypeScript typed wrapper)          │
+└────────────────────────────────────┬───────────────────────────────────┘
+                                     │ JSI / Coroutine Bridge
+┌────────────────────────────────────▼───────────────────────────────────┐
+│                        Kotlin Native Module                            │
+│  ├── SourceManager     → Persisted SAF grants, launch validation, LRU  │
+│  ├── Scanner           → Queue-based BFS coroutine, streaming batches  │
+│  ├── FormatRegistry    → Pluggable sniffers (17+ formats) & DRM check  │
+│  ├── Ingestor          → Single-pass copy + SHA-256 + atomic rename    │
+│  ├── BookSession       → Random-access FileChannel / ParcelFileDesc    │
+│  ├── ResourceServer    → Localhost HTTP Range server for WebViews      │
+│  └── StorageBackend    → SafStorageBackend / AllFilesStorageBackend    │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. App-Private Storage (`FileStorage.ts`)
+## 3. Format Detection & DRM Inspection
 
-**Location:** `${FileSystem.documentDirectory}books/` and `covers/`
+Detection is **content-based** (magic byte signatures and container structure inspection). File extensions and MIME types provided by Android content providers (which frequently default to `application/octet-stream`) are only used as secondary tie-breakers.
 
-```typescript
-// mobile/services/storage/FileStorage.ts
-const BOOKS_DIR = `${FileSystem.documentDirectory || ''}books/`;
-const COVERS_DIR = `${FileSystem.documentDirectory || ''}covers/`;
-```
+### Content-Based Sniffers (17+ Supported Formats)
 
-| Operation | API | Notes |
-|-----------|-----|-------|
-| Write book | `FileSystem.writeAsStringAsync()` / `makeDirectoryAsync()` | Atomic via `.part` staging |
-| Read book | `FileSystem.readAsArrayBuffer()` | Returns `ArrayBuffer` |
-| Delete | `FileSystem.deleteAsync()` | Idempotent |
-| Cleanup partials | `readDirectoryAsync()` + filter `.part` | Runs on app start |
+| Format | Magic Bytes / Signature / Container Check | Confidence |
+|---|---|---|
+| **PDF** | `%PDF-` within the first 1024 bytes; checks for `/Encrypt` dict | 0.99 |
+| **EPUB** | ZIP container; first entry `mimetype` == `application/epub+zip` or `META-INF/container.xml` | 1.00 |
+| **CBZ** | ZIP container; contains only images (+ optional `ComicInfo.xml`) | 0.92 |
+| **CBR** | `Rar!\x1A\x07\x00` (RAR4) or `Rar!\x1A\x07\x01\x00` (RAR5) | 0.98 |
+| **CB7** | `7z\xBC\xAF\x27\x1C` | 0.98 |
+| **MOBI / AZW3** | Bytes 60–67 == `BOOKMOBI` or `TEXtREAd`; KF8 flag in EXTH header | 0.95 |
+| **FB2** | XML root `<FictionBook` (or `.fb2.zip` containing `<FictionBook`) | 0.95 |
+| **DjVu** | `AT&TFORM` followed by `DJVU` or `DJVM` | 0.98 |
+| **CHM** | `ITSF` at offset 0 | 0.99 |
+| **RTF** | `{\rtf` at offset 0 | 0.99 |
+| **DOCX** | ZIP container containing `word/document.xml` | 0.95 |
+| **ODT** | ZIP container containing `content.xml` and `application/vnd.oasis.opendocument.text` | 0.95 |
+| **TXT** | Valid UTF-8 / UTF-16 BOM or ASCII/UTF-8 text with no NUL characters | 0.70 |
+| **Markdown** | Text file with Markdown headings (`# `), lists, or formatting | 0.75 |
+| **HTML** | Begins with `<!DOCTYPE html` or `<html>` / `<head>` | 0.90 |
 
-**No permissions needed** — fully sandboxed to app.
-
----
-
-## 4. SAF / User Storage (`NativeStorageBridge.ts` + Kotlin)
-
-**Entry Point:** `DocumentPicker.getDocumentAsync()` + `Intent.ACTION_OPEN_DOCUMENT_TREE`
-
-### Kotlin: `LiruneStorageModule.kt`
-
-```kotlin
-// Key methods exposed to JS via TurboModule
-@ReactMethod fun pickFolder(promise: Promise)                    // SAF folder picker
-@ReactMethod fun scanStorage(uri: String, promise: Promise)      // Recursive scan
-@ReactMethod fun readFile(uri: String, promise: Promise)         // Read via ContentResolver
-@ReactMethod fun copyToAppStorage(uri: String, fileName: String, promise: Promise)
-@ReactMethod fun getFileSha256(uri: String, promise: Promise)    // For dedup
-@ReactMethod fun readZipEntryText(path: String, entryPath: String, maxBytes: Double, promise: Promise)
-@ReactMethod fun clearCurrentIntent(promise: Promise)
-```
-
-### SAF Flow (User picks folder)
-
-```
-User taps "Scan Phone" or "Import"
-       ↓
-DocumentPicker / ACTION_OPEN_DOCUMENT_TREE
-       ↓
-User grants URI permission (persistableUriPermission)
-       ↓
-persistUriPermission(uri, FLAG_PERSISTABLE_URI_PERMISSION)
-       ↓
-Uri stored in settingsStore.authorizedFolderUris (SQLite)
-       ↓
-On next launch: takePersistableUriPermission() to re-acquire
-```
-
-### Recursive Scan (used by Files/Folders screen)
-
-```kotlin
-// scanStorage(uri) in LiruneStorageModule.kt
-fun scanStorage(uri: String): List<DiscoveredFile> {
-    val documents = DocumentsContract.buildChildDocumentsUriUsingTree(
-        uri, DocumentsContract.getTreeDocumentId(uri))
-    val cursor = contentResolver.query(documents, PROJECTION, null, null, null)
-    // Recurse into directories (MIME_TYPE = "vnd.android.document/directory")
-    // Collect files matching SUPPORTED_EXTENSIONS
-    // Return: [{ uri, name, size, mimeType, lastModified, isDirectory }]
-}
-```
+### DRM Detection
+Files protected by DRM are identified during sniffing and marked with state `failed:drm` to inform the user before attempting to open:
+- **EPUB:** `META-INF/encryption.xml` containing encryption algorithms other than standard font obfuscation (`http://www.idpf.org/2008/embedding`, `http://ns.adobe.com/pdf/enc#RC`), or Adobe ADEPT `rights.xml`.
+- **Kindle (MOBI/AZW3):** Header encryption flags in MOBI record 0.
+- **PDF:** Trailer or catalog dictionary containing `/Encrypt`.
 
 ---
 
-## 5. Import Pipeline (User File → App Storage)
+## 4. Storage Access Framework (SAF) & Grant Lifecycle
 
+### Grant Acquisition & Launch Validation
+1. **Grant Time:** When a user selects a directory, the app calls:
+   ```kotlin
+   context.contentResolver.takePersistableUriPermission(
+       uri,
+       Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+   )
+   ```
+2. **Cold Start Validation:** On application startup, `SourceManager` queries `contentResolver.persistedUriPermissions`. If any registered source in SQLite no longer has an active system grant, it is marked `grant_valid = 0`. The UI displays a "Re-authorize" button rather than failing silently or crashing.
+3. **Grant Limits & LRU Pruning:** Android limits active persistable grants (128 on API ≤30, 512 on API 31+). When active grants reach 90% of the threshold, `SourceManager` releases the least-recently-used grants (`releasePersistableUriPermission`).
+
+---
+
+## 5. Scanner & Incremental Identity (`quick_fp`)
+
+### Queue-Based BFS Coroutine Scanner
+- Non-recursive breadth-first search implemented via Kotlin coroutines on `Dispatchers.IO`.
+- Streams results in batches of 200 items (`onScanBatch`, `onScanProgress`, `onScanDone`).
+- Cancellable at any point via coroutine cancellation (`isActive`).
+- Skips hidden files (`.`), system directories (`.thumbnails`, `Android/data`, `Android/obb`), and files under 1 KB.
+
+### Fast Identity Fingerprinting (`quick_fp`)
 ```
-User selects file via DocumentPicker
-       ↓
-ImportService.pickAndImportBook()
-       ↓
-FormatDetector.detect(uri)           ← MIME + extension check
-       ↓
-DuplicateCheck.findDuplicate(sha256, fileSize)  ← SQLite query
-       ↓
-FileStorage.copyToAppStorage(sourceUri, destFileName)
-       ↓
-  → Native: copyToAppStorage() streams via ContentResolver.openInputStream()
-  → Writes to ${documentDirectory}books/<uuid>.ext
-  → Stages as .part → renames on success (atomic)
-       ↓
-MetadataExtractor.extract(uri)       ← EPUB: reads OPF/NCX; PDF: pdf.js; etc.
-       ↓
-BookRepository.insert(book)          ← SQLite
-       ↓
-LibraryStore.loadLibrary()           ← React state update
+quick_fp = "${fileSize}:${sha256(first 64KB + last 64KB)}"
+```
+- Cheap to compute during discovery without reading whole files.
+- Rescan diffs on `(doc_id, size, mtime)`. Unchanged entries are skipped instantly, enabling 10,000-file folders to rescan in under 2 seconds.
+
+---
+
+## 6. Ingestion Pipeline & Job Journaling
+
+### Ingest Modes
+- **Managed (Default):** Streams `ContentResolver.openInputStream(uri)` directly to a temporary file (`books/<uuid>.part`) while simultaneously computing the full SHA-256 via `DigestOutputStream`. Performs `fsync()` and an atomic rename to `books/<uuid>.<ext>`. If a book with the same SHA-256 already exists, the temp file is deleted and deduped.
+- **Linked:** Retains the book in its original location and accesses it via `openFileDescriptor("r")`. Probes seekability (`ParcelFileDescriptor.statSize >= 0` and seek verification). Non-seekable streams automatically fall back to managed mode.
+
+### Job Journaling
+All ingest operations are journaled in the `jobs` SQLite table (`type`, `entry_id`, `state`, `progress`, `error`). On startup, any incomplete jobs from an unexpected termination are either resumed or rolled back cleanly, leaving zero orphaned `.part` files.
+
+---
+
+## 7. Random-Access Reading: BookSession & ResourceServer
+
+### Zero Full-Load Guarantee
+Books are **never** read into JavaScript memory as large `ArrayBuffer`s.
+- **BookSession:** Native module manages open file handles (`openBook(bookId) -> handleId`). JavaScript requests arbitrary slices on demand (`read(handleId, offset, length)`).
+- **ResourceServer:** High-performance local HTTP server running on `127.0.0.1`. Serves book resources to reader WebViews using virtual origins with standard `Accept-Ranges: bytes` and `Content-Range: bytes start-end/total` headers.
+
+---
+
+## 8. SQLite Schema & Versioned Migrations
+
+Database migration **v2** introduces foreign keys, WAL mode, and indices for real-time querying:
+
+```sql
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tree_uri TEXT UNIQUE NOT NULL,
+  label TEXT,
+  volume_id TEXT,
+  status TEXT DEFAULT 'active',
+  last_scan_at INTEGER,
+  grant_valid INTEGER DEFAULT 1,
+  import_mode TEXT DEFAULT 'managed'
+);
+
+CREATE TABLE IF NOT EXISTS entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id INTEGER REFERENCES sources(id) ON DELETE CASCADE,
+  doc_id TEXT NOT NULL,
+  uri TEXT NOT NULL,
+  parent_doc_id TEXT,
+  name TEXT NOT NULL,
+  size INTEGER,
+  mtime INTEGER,
+  sniff_format TEXT,
+  confidence REAL,
+  quick_fp TEXT,
+  state TEXT DEFAULT 'discovered',
+  fail_reason TEXT,
+  UNIQUE(source_id, doc_id)
+);
+
+CREATE TABLE IF NOT EXISTS books (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  authors TEXT,
+  format TEXT NOT NULL,
+  sha256 TEXT UNIQUE,
+  quick_fp TEXT,
+  cover_path TEXT,
+  meta_json TEXT,
+  chapter_count INTEGER DEFAULT 0,
+  added_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS book_files (
+  book_id TEXT REFERENCES books(id) ON DELETE CASCADE,
+  mode TEXT CHECK(mode IN ('managed','linked')),
+  path_or_uri TEXT NOT NULL,
+  size INTEGER,
+  seekable INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL,
+  entry_id INTEGER REFERENCES entries(id) ON DELETE CASCADE,
+  state TEXT NOT NULL,
+  progress REAL DEFAULT 0,
+  error TEXT,
+  updated_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS book_locations (
+  book_id TEXT NOT NULL,
+  spine_index INTEGER NOT NULL,
+  cfi TEXT,
+  character_offset INTEGER,
+  percentage REAL,
+  created_at INTEGER,
+  PRIMARY KEY (book_id, spine_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_entries_state ON entries(state);
+CREATE INDEX IF NOT EXISTS idx_entries_fp ON entries(quick_fp);
 ```
 
 ---
 
-## 6. Reading Access (Reader)
+## 9. Two-Layer Folders & Custom File Manager
 
-| Format | Access Method |
-|--------|---------------|
-| EPUB | `EpubArchive.open(buffer)` → reads from app-private file (`ArrayBuffer`) |
-| PDF | `PdfReaderView` → `fileStorage.readAsArrayBuffer()` → chunks to WebView |
-| CBZ/CBR | Extracts to cache dir → serves images via `file://` |
-| Others | Read from app-private copy |
+### Layer 1: Locations
+- Displays storage volumes (`internal`, `sdcard`, `usb_otg`) with available and total capacity.
+- Displays all persisted SAF sources with status indicators (`Active`, `Invalid / Needs Re-authorization`).
+- Action card to add locations using `ACTION_OPEN_DOCUMENT_TREE` or individual files using `ACTION_OPEN_DOCUMENT` with multi-select.
 
-**No SAF needed at read time** — all books are copied to app-private storage on import.
-
----
-
-## 7. AndroidManifest Permissions
-
-```xml
-<!-- Added by withLiruneStorage plugin -->
-<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-    android:maxSdkVersion="32" />
-<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-
-<!-- For SAF document picker -->
-<uses-permission android:name="android.permission.MANAGE_DOCUMENTS" />
-
-<!-- NO MANAGE_EXTERNAL_STORAGE (All Files Access) -->
-```
-
-*Configured via `mobile/plugins/withLiruneStorage.js` Expo config plugin.*
+### Layer 2: Custom In-App Browser
+- Navigates child documents within granted trees using `DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)`.
+- Interactive breadcrumb navigation with jump-to-segment and parent-level navigation.
+- Grid and list view modes with persisted preferences.
+- Multi-select actions: batch import, recursive folder import, ignore list.
+- Fast sorting (name, date, size, type) and instant search filtering.
 
 ---
 
-## 8. Security Design Decisions
+## 10. Optional "All Files" Build Flavor (`LIRUNE_ALLFILES=1`)
 
-| Decision | Rationale |
-|----------|-----------|
-| **Copy on import** | Avoids holding SAF URI permissions long-term; survives app updates/uninstalls |
-| **SHA-256 dedup** | Content-based, not filename-based; works across folders |
-| **`.part` staging** | Crash-safe writes; cleanup on next launch |
-| **No All Files Access** | Play Store compliant; user controls exact folders via SAF |
-| **Persisted URI permissions** | Re-acquires access on cold start without re-prompting |
-| **WebView reads local files** | No CORS/content:// issues; `file://` works in WebView |
-
----
-
-## 9. Folders Screen Implementation Path
-
-For the "Folders" feature, use these APIs:
-
-```typescript
-// 1. Pick root folder
-const rootUri = await nativeStorage.pickFolder()
-
-// 2. Recursive scan
-const files = await nativeStorage.scanStorage(rootUri)
-
-// 3. Read/import file
-await nativeStorage.readFile(fileUri)
-
-// 4. Persist authorization
-await settingsStore.addAuthorizedFolderUri(rootUri)
-
-// 5. Re-acquire on cold start (in RootLayout/AppInitializer)
-await nativeStorage.takePersistableUriPermission(uri)
-```
-
-**Key files to reference:**
-- `mobile/app/(tabs)/search.tsx` — existing Files screen with SAF integration
-- `mobile/services/storage/NativeStorageBridge.ts` — JS ↔ Kotlin bridge
-- `mobile/state/settingsStore.ts` — `authorizedFolderUris` persistence
-- `mobile/plugins/native/lirune-storage/LiruneStorageModule.kt` — native implementation
-
----
-
-## Conversion to PDF
-
-To convert this markdown to PDF:
-
-```bash
-# Using pandoc (recommended)
-pandoc STORAGE_ARCHITECTURE.md -o STORAGE_ARCHITECTURE.pdf \
-  --pdf-engine=weasyprint \
-  -V geometry:margin=1in \
-  -V fontsize=11pt
-
-# Or using VS Code: "Markdown: Export to PDF" command
-# Or using GitHub: View raw → Print → Save as PDF
-```
+For sideloaded builds or power-user distributions:
+- `AllFilesStorageBackend` uses `MANAGE_EXTERNAL_STORAGE` and `java.io.File` for direct filesystem access across root storage.
+- Enabled at build time via Expo config plugin flag `LIRUNE_ALLFILES=1`.
+- Play Store production builds default to `LIRUNE_ALLFILES=0` and contain zero privileged storage permissions.

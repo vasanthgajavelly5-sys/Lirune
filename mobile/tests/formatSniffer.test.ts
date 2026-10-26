@@ -6,7 +6,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FormatDetector } from '../services/discovery/FormatDetector.ts';
-import { SUPPORTED_FORMATS } from '../models/Book.ts';
 
 test('detects PDF from magic bytes %PDF-', () => {
   const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]);

@@ -177,11 +177,16 @@ export class FormatDetector {
       if (headerSnippet.includes('mimetypeapplication/epub+zip') || headerSnippet.includes('META-INF/container.xml')) {
         const hasRights = headerSnippet.includes('rights.xml');
         const hasEncryption = headerSnippet.includes('encryption.xml');
+        const isDrm = hasRights || hasEncryption;
         return {
           ...SUPPORTED_FORMATS.epub,
           confidence: 1.0,
-          isDrm: hasRights,
-          drmReason: hasRights ? 'Adobe ADEPT rights.xml detected' : undefined,
+          isDrm,
+          drmReason: hasRights
+            ? 'Adobe ADEPT rights.xml detected'
+            : hasEncryption
+            ? 'EPUB encryption.xml detected'
+            : undefined,
         };
       }
       if (headerSnippet.includes('word/') || headerSnippet.includes('[Content_Types].xml')) {

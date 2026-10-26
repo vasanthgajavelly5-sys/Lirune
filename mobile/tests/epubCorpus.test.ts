@@ -758,7 +758,6 @@ test('multi-book isolation: repeated switching between two books stays consisten
     return;
   }
   const archive = await openArchive(path.join(FIXTURE_DIR, 'epub-short.epub'));
-  const other = path.join(FIXTURE_DIR, 'epub-image-heavy.epub');
   assert.ok(fs.existsSync(other), 'image-heavy fixture is available');
 
   const first = await readEpubPackage(archive);

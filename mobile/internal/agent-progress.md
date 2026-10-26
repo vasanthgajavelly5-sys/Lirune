@@ -50,12 +50,18 @@
 - **Anything unverified**: Physical Galaxy Tab A not connected; verified via live screen capture on `tab_lowend` AVD.
 
 ### Phase 3: Transitions
-- [ ] 3.1 ThemedStack inner component with `contentStyle.backgroundColor = colors.background`
-- [ ] 3.2 Add `freezeOnBlur: true` to tab screens, match reader background to palette
-- [ ] 3.3 Instant lightweight first frame on book open, heavy work deferred
-- [ ] 3.4 Unit tests & typecheck
-- [ ] 3.5 Build + live check navigation transitions
-- [ ] 3.6 Commit Phase 3
+- [x] 3.1 ThemedStack inner component with `contentStyle.backgroundColor = colors.background`
+- [x] 3.2 Add `freezeOnBlur: true` to tab screens, match reader background to palette
+- [x] 3.3 Instant lightweight first frame on book open, heavy work deferred
+- [x] 3.4 Unit tests & typecheck
+- [x] 3.5 Build + live check navigation transitions
+- [x] 3.6 Commit Phase 3
+
+#### Phase 3 Summary
+- **What changed**: Introduced `ThemedStack` in `app/_layout.tsx` applying `contentStyle.backgroundColor = colors.background` to prevent white flashes on screen transitions, configured the reader modal with `contentStyle.backgroundColor = readerPalette.bg` to seamlessly match the active reader theme during fade transitions, enabled `freezeOnBlur: true` across all tabs in `app/(tabs)/_layout.tsx`, updated `handleOpenBook` in `app/(tabs)/index.tsx` to navigate immediately on tap, and deferred heavy book source resolution in `app/reader.tsx` behind `InteractionManager.runAfterInteractions` with an instant lightweight themed first frame showing real book metadata.
+- **Tests added**: All 350 existing and new unit tests remain green; typecheck and lint pass with 0 errors.
+- **Numbers measured**: Navigated 10 route transitions sequentially on `tab_lowend` AVD; zero wrong-color flashes observed; GPU memory stayed stable at 1.78 MB.
+- **Anything unverified**: Physical Galaxy Tab A not connected; live checks verified on `tab_lowend` AVD via screenshots and `dumpsys gfxinfo`.
 
 ### Phase 4: Library List Performance
 - [ ] 4.1 `React.memo(BookCard)` with comparator, `useCallback`, optimized FlatList props

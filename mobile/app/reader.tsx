@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Text,
   TouchableOpacity,
+  InteractionManager,
 } from 'react-native';
 import { useStableInsets } from '@/hooks/useStableInsets';
 import { Ionicons } from '@expo/vector-icons';
@@ -256,7 +257,10 @@ export default function ReaderScreen() {
     if (!currentBook || !bookSourceKey) return;
     if (resolvedBookKeyRef.current === bookSourceKey) return;
     resolvedBookKeyRef.current = bookSourceKey;
-    resolveCurrentBook(currentBook);
+    const task = InteractionManager.runAfterInteractions(() => {
+      void resolveCurrentBook(currentBook);
+    });
+    return () => task.cancel();
   }, [currentBook, bookSourceKey, resolveCurrentBook]);
 
   // 3. Android Hardware & Gesture Back Button Handling
@@ -430,16 +434,17 @@ export default function ReaderScreen() {
     [currentBook, openBook, router]
   );
 
-  // Status Screen: Resolving / Loading
+  // Status Screen: Resolving / Loading (lightweight themed first frame)
   if (!currentBook || resolutionStatus === 'resolving') {
+    const displayBook = currentBook || (bookId ? books.find((b) => b.id === bookId) : null);
     return (
       <View style={[styles.statusContainer, { backgroundColor: palette.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <ActivityIndicator size="large" color={palette.link || colors.accent} />
         <Text style={[styles.statusTitle, { color: palette.text }]}>
-          {currentBook ? currentBook.title : 'Opening book...'}
+          {displayBook ? displayBook.title : 'Opening book...'}
         </Text>
-        <Text style={[styles.statusSubtitle, { color: palette.muted }]}>
-          Preparing document reader...
+        <Text style={[styles.statusSubtitle, { color: palette.muted, marginTop: 4 }]}>
+          {displayBook?.author || 'Preparing document reader...'}
         </Text>
       </View>
     );

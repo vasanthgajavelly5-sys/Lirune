@@ -156,8 +156,8 @@ export default function LibraryScreen() {
   }, [books, selectedCollectionId, filter, sortCriterion, sortDirection]);
 
   // Actions
-  const handleOpenBook = async (book: Book) => {
-    await openBook(book);
+  const handleOpenBook = (book: Book) => {
+    void openBook(book);
     router.push({
       pathname: '/reader',
       params: { bookId: book.id },

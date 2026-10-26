@@ -9,7 +9,8 @@ import { AppState, InteractionManager } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
 
-import { ThemeProvider } from '@/theme/ThemeContext';
+import { ThemeProvider, useThemeContext } from '@/theme/ThemeContext';
+import { READER_THEMES } from '@/theme/Colors';
 import { useSettingsStore } from '@/state/settingsStore';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useReaderStore } from '@/state/readerStore';
@@ -189,26 +190,38 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ThemedStack() {
+  const { colors } = useThemeContext();
+  const readerTheme = useSettingsStore((s) => s.readerSettings.theme);
+  const readerPalette = READER_THEMES[readerTheme] || READER_THEMES.neutral;
+
+  return (
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        animation: 'slide_from_right',
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="reader"
+        options={{
+          headerShown: false,
+          presentation: 'fullScreenModal',
+          animation: 'fade',
+          contentStyle: { backgroundColor: readerPalette.bg },
+        }}
+      />
+    </Stack>
+  );
+}
+
 export default function RootLayout() {
   return (
     <ThemeProvider>
       <AppInitializer>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            animation: 'slide_from_right',
-          }}
-        >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="reader"
-            options={{
-              headerShown: false,
-              presentation: 'fullScreenModal',
-              animation: 'fade',
-            }}
-          />
-        </Stack>
+        <ThemedStack />
       </AppInitializer>
     </ThemeProvider>
   );

@@ -1,0 +1,117 @@
+# Lirune Android: Smoothness Overhaul & Scroll Engine v2 — Progress Tracker
+
+## Checklist
+
+### Phase 0: Baseline and Tooling
+- [ ] 0.1 Check environment (Node 20+, JDK 17, Android SDK, adb, emulator, avdmanager)
+- [ ] 0.2 Check / create AVD "tab_lowend" and "tab_modern"
+- [ ] 0.3 Record baseline (typecheck, lint, tests, check:pdfjs, assembleDebug)
+- [ ] 0.4 Add performance instrumentation (`utils/perf.ts`)
+- [ ] 0.5 Capture baseline numbers in `mobile/internal/baseline.md`
+- [ ] 0.6 Commit Phase 0
+
+### Phase 1: Launch and Startup
+- [ ] 1.1 Remove adaptive icon `backgroundImage`, verify solid `backgroundColor` (#1A1A1D)
+- [ ] 1.2 Configure `expo-splash-screen` plugin (solid background, centered logo, dark variant)
+- [ ] 1.3 `SplashScreen.preventAutoHideAsync()`, hide only when settings and library loaded
+- [ ] 1.4 Change default `appTheme` in settingsStore from 'light' to 'system'
+- [ ] 1.5 Defer secondary startup tasks to `InteractionManager.runAfterInteractions`
+- [ ] 1.6 Unit tests for settings default & init gating helper
+- [ ] 1.7 Build + live check on emulator (cold start x5, no theme flash/grid)
+- [ ] 1.8 Commit Phase 1
+
+### Phase 2: Theme Consistency
+- [ ] 2.1 Delegate `useTheme()` in `theme/Theme.ts` to `useThemeContext()`
+- [ ] 2.2 Unified status bar inside ThemeProvider driven by resolved scheme
+- [ ] 2.3 Replace hardcoded hex colors with semantic tokens
+- [ ] 2.4 Live reader theme updates via CSS variables/injected JS
+- [ ] 2.5 Test for hardcoded hex colors outside allowlist
+- [ ] 2.6 Build + live check across all screens and sheets in light/dark/system
+- [ ] 2.7 Commit Phase 2
+
+### Phase 3: Transitions
+- [ ] 3.1 ThemedStack inner component with `contentStyle.backgroundColor = colors.background`
+- [ ] 3.2 Add `freezeOnBlur: true` to tab screens, match reader background to palette
+- [ ] 3.3 Instant lightweight first frame on book open, heavy work deferred
+- [ ] 3.4 Unit tests & typecheck
+- [ ] 3.5 Build + live check navigation transitions
+- [ ] 3.6 Commit Phase 3
+
+### Phase 4: Library List Performance
+- [ ] 4.1 `React.memo(BookCard)` with comparator, `useCallback`, optimized FlatList props
+- [ ] 4.2 Generate ~400px cover thumbnails at import, background idle migration for existing books
+- [ ] 4.3 Unit tests for thumbnail logic and migration idempotency
+- [ ] 4.4 Build + live check with 200 dummy books, measure jank %
+- [ ] 4.5 Commit Phase 4
+
+### Phase 5: Book Open Time
+- [ ] 5.1 Add perf marks around each phase of `loadEpub`
+- [ ] 5.2 Defer `bookLocationService.startLazyGeneration` to after first paint
+- [ ] 5.3 Cache parsed package (spine, TOC, titles, sizes) keyed by book + mtime + pipeline version
+- [ ] 5.4 Show instant themed first frame while loading
+- [ ] 5.5 Unit tests for cache key and invalidation
+- [ ] 5.6 Build + live check on small and large EPUBs
+- [ ] 5.7 Commit Phase 5
+
+### Phase 6: Storage Access
+- [ ] 6.1 Declare `READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"`
+- [ ] 6.2 Document `LIRUNE_ALLFILES=1` behavior, update Scan screen explanations
+- [ ] 6.3 Replace whole-file base64 string reading with streamed/chunked copy or size gate
+- [ ] 6.4 Report merged release manifest permissions (inspect INTERNET presence)
+- [ ] 6.5 Manifest plugin and scan-access unit tests
+- [ ] 6.6 Build + live check on API 30 and modern AVD
+- [ ] 6.7 Commit Phase 6
+
+### Phase 7: Scroll Mode Hotfixes (Engine v1)
+- [ ] F1. State desync fix: WebView posts `chaptersUnloaded`, host updates `hydratedRef`
+- [ ] F2. Single metric for hydrate and unload: pixel distance with hysteresis (~1.5vh / ~4vh)
+- [ ] F3. Rewrite scroll handler: rAF throttle, IntersectionObserver / cached offsets, 250ms progress throttle
+- [ ] F4. Background drain: near current chapter only, in idle time
+- [ ] F5. Position: anchor `{chapterIndex, fractionWithinChapter, ...}`, parse legacy `spine:N:scroll:Y`
+- [ ] F6. Section-relative progress math `(chapterIndex + fractionWithinChapter) / N`
+- [ ] F7. Text-length based placeholder estimates, clear on typography/orientation changes
+- [ ] F8. Width/height on images at extraction, `content-visibility: auto`, scroll compensation
+- [ ] F9. Failure handling: retry failed chapter max twice, show retry placeholder
+- [ ] 7.10 Unit tests for extracted pure functions
+- [ ] 7.11 Build + live check with 600-chapter, single-chapter, and image-heavy books
+- [ ] 7.12 Commit Phase 7
+
+### Phase 8: Scroll Engine v2 (hidden setting `scrollEngine: 'v1' | 'v2'`, default 'v1')
+- [ ] 8.1 Size-aware progress & small-book tier (<1.5MB / <40 spine items all-in-one)
+- [ ] 8.2 WebView-owned load state (`need({indices, priority})`, LRU eviction by memory budget)
+- [ ] 8.3 Text-level locator positions (`caretRangeFromPoint`, nearest `[data-block]`)
+- [ ] 8.4 Velocity-aware loading, fling skeletons, height model calibration
+- [ ] 8.5 Block-level windowing (3-6 KB blocks, preserve tables/lists/figures/ids)
+- [ ] 8.6 Tests for each sub-phase
+- [ ] 8.7 Build + live checks after each sub-phase
+- [ ] 8.8 Commit Phase 8
+
+### Phase 9: Images, Cache, and ResourceServer Cleanup
+- [ ] 9.1 Remove dead ResourceServer.kt after verifying zero references
+- [ ] 9.2 Lazy per-image loading over bridge with placeholder data-src
+- [ ] 9.3 Optional `scrollEngineCache` (default OFF) for sanitized fragments
+- [ ] 9.4 Unit tests & manifest check
+- [ ] 9.5 Build + live check image-heavy book
+- [ ] 9.6 Commit Phase 9
+
+### Phase 10: Live Emulator QC
+- [ ] 10.1 Remote debugging & `window.__lirune.debugState()` (debug only, test off in release)
+- [ ] 10.2 Run S1 to S14 on v1 and v2 on tab_lowend and tab_modern
+- [ ] 10.3 Logcat checks, dumpsys gfxinfo, dumpsys meminfo, CLS, long tasks
+- [ ] 10.4 Pass gates evaluation
+- [ ] 10.5 Commit Phase 10
+
+### Phase 11: Final Build, Report and Handoff
+- [ ] 11.1 Full check pass (typecheck, lint, test, check:pdfjs, audit, assembleDebug)
+- [ ] 11.2 Generate `mobile/internal/overhaul-report.md`
+- [ ] 11.3 Manual checklist for physical Galaxy Tab A
+- [ ] 11.4 Push `feat/smooth-overhaul` (no force push)
+- [ ] 11.5 Commit Phase 11
+
+---
+
+## Notes / Decisions / Numbers
+
+- Branch created: `feat/smooth-overhaul` from `android`.
+- Target: Samsung Galaxy Tab A class (low RAM, slow CPU, system WebView, Hermes).
+- Product invariants: local-first, zero telemetry/network calls, no accounts, GPL-3.0-only compatible.

@@ -1,3 +1,51 @@
+## 4.9.1 — Android file associations, ZIP/APK identification & Archive Browser (2026-10-26)
+
+Addressed system file association chooser over-matching (P1), classified ZIP-family files with an ordered decision tree (P2), and introduced in-app container archive browsing and selective book importing.
+
+### Fixed
+
+- **App appeared in "Open with" chooser for APKs and unrelated files (P1):**
+  - Removed catch-all intent filters (`*/*`, `application/octet-stream`, bare `content://`, wildcard `pathPattern`).
+  - Implemented explicit programmatic intent filter generation in `mobile/plugins/withLiruneStorage.js` using `SUPPORTED_MIME_TYPES` and repeated case-insensitive `pathPattern` globs for each supported book extension.
+  - Excluded `apk`, `jar`, `aab`, `xapk`, `apks`, `dex`, and `exe` from all manifest intent filters.
+  - Added intent pre-sniffing safety net in `mobile/app/_layout.tsx`: incoming VIEW/SEND intents for application packages or unrecognized files route to `BlockedFileModal` with an explanatory message ("Lirune can't open this file: it looks like an Android app package (.apk)") and a **Close** button that cleans up the intent and safely exits.
+  - Constrained `DocumentPicker` MIME filters in `ImportService.ts`, `mobile/app/folders/index.tsx`, and `mobile/app/(tabs)/search.tsx` to explicit supported types.
+
+- **ZIP files incorrectly treated as importable books (P2):**
+  - Replaced fallthrough sniffer logic with an ordered decision tree inspecting only ZIP Central Directory records:
+    1. `mimetype` = `application/epub+zip` or `META-INF/container.xml` -> **EPUB** (`book`)
+    2. `word/document.xml` + `[Content_Types].xml` -> **DOCX** (`book`); `content.xml` + `mimetype` -> **ODT** (`book`)
+    3. `AndroidManifest.xml` + (`classes.dex` | `resources.arsc`) or AAB/JAR/XPI markers -> **`blocked:app-package`** (`blocked`)
+    4. `.fb2` inside single-entry zip -> **FB2** (`book`)
+    5. >=90% image entries (ignoring metadata / thumbs) -> **CBZ** (`book`)
+    6. >=1 supported book format entry -> **`container:zip`** (`container`)
+    7. Otherwise -> `failed:unrecognized` ("ZIP archive with no supported books inside")
+  - Mirrored sniffer logic in `FormatDetector.ts` and `FormatRegistry.kt`.
+  - Added strict importer guards in `ImportService.ts`, `importQueueStore.ts`, and `Ingestor.kt` that reject any file with `kind !== 'book'` or `kind === 'blocked'` with typed `Unsupported` errors.
+
+### Added
+
+- **Browse Inside Container Archives (Native & UI):**
+  - **Native Engine (`ArchiveBrowser.kt`):** Exposed Expo coroutine APIs (`openArchive`, `listArchive`, `sniffArchiveEntry`, `extractEntryToImport`, `closeArchive`) operating on `Dispatchers.IO`.
+  - **Random-Access Virtual Directory Tree:** Uses `FileChannel` / `SeekableByteChannel` and parses Central Directory/EOCD/EOCD64 headers directly without copying or decompressing the whole archive. Non-seekable streams copy once to a 512 MB capped cache.
+  - **Handle Management:** LRU pool capped at 4 handles with a 5-minute idle auto-close watchdog.
+  - **Charset Auto-Detection:** Checks UTF-8 flag (bit 11), validates UTF-8 bytes, and falls back to CP437 -> CP866 -> GBK -> Shift_JIS -> Big5.
+  - **Password & Encryption:** Detects ZipCrypto and AES encryption; presents `ArchivePasswordModal` with a 5-attempt guard; decrypts purely in memory without persisting credentials.
+  - **Security Protections:** Enforces Zip-slip path sanitization (destinations strictly `<uuid>.<ext>`), rejects directory traversal segments (`..`), limits total entries (max 100,000), enforces entry size budget (max 2 GB uncompressed), and checks compression ratios dynamically via `SafeGuardInputStream` (>200:1 on >100 MB).
+  - **Streaming Extraction Ingestion (`Ingestor.kt`):** Added `ingestStream` for atomic streaming entry decompression directly to `books/<uuid>.part` -> `books/<uuid>.<ext>` with single-pass SHA-256 dedup, journal logging, and `fsync()`.
+  - **Folders Archive Navigation:** Container archives render with container badges and book counts in Folders. Tapping an archive navigates directly into its virtual folder hierarchy with interactive breadcrumbs, 8-way concurrency capped lazy format sniffing badges, multi-select "Import (n)", and "Import all books in this folder". Single-book archives offer an immediate Open/Import bottom sheet shortcut.
+  - **Error Reporting Modal:** `ErrorReportModal` displays human-readable diagnostics for corrupt or unsupported compression with a "Copy report" button.
+  - **Library Separation:** ZIP container files are filtered out from the main Library screen and appear only in Folders and the Archives filter.
+
+- **Tests and Documentation:**
+  - `docs/INVESTIGATION_ZIP.md`: Merged manifest intent-filter audit and initial sniffer behavior matrix.
+  - `docs/FILE_ASSOCIATIONS.md`: Complete specification of Android MIME types, extension patterns, and plugin generation.
+  - `docs/QA_STORAGE.md`: Section 8 with 11 manual verification test cases (ARC-01 to ARC-11).
+  - Synthetic test fixtures generated via `scripts/make-zip-fixtures.py` in `test-fixtures/zip-suite/`.
+  - Automated test suites: `archiveBrowser.test.ts` (6 tests), `formatSniffer.test.ts` (18 tests), `nativeStoragePlugin.test.ts` (7 tests).
+
+---
+
 ## 4.7.0 — Android reader: scroll mode, first frame, reading comfort (2026-10-04)
 
 Seven reported Android reader defects fixed, plus two reading-comfort features.

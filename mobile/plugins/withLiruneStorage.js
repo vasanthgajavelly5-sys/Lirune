@@ -62,11 +62,169 @@ function cleanManifestPermissions(manifest, isAllFiles = false) {
   return manifest;
 }
 
+const SUPPORTED_MIME_TYPES = [
+  'application/epub+zip',
+  'application/pdf',
+  'text/plain',
+  'text/html',
+  'application/x-fictionbook+xml',
+  'application/vnd.comicbook+zip',
+  'application/x-cbz',
+  'application/vnd.comicbook-rar',
+  'application/x-cbr',
+  'application/x-7z-compressed',
+  'application/x-cb7',
+  'application/x-mobipocket-ebook',
+  'application/vnd.amazon.ebook',
+  'application/x-mobi8-ebook',
+  'image/vnd.djvu',
+  'image/x-djvu',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/rtf',
+  'text/rtf',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.ms-htmlhelp',
+  'application/x-chm',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-zip',
+];
+
+const SUPPORTED_EXTENSIONS = [
+  'epub',
+  'pdf',
+  'txt',
+  'html',
+  'htm',
+  'xhtml',
+  'fb2',
+  'cbz',
+  'cbr',
+  'cb7',
+  'mobi',
+  'prc',
+  'azw',
+  'azw3',
+  'kf8',
+  'djvu',
+  'djv',
+  'doc',
+  'docx',
+  'rtf',
+  'odt',
+  'chm',
+  'zip',
+];
+
+const BLOCKED_EXTENSIONS = [
+  'apk',
+  'jar',
+  'aab',
+  'xapk',
+  'apks',
+  'dex',
+  'exe',
+  'class',
+  'arsc',
+];
+
+function buildExplicitIntentFilters() {
+  const mimeData = [];
+  for (const mime of SUPPORTED_MIME_TYPES) {
+    mimeData.push({ $: { 'android:scheme': 'content', 'android:mimeType': mime } });
+    mimeData.push({ $: { 'android:scheme': 'file', 'android:mimeType': mime } });
+  }
+
+  const mimeFilter = {
+    action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
+    category: [
+      { $: { 'android:name': 'android.intent.category.DEFAULT' } },
+      { $: { 'android:name': 'android.intent.category.BROWSABLE' } },
+    ],
+    data: mimeData,
+  };
+
+  const extensionData = [];
+  for (const ext of SUPPORTED_EXTENSIONS) {
+    const variants = [ext.toLowerCase(), ext.toUpperCase()];
+    for (const v of variants) {
+      const patterns = [
+        `.*\\.${v}`,
+        `.*\\..*\\.${v}`,
+        `.*\\..*\\..*\\.${v}`,
+      ];
+      for (const pattern of patterns) {
+        extensionData.push({
+          $: {
+            'android:scheme': 'content',
+            'android:host': '*',
+            'android:pathPattern': pattern,
+          },
+        });
+        extensionData.push({
+          $: {
+            'android:scheme': 'file',
+            'android:host': '*',
+            'android:pathPattern': pattern,
+          },
+        });
+      }
+    }
+  }
+
+  const extensionFilter = {
+    action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
+    category: [
+      { $: { 'android:name': 'android.intent.category.DEFAULT' } },
+      { $: { 'android:name': 'android.intent.category.BROWSABLE' } },
+    ],
+    data: extensionData,
+  };
+
+  const sendData = SUPPORTED_MIME_TYPES.map((mime) => ({ $: { 'android:mimeType': mime } }));
+  const sendFilter = {
+    action: [{ $: { 'android:name': 'android.intent.action.SEND' } }],
+    category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }],
+    data: sendData,
+  };
+
+  const sendMultipleFilter = {
+    action: [{ $: { 'android:name': 'android.intent.action.SEND_MULTIPLE' } }],
+    category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }],
+    data: sendData,
+  };
+
+  return [mimeFilter, extensionFilter, sendFilter, sendMultipleFilter];
+}
+
+function cleanAndConfigureIntentFilters(manifest) {
+  const application = manifest.application?.[0];
+  if (!application || !application.activity) return manifest;
+
+  const mainActivity = application.activity.find((a) => a.$?.['android:name'] === '.MainActivity');
+  if (!mainActivity) return manifest;
+
+  const currentFilters = mainActivity['intent-filter'] || [];
+  const preserved = currentFilters.filter((f) => {
+    const actions = f.action || [];
+    const isMain = actions.some((a) => a.$?.['android:name'] === 'android.intent.action.MAIN');
+    const data = f.data || [];
+    const isLiruneScheme = data.some((d) => d.$?.['android:scheme'] === 'lirune');
+    return isMain || isLiruneScheme;
+  });
+
+  const explicitFilters = buildExplicitIntentFilters();
+  mainActivity['intent-filter'] = [...preserved, ...explicitFilters];
+  return manifest;
+}
+
 function withStorageManifest(config, options = {}) {
   const isAllFiles = Boolean(options.allFiles || process.env.LIRUNE_ALLFILES === '1');
   return withAndroidManifest(config, (cfg) => {
     if (cfg.modResults && cfg.modResults.manifest) {
       cfg.modResults.manifest = cleanManifestPermissions(cfg.modResults.manifest, isAllFiles);
+      cfg.modResults.manifest = cleanAndConfigureIntentFilters(cfg.modResults.manifest);
     }
     return cfg;
   });
@@ -145,3 +303,7 @@ module.exports = function withLiruneStorage(config, options = {}) {
 
 module.exports.registerPackageInMainApplication = registerPackageInMainApplication;
 module.exports.cleanManifestPermissions = cleanManifestPermissions;
+module.exports.cleanAndConfigureIntentFilters = cleanAndConfigureIntentFilters;
+module.exports.SUPPORTED_MIME_TYPES = SUPPORTED_MIME_TYPES;
+module.exports.SUPPORTED_EXTENSIONS = SUPPORTED_EXTENSIONS;
+module.exports.BLOCKED_EXTENSIONS = BLOCKED_EXTENSIONS;

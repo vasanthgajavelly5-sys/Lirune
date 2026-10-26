@@ -10,6 +10,7 @@ import {
   Book,
   BookFormat,
   getFormatFromExtension,
+  SUPPORTED_DOCUMENT_MIMES,
 } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
 import { fileStorage } from '@/services/storage/FileStorage';
@@ -72,27 +73,7 @@ export class ImportService {
     try {
       logger.info(TAG, 'Opening document picker');
       const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'application/epub+zip',
-          'application/pdf',
-          'text/plain',
-          'text/html',
-          'application/x-fictionbook+xml',
-          'application/vnd.comicbook+zip',
-          'application/vnd.comicbook-rar',
-          'application/x-mobipocket-ebook',
-          'application/vnd.amazon.ebook',
-          'application/x-mobi8-ebook',
-          'image/vnd.djvu',
-          'application/msword',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'application/rtf',
-          'application/vnd.oasis.opendocument.text',
-          'application/vnd.ms-htmlhelp',
-          'application/zip',
-          'application/x-rar-compressed',
-          '*/*', // Universal fallback for Android content providers
-        ],
+        type: SUPPORTED_DOCUMENT_MIMES,
         copyToCacheDirectory: true,
         // Must be explicit: this legacy API defaults base64 to TRUE, which
         // makes the native picker base64-encode the entire picked file before
@@ -122,9 +103,9 @@ export class ImportService {
         err instanceof AppError
           ? err
           : new ImportFailureError(
-              'Selected file',
-              (err as Error).message || 'Unable to import this file.'
-            );
+            'Selected file',
+            (err as Error).message || 'Unable to import this file.'
+          );
       return { success: false, error: appErr };
     } finally {
       this.releaseLock();
@@ -286,9 +267,9 @@ export class ImportService {
         err instanceof AppError
           ? err
           : new ImportFailureError(
-              fileName,
-              (err as Error).message || 'An unexpected error occurred during import.'
-            );
+            fileName,
+            (err as Error).message || 'An unexpected error occurred during import.'
+          );
       return { success: false, error: appErr };
     }
   }

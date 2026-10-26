@@ -171,6 +171,49 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
   },
 };
 
+export const SUPPORTED_DOCUMENT_MIMES: string[] = [
+  'application/epub+zip',
+  'application/pdf',
+  'text/plain',
+  'text/html',
+  'application/x-fictionbook+xml',
+  'application/vnd.comicbook+zip',
+  'application/x-cbz',
+  'application/vnd.comicbook-rar',
+  'application/x-cbr',
+  'application/x-7z-compressed',
+  'application/x-cb7',
+  'application/x-mobipocket-ebook',
+  'application/vnd.amazon.ebook',
+  'application/x-mobi8-ebook',
+  'image/vnd.djvu',
+  'image/x-djvu',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/rtf',
+  'text/rtf',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.ms-htmlhelp',
+  'application/x-chm',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-zip',
+];
+
+export const BLOCKED_EXTENSIONS: Set<string> = new Set([
+  'apk',
+  'jar',
+  'aab',
+  'xapk',
+  'apks',
+  'dex',
+  'exe',
+  'class',
+  'arsc',
+  'so',
+  'dll',
+]);
+
 export function getFormatFromExtension(filenameOrExt: string): FormatInfo {
   const parts = filenameOrExt.split(/[./\\]/);
   const ext = (parts[parts.length - 1] || '').toLowerCase();

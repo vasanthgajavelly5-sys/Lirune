@@ -3,12 +3,11 @@
  * Handles app state initialization and Android incoming file intents (open with / share).
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AppState } from 'react-native';
 import * as Linking from 'expo-linking';
-
 
 import { ThemeProvider } from '@/theme/ThemeContext';
 import { useSettingsStore } from '@/state/settingsStore';
@@ -19,6 +18,7 @@ import { nativeStorage } from '@/services/storage/NativeStorageBridge';
 import { ImportService } from '@/services/import/ImportService';
 import { getDatabase } from '@/services/database/Database';
 import { useImportQueueStore } from '@/state/importQueueStore';
+import { BlockedFileModal, BlockedFileInfo } from '@/components/modals/BlockedFileModal';
 import { logger } from '@/utils/logger';
 
 const TAG = 'RootLayout';
@@ -73,6 +73,7 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handledUrlRef = useRef<string | null>(null);
+  const [blockedInfo, setBlockedInfo] = useState<BlockedFileInfo | null>(null);
 
   useEffect(() => {
     async function handleIncomingUri(url: string | null) {
@@ -90,6 +91,42 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
           let targetUri = url;
           if (targetUri.startsWith('file:///sdcard/')) {
             targetUri = targetUri.replace('file:///sdcard/', 'file:///storage/emulated/0/');
+          }
+
+          // Pre-sniff content to detect blocked app packages (.apk, .jar, .aab) or containers (.zip)
+          const sniff = await nativeStorage.sniff(targetUri, fileName);
+          logger.info(
+            TAG,
+            `Sniffed incoming intent: format=${sniff.format}, kind=${sniff.kind}, reason=${sniff.reason}`
+          );
+
+          if (sniff.kind === 'blocked') {
+            void nativeStorage.clearCurrentIntent();
+            setBlockedInfo({
+              fileName,
+              reason: sniff.reason || 'It looks like an Android app package (.apk)',
+              uri: targetUri,
+            });
+            return;
+          }
+
+          if (sniff.format === 'unknown' && sniff.kind !== 'container') {
+            void nativeStorage.clearCurrentIntent();
+            setBlockedInfo({
+              fileName,
+              reason: sniff.reason || 'This file format is not supported by Lirune.',
+              uri: targetUri,
+            });
+            return;
+          }
+
+          if (sniff.kind === 'container' || sniff.format === 'zip') {
+            void nativeStorage.clearCurrentIntent();
+            router.push({
+              pathname: '/folders',
+              params: { archiveUri: targetUri, archiveName: fileName },
+            });
+            return;
           }
 
           const res = await ImportService.importFile(targetUri, fileName);
@@ -125,7 +162,15 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
     return () => subscription.remove();
   }, [loadLibrary, router]);
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <BlockedFileModal
+        info={blockedInfo}
+        onDismiss={() => setBlockedInfo(null)}
+      />
+    </>
+  );
 }
 
 export default function RootLayout() {

@@ -39,6 +39,9 @@ class Scanner(
         )
         private const val BATCH_SIZE = 200
         private const val MIN_FILE_BYTES = 1024L // Skip files under 1 KB
+        val BLOCKED_EXTENSIONS = setOf(
+            "apk", "jar", "aab", "xapk", "apks", "dex", "exe", "class", "arsc", "so", "dll"
+        )
     }
 
     fun isBusy(): Boolean = isScanning.get()
@@ -192,6 +195,7 @@ class Scanner(
 
                         // Pass 1: candidate filter by extension (also keep extensionless files and .bin)
                         val ext = getExt(name)
+                        if (BLOCKED_EXTENSIONS.contains(ext)) continue
                         val isCandidate = ext.isEmpty() || ext == "bin" || FormatRegistry.isSupported(ext)
 
                         if (!isCandidate) continue
@@ -272,6 +276,7 @@ class Scanner(
                     if (nameLower.startsWith(".") || size < MIN_FILE_BYTES) continue
 
                     val ext = getExt(name)
+                    if (BLOCKED_EXTENSIONS.contains(ext)) continue
                     val isCandidate = ext.isEmpty() || ext == "bin" || FormatRegistry.isSupported(ext)
                     if (!isCandidate) continue
 

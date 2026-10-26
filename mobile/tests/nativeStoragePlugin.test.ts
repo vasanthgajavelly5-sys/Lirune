@@ -13,7 +13,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { registerPackageInMainApplication, cleanManifestPermissions } = require('../plugins/withLiruneStorage.js');
+const {
+  registerPackageInMainApplication,
+  cleanManifestPermissions,
+  cleanAndConfigureIntentFilters,
+  SUPPORTED_EXTENSIONS,
+  BLOCKED_EXTENSIONS,
+} = require('../plugins/withLiruneStorage.js');
 
 const APPLY_SHAPE = `package com.lirune.reader
 
@@ -98,3 +104,71 @@ test('cleanManifestPermissions adds MANAGE_EXTERNAL_STORAGE when isAllFiles is t
   const names = cleaned['uses-permission'].map((p: any) => p.$['android:name']);
   assert.deepEqual(names, ['android.permission.VIBRATE', 'android.permission.MANAGE_EXTERNAL_STORAGE']);
 });
+
+test('cleanAndConfigureIntentFilters removes catch-alls and configures explicit intent filters', () => {
+  const manifest = {
+    application: [
+      {
+        activity: [
+          {
+            $: { 'android:name': '.MainActivity' },
+            'intent-filter': [
+              {
+                action: [{ $: { 'android:name': 'android.intent.action.MAIN' } }],
+                category: [{ $: { 'android:name': 'android.intent.category.LAUNCHER' } }],
+              },
+              {
+                action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
+                category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }],
+                data: [
+                  { $: { 'android:scheme': 'content', 'android:mimeType': '*/*' } },
+                  { $: { 'android:scheme': 'file', 'android:mimeType': 'application/octet-stream' } },
+                  { $: { 'android:scheme': 'content', 'android:pathPattern': '.*' } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const configured = cleanAndConfigureIntentFilters(manifest);
+  const mainActivity = configured.application[0].activity[0];
+  const filters = mainActivity['intent-filter'];
+
+  // 1. Assert launcher filter preserved
+  assert.ok(filters.some((f: any) => f.action?.[0]?.$?.['android:name'] === 'android.intent.action.MAIN'));
+
+  // 2. Collect all data items across all filters
+  const allData = filters.flatMap((f: any) => f.data || []).map((d: any) => d.$);
+
+  // 3. Assert NO */* mimeType anywhere
+  const starMimes = allData.filter((d: any) => d['android:mimeType'] === '*/*');
+  assert.equal(starMimes.length, 0, 'Must not contain */* wildcard mimeType');
+
+  // 4. Assert NO application/octet-stream anywhere
+  const octetMimes = allData.filter((d: any) => d['android:mimeType'] === 'application/octet-stream');
+  assert.equal(octetMimes.length, 0, 'Must not contain application/octet-stream');
+
+  // 5. Assert NO mimeType-less content filter without pathPattern
+  const bareContent = allData.filter((d: any) => d['android:scheme'] === 'content' && !d['android:mimeType'] && !d['android:pathPattern']);
+  assert.equal(bareContent.length, 0, 'Must not contain bare scheme=content without mimeType or pathPattern');
+
+  // 6. Assert NO blocked extensions in pathPattern
+  const allPatterns = allData.map((d: any) => d['android:pathPattern']).filter(Boolean);
+  for (const blocked of BLOCKED_EXTENSIONS) {
+    const matched = allPatterns.filter((p: string) => p.toLowerCase().includes(`.${blocked}`));
+    assert.equal(matched.length, 0, `Must not associate with blocked extension .${blocked}`);
+  }
+
+  // 7. Assert every supported extension has pathPattern filters
+  for (const ext of SUPPORTED_EXTENSIONS) {
+    const hasExt = allPatterns.some((p: string) => p.toLowerCase().includes(`.${ext.toLowerCase()}`));
+    assert.ok(hasExt, `Must have pathPattern filter for supported extension .${ext}`);
+  }
+
+  // 8. Assert SEND and SEND_MULTIPLE exist
+  assert.ok(filters.some((f: any) => f.action?.[0]?.$?.['android:name'] === 'android.intent.action.SEND'));
+  assert.ok(filters.some((f: any) => f.action?.[0]?.$?.['android:name'] === 'android.intent.action.SEND_MULTIPLE'));
+});

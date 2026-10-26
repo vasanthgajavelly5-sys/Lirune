@@ -27,6 +27,7 @@ import {
   StorageVolume,
   NativeDirEntry,
 } from '@/services/storage/NativeStorageBridge';
+import { SUPPORTED_DOCUMENT_MIMES } from '@/models/Book';
 import { getDatabase } from '@/services/database/Database';
 import { useImportQueueStore } from '@/state/importQueueStore';
 import { useLibraryStore } from '@/state/libraryStore';
@@ -367,7 +368,7 @@ export default function FoldersScreen() {
   const handleAddFiles = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
+        type: SUPPORTED_DOCUMENT_MIMES,
         multiple: true,
         copyToCacheDirectory: false,
       });

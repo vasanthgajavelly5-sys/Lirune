@@ -39,7 +39,7 @@ import {
   RarInspectionService,
 } from '@/services/import/RarInspectionService';
 import { ZipInspectionModal } from '@/components/ZipInspectionModal';
-import { getFormatFromExtension, BookFormat } from '@/models/Book';
+import { getFormatFromExtension, BookFormat, SUPPORTED_DOCUMENT_MIMES } from '@/models/Book';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
 import { LiruneToast } from '@/components/LiruneToast';
 import { LiruneDialog } from '@/components/LiruneDialog';
@@ -805,7 +805,7 @@ export default function FilesScreen() {
 
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
+        type: SUPPORTED_DOCUMENT_MIMES,
         multiple: true,
         copyToCacheDirectory: true,
         base64: false,

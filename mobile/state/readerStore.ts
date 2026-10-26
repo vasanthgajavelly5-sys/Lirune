@@ -102,7 +102,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   openBook: async (book: Book) => {
     const sessionId = ++activeOpenSession;
-    logger.info(TAG, `Opening book: ${book.title} [session #${sessionId}]`);
+    logger.info(TAG, `Opening book session #${sessionId} [id: ${book.id}]`);
     const repo = getBookRepository();
 
     const prevBook = get().currentBook;
@@ -111,7 +111,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
 
     if (sessionId !== activeOpenSession) {
-      logger.info(TAG, `Aborted opening book ${book.title}: superseded before query [session #${sessionId} vs active #${activeOpenSession}]`);
+      logger.info(TAG, `Aborted opening book [id: ${book.id}]: superseded before query [session #${sessionId} vs active #${activeOpenSession}]`);
       return;
     }
 
@@ -123,7 +123,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     ]);
 
     if (sessionId !== activeOpenSession) {
-      logger.info(TAG, `Discarded loaded state for ${book.title}: superseded after query [session #${sessionId} vs active #${activeOpenSession}]`);
+      logger.info(TAG, `Discarded loaded state for book [id: ${book.id}]: superseded after query [session #${sessionId} vs active #${activeOpenSession}]`);
       return;
     }
 

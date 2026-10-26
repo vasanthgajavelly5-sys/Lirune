@@ -44,6 +44,10 @@ test('allowReaderNavigation rejects untrusted and malicious navigation requests'
   assert.equal(allowReaderNavigation({ url: 'file:///android_asset/something.html' } as any), false);
   assert.equal(allowReaderNavigation({ url: 'file:///sdcard/book.epub' } as any), false);
 
+  // Reject scheme-relative and network path attempts
+  assert.equal(allowReaderNavigation({ url: '//malicious-site.com/test' } as any), false);
+  assert.equal(allowReaderNavigation({ url: '//phishing.example.org' } as any), false);
+
   // Allow legitimate in-memory / about:blank reader document lifecycles
   assert.equal(allowReaderNavigation({ url: 'about:blank' } as any), true);
   assert.equal(allowReaderNavigation({ url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA' } as any), true);
@@ -75,6 +79,26 @@ test('redactSensitive strips local paths, Android content/file URIs, and user pa
   const redacted4 = redactSensitive(sample4);
   assert.ok(!redacted4.includes('Secret.fb2'));
   assert.ok(redacted4.includes('[REDACTED_PATH]'));
+
+  const sample5 = 'Error in /home/user/books/PrivateNovel.epub';
+  const redacted5 = redactSensitive(sample5);
+  assert.ok(!redacted5.includes('PrivateNovel.epub'));
+  assert.ok(redacted5.includes('[REDACTED_PATH]'));
+
+  const sample6 = 'Error in /Users/john/Documents/PrivateJournal.docx';
+  const redacted6 = redactSensitive(sample6);
+  assert.ok(!redacted6.includes('PrivateJournal.docx'));
+  assert.ok(redacted6.includes('[REDACTED_PATH]'));
+
+  const sampleUrl = 'Failed to fetch from https://cloud.example.com/api?token=secret12345&user=john';
+  const redactedUrl = redactSensitive(sampleUrl);
+  assert.ok(!redactedUrl.includes('token=secret12345'));
+  assert.ok(redactedUrl.includes('[REDACTED_URL]'));
+
+  const sampleAuthUrl = 'Request to https://admin:password123@internal.example.com/books';
+  const redactedAuthUrl = redactSensitive(sampleAuthUrl);
+  assert.ok(!redactedAuthUrl.includes('password123'));
+  assert.ok(redactedAuthUrl.includes('[REDACTED_URL]'));
 });
 
 test('Logger level configuration controls emission', () => {

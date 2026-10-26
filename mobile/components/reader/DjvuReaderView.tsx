@@ -12,6 +12,7 @@ import { READER_THEMES } from '@/theme/Colors';
 import { DjvuParser, DjvuPage } from '@/services/djvu/DjvuParser';
 import { SELECTION_WATCHER_JS, SelectionPayload } from '@/services/reader/selectionBridge';
 import { READER_WEBVIEW_PROPS } from '@/services/security/webviewPolicy';
+import { sanitizeHtml } from '@/services/security/sanitizeHtml';
 import { logger } from '@/utils/logger';
 
 const TAG = 'DjvuReaderView';
@@ -132,8 +133,9 @@ export function DjvuReaderView({
     );
   }
 
-  const pageHtml = pages[currentPage]?.text
-    ? pages[currentPage].text.split('\n\n').map((para) => `<p>${para}</p>`).join('\n')
+  const rawText = pages[currentPage]?.text;
+  const pageHtml = rawText
+    ? rawText.split('\n\n').map((para) => `<p>${sanitizeHtml(para)}</p>`).join('\n')
     : '<p>Page content empty.</p>';
 
   const injectedHtml = `

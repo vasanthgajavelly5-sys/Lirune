@@ -22,13 +22,26 @@ export const READER_HTML_SOURCE = { html: '' } as const;
  * Returns true only for the document origins the reader itself creates.
  *
  * Because the source is always an in-memory `{ html }` string it resolves to
- * `about:blank`, so an external `https://` (or `file://`, `intent://`) request
+ * `about:blank` or `data:`, so an external `https://` (or `file://`, `intent://`) request
  * from inside a book is always rejected.
  */
 export function allowReaderNavigation(request: WebViewNavigation): boolean {
   const url = request.url ?? '';
   if (!url) return true; // initial about:blank handshake
-  return ALLOWED_SCHEMES.some((scheme) => url.toLowerCase().startsWith(scheme));
+  const lower = url.toLowerCase();
+  // Strictly reject hostile external, scheme-relative, or system-level navigation attempts
+  if (
+    lower.startsWith('javascript:') ||
+    lower.startsWith('intent:') ||
+    lower.startsWith('content:') ||
+    lower.startsWith('file:') ||
+    lower.startsWith('http:') ||
+    lower.startsWith('https:') ||
+    lower.startsWith('//')
+  ) {
+    return false;
+  }
+  return ALLOWED_SCHEMES.some((scheme) => lower.startsWith(scheme));
 }
 
 /**

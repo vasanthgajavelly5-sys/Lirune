@@ -29,9 +29,22 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const release_id = context.payload.release ? context.payload.release.id : null;
+            let release = context.payload.release;
+            if (!release && context.payload.inputs && context.payload.inputs.tag_name) {
+              try {
+                const rel = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag: context.payload.inputs.tag_name
+                });
+                release = rel.data;
+              } catch (e) {
+                console.log(`Failed to fetch release for tag ${context.payload.inputs.tag_name}:`, e.message);
+              }
+            }
+            const release_id = release ? release.id : null;
             if (!release_id) {
-              console.log('No release context; skipping download.');
+              console.log('No release context or tag found; skipping download.');
               return;
             }
             const assets = await github.rest.repos.listReleaseAssets({
@@ -76,7 +89,20 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const release_id = context.payload.release ? context.payload.release.id : null;
+            let release = context.payload.release;
+            if (!release && context.payload.inputs && context.payload.inputs.tag_name) {
+              try {
+                const rel = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag: context.payload.inputs.tag_name
+                });
+                release = rel.data;
+              } catch (e) {
+                console.log(`Failed to fetch release for tag ${context.payload.inputs.tag_name}:`, e.message);
+              }
+            }
+            const release_id = release ? release.id : null;
             if (!release_id || !fs.existsSync('./release-dist/SHA256SUMS.txt')) {
               console.log('No release id or SHA256SUMS.txt found.');
               return;

@@ -48,7 +48,7 @@ export class SourceResolver {
     const canonicalUri = book.uri || book.filePath || '';
 
     if (!canonicalUri) {
-      logger.error(TAG, `Book "${book.title}" (${book.id}) has neither URI nor filePath`);
+      logger.error(TAG, `Book [id: ${book.id}] has neither URI nor filePath`);
       throw new SourceUnavailableError('unknown', 'No valid URI or file path recorded for this book.');
     }
 
@@ -66,7 +66,7 @@ export class SourceResolver {
       try {
         const fileInfo = await FileSystem.getInfoAsync(book.filePath);
         if (fileInfo.exists && !fileInfo.isDirectory) {
-          logger.info(TAG, `Resolved "${book.title}" from direct filePath in ${Date.now() - startTime}ms`);
+          logger.info(TAG, `Resolved book [id: ${book.id}] from direct filePath in ${Date.now() - startTime}ms`);
           return {
             localPath: book.filePath,
             isTemporaryCache: false,
@@ -84,7 +84,7 @@ export class SourceResolver {
       try {
         const fileInfo = await FileSystem.getInfoAsync(canonicalUri);
         if (fileInfo.exists && !fileInfo.isDirectory) {
-          logger.info(TAG, `Resolved "${book.title}" from file:// URI in ${Date.now() - startTime}ms`);
+          logger.info(TAG, `Resolved book [id: ${book.id}] from file:// URI in ${Date.now() - startTime}ms`);
           return {
             localPath: canonicalUri,
             isTemporaryCache: false,
@@ -108,7 +108,7 @@ export class SourceResolver {
     try {
       const cacheInfo = await FileSystem.getInfoAsync(cachedFilePath);
       if (cacheInfo.exists && !cacheInfo.isDirectory && (cacheInfo.size || 0) > 0) {
-        logger.info(TAG, `Resolved "${book.title}" from existing cache: ${cachedFilePath} (${Date.now() - startTime}ms)`);
+        logger.info(TAG, `Resolved book [id: ${book.id}] from existing cache (${Date.now() - startTime}ms)`);
         return {
           localPath: cachedFilePath,
           isTemporaryCache: true,
@@ -121,7 +121,7 @@ export class SourceResolver {
     }
 
     // Staging into cache from canonical URI
-    logger.info(TAG, `Staging canonical SAF source into cache for "${book.title}": ${canonicalUri}`);
+    logger.info(TAG, `Staging source into cache for book [id: ${book.id}]`);
     try {
       const dirInfo = await FileSystem.getInfoAsync(bookCacheDir);
       if (!dirInfo.exists) {
@@ -163,7 +163,7 @@ export class SourceResolver {
         throw new Error('Cached file verification failed (0 bytes or missing)');
       }
 
-      logger.info(TAG, `Successfully cached source for "${book.title}" in ${Date.now() - startTime}ms (${postInfo.size} bytes)`);
+      logger.info(TAG, `Successfully cached source for book [id: ${book.id}] in ${Date.now() - startTime}ms (${postInfo.size} bytes)`);
       return {
         localPath: cachedFilePath,
         isTemporaryCache: true,
@@ -171,7 +171,7 @@ export class SourceResolver {
         fileSize: postInfo.size ?? book.fileSize,
       };
     } catch (err: any) {
-      logger.error(TAG, `Failed to resolve or cache source for "${book.title}" (${canonicalUri})`, err);
+      logger.error(TAG, `Failed to resolve or cache source for book [id: ${book.id}]`, err);
 
       // Mark book as missing in database so library can display appropriate indicator
       try {
@@ -197,7 +197,7 @@ export class SourceResolver {
     originalName?: string,
     fileSizeHint?: number
   ): Promise<Book> {
-    logger.info(TAG, `Re-linking book "${book.title}" (${book.id}) to new URI: ${newUri}`);
+    logger.info(TAG, `Re-linking book [id: ${book.id}]`);
     if (fileSizeHint !== undefined && fileSizeHint > 512 * 1024 * 1024) {
       throw new SourceUnavailableError(newUri, 'This file is too large to relink safely (maximum 512 MB).');
     }

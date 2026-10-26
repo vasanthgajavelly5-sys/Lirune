@@ -621,6 +621,15 @@ export const nativeStorage = {
     }
   },
 
+  async createThumbnail(sourcePath: string, targetPath: string, targetWidth = 400): Promise<boolean> {
+    if (!this.isAvailable() || typeof LiruneStorage.createThumbnail !== 'function') return false;
+    try {
+      return await LiruneStorage.createThumbnail(sourcePath, targetPath, targetWidth);
+    } catch {
+      return false;
+    }
+  },
+
   async clearCurrentIntent(): Promise<boolean> {
     if (!this.isAvailable()) return false;
     try {

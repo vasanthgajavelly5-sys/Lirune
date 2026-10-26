@@ -29,6 +29,7 @@ interface BookRow {
   filePath: string | null;
   fileSize: number;
   coverUrl: string | null;
+  thumbnailUrl: string | null;
   coverColor: string | null;
   progress: number;
   currentCfi: string | null;
@@ -118,6 +119,7 @@ function parseBookRow(row: BookRow): Book {
     filePath: row.filePath || undefined,
     fileSize: row.fileSize || 0,
     coverUrl: row.coverUrl || undefined,
+    thumbnailUrl: row.thumbnailUrl || undefined,
     coverColor: row.coverColor || '#3A3050',
     progress: row.progress || 0,
     currentCfi: row.currentCfi || undefined,
@@ -188,10 +190,10 @@ export class SQLiteBookRepository implements BookRepository {
       await db.runAsync(
         `INSERT OR REPLACE INTO books (
           id, title, author, description, format, uri, filePath, fileSize,
-          coverUrl, coverColor, progress, currentCfi, currentChapter,
+          coverUrl, thumbnailUrl, coverColor, progress, currentCfi, currentChapter,
           chapterCount, isFavorite, collectionIds, dateAdded, lastReadDate,
           availability, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           book.id,
           book.title,
@@ -202,6 +204,7 @@ export class SQLiteBookRepository implements BookRepository {
           book.filePath || null,
           book.fileSize,
           book.coverUrl || null,
+          book.thumbnailUrl || null,
           book.coverColor,
           book.progress,
           book.currentCfi || null,

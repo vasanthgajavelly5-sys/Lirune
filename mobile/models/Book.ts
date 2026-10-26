@@ -240,6 +240,7 @@ export interface Book {
   filePath?: string; // App-local persistent file path (legacy/backward compat)
   fileSize: number; // Bytes
   coverUrl?: string; // App-local cover image path
+  thumbnailUrl?: string; // App-local ~400px optimized cover thumbnail
   coverColor: string; // Fallback palette color
   progress: number; // 0 - 100 percentage
   currentCfi?: string; // CFI or position token (e.g., page:n, scroll:y)

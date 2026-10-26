@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Book, ViewMode } from '@/models/Book';
 import { useThemeContext } from '@/theme/ThemeContext';
+import { getListCoverUri } from '@/services/storage/ThumbnailService';
 
 export interface BookCardProps {
   book: Book;
@@ -28,7 +29,7 @@ export interface BookCardProps {
   onDelete?: () => void;
 }
 
-export function BookCard({
+function BookCardComponent({
   book,
   viewMode,
   columnsCount = 2,
@@ -64,11 +65,7 @@ export function BookCard({
     setImageError(false);
   }, [book.coverUrl, book.id]);
 
-  const coverUri = book.coverUrl
-    ? book.coverUrl.startsWith('file://') || book.coverUrl.startsWith('http') || book.coverUrl.startsWith('data:')
-      ? book.coverUrl
-      : `file://${book.coverUrl}`
-    : undefined;
+  const coverUri = getListCoverUri(book);
 
   // ================= GRID MODE =================
   if (viewMode === 'grid') {
@@ -578,3 +575,26 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 });
+
+function areBookCardPropsEqual(prev: BookCardProps, next: BookCardProps): boolean {
+  if (prev.viewMode !== next.viewMode) return false;
+  if (prev.columnsCount !== next.columnsCount) return false;
+  if (prev.availableWidth !== next.availableWidth) return false;
+
+  const pb = prev.book;
+  const nb = next.book;
+  if (pb.id !== nb.id) return false;
+  if (pb.title !== nb.title) return false;
+  if (pb.author !== nb.author) return false;
+  if (pb.coverUrl !== nb.coverUrl) return false;
+  if (pb.thumbnailUrl !== nb.thumbnailUrl) return false;
+  if (pb.coverColor !== nb.coverColor) return false;
+  if (pb.progress !== nb.progress) return false;
+  if (pb.isFavorite !== nb.isFavorite) return false;
+  if (pb.format !== nb.format) return false;
+  if (pb.currentChapter !== nb.currentChapter) return false;
+
+  return true;
+}
+
+export const BookCard = React.memo(BookCardComponent, areBookCardPropsEqual);

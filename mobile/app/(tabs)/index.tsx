@@ -5,7 +5,7 @@
  * authentic empty state, and first-launch guide.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
   RefreshControl,
   ScrollView,
   useWindowDimensions,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -25,6 +26,7 @@ import { useReaderStore } from '@/state/readerStore';
 import { useSettingsStore } from '@/state/settingsStore';
 import { useThemeContext } from '@/theme/ThemeContext';
 import { BookCard } from '@/components/BookCard';
+import { ThumbnailService } from '@/services/storage/ThumbnailService';
 import { Book, FilterType } from '@/models/Book';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
 import { BookContextSheet } from '@/components/BookContextSheet';
@@ -155,14 +157,26 @@ export default function LibraryScreen() {
     return result;
   }, [books, selectedCollectionId, filter, sortCriterion, sortDirection]);
 
+  // Background migration for legacy book covers to ~400px thumbnails
+  const migrationTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (isLibraryLoaded && books.length > 0 && !migrationTriggeredRef.current) {
+      migrationTriggeredRef.current = true;
+      const task = InteractionManager.runAfterInteractions(() => {
+        void ThumbnailService.migrateExistingCovers(books);
+      });
+      return () => task.cancel();
+    }
+  }, [isLibraryLoaded, books]);
+
   // Actions
-  const handleOpenBook = (book: Book) => {
+  const handleOpenBook = useCallback((book: Book) => {
     void openBook(book);
     router.push({
       pathname: '/reader',
       params: { bookId: book.id },
     });
-  };
+  }, [openBook, router]);
 
   const handleImport = async () => {
     setIsImporting(true);
@@ -177,12 +191,21 @@ export default function LibraryScreen() {
     }
   };
 
-  const handleToggleFavorite = async (book: Book) => {
+  const handleToggleFavorite = useCallback(async (book: Book) => {
     await toggleFavorite(book.id);
     setToastMessage(
       book.isFavorite ? 'Removed from favorites' : 'Added to favorites'
     );
-  };
+  }, [toggleFavorite]);
+
+  const handleCardPress = useCallback((book: Book) => {
+    handleOpenBook(book);
+  }, [handleOpenBook]);
+
+  const handleCardLongPress = useCallback((book: Book) => {
+    setSelectedBook(book);
+    setIsContextSheetVisible(true);
+  }, []);
 
   const handleConfirmDelete = async () => {
     if (bookToDelete) {
@@ -215,6 +238,23 @@ export default function LibraryScreen() {
     if (windowWidth >= 680) return 3;
     return 2;
   }, [viewMode, windowWidth]);
+
+  const availableCardWidth = isTablet ? windowWidth - 84 : windowWidth;
+
+  const renderBookItem = useCallback(
+    ({ item }: { item: Book }) => (
+      <BookCard
+        book={item}
+        viewMode={viewMode}
+        columnsCount={gridColumns}
+        availableWidth={availableCardWidth}
+        onPress={() => handleCardPress(item)}
+        onLongPress={() => handleCardLongPress(item)}
+        onToggleFavorite={() => void handleToggleFavorite(item)}
+      />
+    ),
+    [viewMode, gridColumns, availableCardWidth, handleCardPress, handleCardLongPress, handleToggleFavorite]
+  );
 
   const readingCount = useMemo(
     () => books.filter((b) => b.progress > 0 && b.progress < 100).length,
@@ -498,6 +538,10 @@ export default function LibraryScreen() {
           columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={5}
+          removeClippedSubviews={true}
           refreshControl={
             <RefreshControl
               refreshing={isLoading}
@@ -505,20 +549,7 @@ export default function LibraryScreen() {
               tintColor={colors.accent}
             />
           }
-          renderItem={({ item }) => (
-            <BookCard
-              book={item}
-              viewMode={viewMode}
-              columnsCount={gridColumns}
-              availableWidth={isTablet ? windowWidth - 84 : windowWidth}
-              onPress={() => handleOpenBook(item)}
-              onLongPress={() => {
-                setSelectedBook(item);
-                setIsContextSheetVisible(true);
-              }}
-              onToggleFavorite={() => handleToggleFavorite(item)}
-            />
-          )}
+          renderItem={renderBookItem}
         />
       )}
 

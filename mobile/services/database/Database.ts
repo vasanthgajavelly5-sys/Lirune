@@ -62,6 +62,7 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       filePath TEXT,
       fileSize INTEGER DEFAULT 0,
       coverUrl TEXT,
+      thumbnailUrl TEXT,
       coverColor TEXT,
       progress REAL DEFAULT 0,
       currentCfi TEXT,
@@ -274,6 +275,9 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       if (!columns.has('added_at')) {
         await db.execAsync('ALTER TABLE books ADD COLUMN added_at INTEGER;');
         await db.execAsync('UPDATE books SET added_at = dateAdded WHERE added_at IS NULL;');
+      }
+      if (!columns.has('thumbnailUrl')) {
+        await db.execAsync('ALTER TABLE books ADD COLUMN thumbnailUrl TEXT;');
       }
 
       await db.execAsync(`

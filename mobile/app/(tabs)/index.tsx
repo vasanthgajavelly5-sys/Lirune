@@ -459,7 +459,7 @@ export default function LibraryScreen() {
       )}
 
       {/* Book List / Grid / Empty States */}
-      {isLoading && books.length === 0 ? (
+      {(!isLibraryLoaded || isLoading) && books.length === 0 ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.accent} />
         </View>

@@ -566,7 +566,7 @@ test('validateAppTheme: enforces valid theme options', () => {
   assert.equal(validateAppTheme('dark'), 'dark');
   assert.equal(validateAppTheme('light'), 'light');
   assert.equal(validateAppTheme('system'), 'system');
-  assert.equal(validateAppTheme('cyberpunk'), 'light');
+  assert.equal(validateAppTheme('cyberpunk'), 'system');
 });
 
 // ---------------------------------------------------------------------------

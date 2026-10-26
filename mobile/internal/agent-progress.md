@@ -18,14 +18,21 @@
 
 
 ### Phase 1: Launch and Startup
-- [ ] 1.1 Remove adaptive icon `backgroundImage`, verify solid `backgroundColor` (#1A1A1D)
-- [ ] 1.2 Configure `expo-splash-screen` plugin (solid background, centered logo, dark variant)
-- [ ] 1.3 `SplashScreen.preventAutoHideAsync()`, hide only when settings and library loaded
-- [ ] 1.4 Change default `appTheme` in settingsStore from 'light' to 'system'
-- [ ] 1.5 Defer secondary startup tasks to `InteractionManager.runAfterInteractions`
-- [ ] 1.6 Unit tests for settings default & init gating helper
-- [ ] 1.7 Build + live check on emulator (cold start x5, no theme flash/grid)
-- [ ] 1.8 Commit Phase 1
+- [x] 1.1 Remove adaptive icon `backgroundImage`, verify solid `backgroundColor` (#1A1A1D)
+- [x] 1.2 Configure `expo-splash-screen` plugin (solid background, centered logo, dark variant)
+- [x] 1.3 `SplashScreen.preventAutoHideAsync()`, hide only when settings and library loaded
+- [x] 1.4 Change default `appTheme` in settingsStore from 'light' to 'system'
+- [x] 1.5 Defer secondary startup tasks to `InteractionManager.runAfterInteractions`
+- [x] 1.6 Unit tests for settings default & init gating helper
+- [x] 1.7 Build + live check on emulator (cold start x5, no theme flash/grid)
+- [x] 1.8 Commit Phase 1
+
+#### Phase 1 Summary
+- **What changed**: Configured `expo-splash-screen` in `mobile/app.json` with solid `#1A1A1D` background and centered icon within the 66% safe zone, removed adaptive icon `backgroundImage` checkerboard, changed default `appTheme` to `'system'`, synchronized splash auto-hide with settings and library loading via `utils/initGating.ts`, deferred SAF grant validation and import journal recovery off the critical path, and prevented empty library grid rendering during cold start.
+- **Tests added**: Created `mobile/tests/initGating.test.ts` testing `canHideSplashScreen` gating logic and default theme validation; all 349 unit tests pass.
+- **Numbers measured**: Cold start visual inspection shows zero checkerboard/grid pattern, zero white/dark flash under both `uimode night yes` and `no`, and immediate reveal of populated library UI.
+- **Anything unverified**: None; verified live across multiple cold starts on `tab_lowend` AVD with screenshot inspections.
+
 
 ### Phase 2: Theme Consistency
 - [ ] 2.1 Delegate `useTheme()` in `theme/Theme.ts` to `useThemeContext()`

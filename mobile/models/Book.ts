@@ -475,5 +475,5 @@ export type AppThemeOption = 'dark' | 'light' | 'system';
 
 export function validateAppTheme(raw: any): AppThemeOption {
   if (raw === 'dark' || raw === 'light' || raw === 'system') return raw;
-  return 'light';
+  return 'system';
 }

@@ -55,7 +55,7 @@ interface SettingsState {
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
-  appTheme: 'light',
+  appTheme: 'system',
   accentColor: '#EEECF8',
   readerSettings: DEFAULT_READER_SETTINGS,
   accessibility: DEFAULT_ACCESSIBILITY,
@@ -78,7 +78,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         savedScanAccessDismissed,
         savedWelcome,
       ] = await Promise.all([
-        repo.getPreference?.('appTheme', 'light'),
+        repo.getPreference?.('appTheme', 'system'),
         repo.getPreference?.('accentColor', '#EEECF8'),
         repo.getPreference?.('readerSettings', DEFAULT_READER_SETTINGS),
         repo.getPreference?.('accessibility', DEFAULT_ACCESSIBILITY),

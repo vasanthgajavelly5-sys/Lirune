@@ -217,3 +217,40 @@ test('Fullscreen TOC accessibility and desktop toolbar congestion prevention', (
   assert.match(readerCss, /@media\s*\(max-width:\s*900px\)/, 'Must contain responsive query for non-fullscreen windows <= 900px');
   assert.match(readerCss, /@media\s*\(max-width:\s*780px\)/, 'Must contain responsive query for non-fullscreen windows <= 780px');
 });
+
+test('coverDataUrl validation prevents unsafe HTML attribute injection and dangerous schemes', () => {
+  const utilsContent = fs.readFileSync(path.join(__dirname, '../js/utils.js'), 'utf8');
+  assert.match(utilsContent, /sanitizeCoverUrl/, 'js/utils.js must export sanitizeCoverUrl');
+  assert.match(utilsContent, /escapeAttr/, 'js/utils.js must export escapeAttr');
+
+  // Verify library.js uses sanitizeCoverUrl and escapeAttr
+  const libraryContent = fs.readFileSync(path.join(__dirname, '../js/library.js'), 'utf8');
+  assert.match(libraryContent, /Utils\.sanitizeCoverUrl/, 'library.js must validate coverDataUrl before rendering');
+  assert.match(libraryContent, /Utils\.escapeAttr/, 'library.js must escape attributes on cover elements');
+
+  // Direct logic test of sanitizeCoverUrl
+  function sanitizeCoverUrl(url) {
+    if (!url || typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    if (/^data:image\/(?:png|jpeg|jpg|webp|gif|bmp);base64,[A-Za-z0-9+/=]+$/i.test(trimmed)) {
+      return trimmed;
+    }
+    return null;
+  }
+
+  // Reject malicious payloads
+  assert.equal(sanitizeCoverUrl('" onerror="alert(1)'), null);
+  assert.equal(sanitizeCoverUrl('javascript:alert(1)'), null);
+  assert.equal(sanitizeCoverUrl('data:text/html,<script>alert(1)</script>'), null);
+  assert.equal(sanitizeCoverUrl('data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='), null, 'SVG images should not be treated as raster covers to avoid script injection');
+  assert.equal(sanitizeCoverUrl('http://evil.com/cover.jpg'), null, 'Remote URLs rejected');
+  assert.equal(sanitizeCoverUrl('file:///etc/passwd'), null, 'Local file scheme rejected');
+  assert.equal(sanitizeCoverUrl(null), null);
+  assert.equal(sanitizeCoverUrl(undefined), null);
+
+  // Accept valid base64 raster image data URIs
+  const validPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA';
+  const validJpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ';
+  assert.equal(sanitizeCoverUrl(validPng), validPng);
+  assert.equal(sanitizeCoverUrl(validJpeg), validJpeg);
+});

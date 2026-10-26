@@ -70,6 +70,28 @@ const Utils = {
     return div.innerHTML;
   },
 
+  // Escape HTML attribute values to prevent breaking out of attribute quotes
+  escapeAttr: (str) => {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  },
+
+  // Validate and sanitize cover image URLs to prevent attribute injection or dangerous schemes
+  sanitizeCoverUrl: (url) => {
+    if (!url || typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    // Allow safe data URLs for standard raster image formats only
+    if (/^data:image\/(?:png|jpeg|jpg|webp|gif|bmp);base64,[A-Za-z0-9+/=]+$/i.test(trimmed)) {
+      return trimmed;
+    }
+    return null;
+  },
+
   // Toast Notification System
   toast: (message, type = 'info', duration = 3200) => {
     const container = document.getElementById('toast-container');

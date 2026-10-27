@@ -158,7 +158,7 @@ Android builds are published on the repository's Releases page:
 
 <https://github.com/vasanthgajavelly5-sys/Lirune/releases>
 
-The current Android release is **v4.0.6** (versionCode 3). Each release page
+The current Android release is **v4.9.3** (versionCode 11). Each release page
 lists the APK size and its SHA-256 checksum, so a downloaded file can be
 verified before installation.
 
@@ -166,7 +166,7 @@ To install an APK, enable "Install unknown apps" for your file manager or
 browser and open the downloaded file, or install over ADB:
 
 ```powershell
-adb install -r Lirune-Reader-4.0.6.apk
+adb install -r Lirune-Reader-v4.9.3-release.apk
 ```
 
 Windows builds, when published, are attached to the same Releases page as an

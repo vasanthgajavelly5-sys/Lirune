@@ -305,6 +305,39 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
         });
       }, { passive: true });
 
+      var touchStartX = 0;
+      var touchStartY = 0;
+      var touchStartTime = 0;
+      var touchStartScrollY = 0;
+
+      document.addEventListener('touchstart', function (e) {
+        if (e.touches.length === 1) {
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+          touchStartTime = Date.now();
+          touchStartScrollY = window.pageYOffset;
+        }
+      }, { passive: true });
+
+      document.addEventListener('touchend', function (e) {
+        if (e.changedTouches.length !== 1) return;
+        var dx = e.changedTouches[0].clientX - touchStartX;
+        var dy = e.changedTouches[0].clientY - touchStartY;
+        var elapsed = Date.now() - touchStartTime;
+        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
+        if (elapsed > 320) return;
+        if (Math.abs(window.pageYOffset - touchStartScrollY) > 4) return;
+
+        var ratio = e.changedTouches[0].clientX / (window.innerWidth || 1);
+        if (ratio < 0.18) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prevChapter' }));
+        } else if (ratio > 0.82) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'nextChapter' }));
+        } else {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'toggleControls' }));
+        }
+      }, { passive: true });
+
       observeLazyImages(document);
 
       return {

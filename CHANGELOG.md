@@ -1,3 +1,20 @@
+## 4.9.3 — Scroll Engine v2 Exclusivity & Permanent v1 Retirement (2026-10-27)
+
+Scroll Engine v2 is now the exclusive, unified continuous-scroll engine across Lirune Android. Scroll Engine v1 and its experimental feature toggle have been permanently retired, shedding legacy code while preserving backwards-compatible reading positions and low-memory device stability.
+
+### Reader Engine & Architecture
+
+- **Scroll Engine v2 Exclusivity:**
+  - Continuous-mode EPUB reading is now powered unconditionally by Scroll Engine v2's virtualized block locator architecture.
+  - Legacy Scroll Engine v1 code paths (monolithic chapter injection, sentinel-based DOM intersection observers, and host drain timers) have been permanently deleted.
+  - Experimental "Scroll Engine (v1 / v2)" toggle row removed from Settings Sheet; continuous reading now seamlessly leverages v2 without user configuration.
+- **Backward Compatibility & Seamless Migration:**
+  - Preserved full backward compatibility for saved reading positions (`loc:v2:...`, legacy `spine:N:scroll:Y`, `spine:N:frac:F`, and simple `spine:N`). Upgrading users will resume reading at the exact same location with zero position drift or loss.
+  - Legacy `scrollEngine` values in stored settings, backups, and per-book overrides are silently sanitized and ignored without error.
+  - Retained `scrollEngineCache` host setting (default `false`) for low-memory devices (such as 2GB RAM Galaxy Tab A tablets), properly purging evicted chapter ASTs from host memory.
+- **Zero-Internet Invariant Maintained:**
+  - Standalone release APK maintains zero network permissions (`android.permission.INTERNET` removed at manifest merge time).
+
 ## 4.9.2 — Smoothness overhaul, Scroll Engine v2 & Zero-Internet Release (2026-10-27)
 
 Comprehensive smoothness overhaul and reader responsiveness upgrade for Lirune Android, featuring zero network permissions in release builds, elimination of launch flashes/white screen gaps, accelerated library rendering, unified theme transitions, and experimental Scroll Engine v2.

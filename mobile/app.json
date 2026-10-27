@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lirune Reader",
     "slug": "lirune-reader",
-    "version": "4.9.2",
+    "version": "4.9.3",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "splash": {
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.lirune.reader",
-      "versionCode": 10,
+      "versionCode": 11,
       "adaptiveIcon": {
         "backgroundColor": "#1A1A1D",
         "foregroundImage": "./assets/android-icon-foreground.png",

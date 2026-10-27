@@ -41,20 +41,20 @@
   - [x] Open bug/security issues & vulnerability reports: 0 open issues, 0 advisories
   - [x] Evaluate GATE G1: **PASS**
 
-- [ ] **PHASE 2: Android Close-Out (`android`, PR #4)**
-  - [ ] 2.1 Code checks (`npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run check:pdfjs`, `npm audit --omit=dev`)
-  - [ ] 2.2 Repo hygiene on PR branch (no committed APKs, keystores, or artifacts)
-  - [ ] 2.3 Clean-build permission proof (`expo prebuild --clean`, assembleRelease, aapt2 dump permissions, apksigner fingerprint match)
-  - [ ] 2.4 Install / Uninstall / Migration tests on emulators without root tricks:
-    - [ ] Fresh install, cold start, clean logcat
-    - [ ] Import paths (Open-with intent, folder-picker, Downloads)
-    - [ ] Format smoke (EPUB, PDF, FB2, MOBI, CBZ, TXT, DJVU)
-    - [ ] Scroll mode deep verification (Scroll Engine v2, rotation, font resize, position restore)
-    - [ ] Upgrade over published v4.9.0 release APK (schema, annotations, legacy scroll positions)
-    - [ ] Complete uninstall clean-up check
-    - [ ] 10-minute soak test with PSS sampling and gfxinfo
-  - [ ] 2.5 Set Android version 4.9.3 (code 11) everywhere & update CHANGELOG
-  - [ ] Evaluate GATE G2
+- [x] **PHASE 2: Android Close-Out (`android`, PR #4)**
+  - [x] 2.1 Code checks (`npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run check:pdfjs`, `npm audit --omit=dev`)
+  - [x] 2.2 Repo hygiene on PR branch (no committed APKs, keystores, or artifacts)
+  - [x] 2.3 Clean-build permission proof (`expo prebuild --clean`, assembleRelease, aapt2 dump permissions, apksigner fingerprint match)
+  - [x] 2.4 Install / Uninstall / Migration tests on emulators without root tricks:
+    - [x] Fresh install, cold start, clean logcat
+    - [x] Import paths (Open-with intent, folder-picker, Downloads)
+    - [x] Format smoke (EPUB, PDF, FB2, MOBI, CBZ, TXT, DJVU)
+    - [x] Scroll mode deep verification (Scroll Engine v2, rotation, font resize, position restore)
+    - [x] Upgrade over published v4.9.0 release APK (schema, annotations, legacy scroll positions)
+    - [x] Complete uninstall clean-up check
+    - [x] 10-minute soak test with PSS sampling and gfxinfo
+  - [x] 2.5 Set Android version 4.9.3 (code 11) everywhere & update CHANGELOG
+  - [x] Evaluate GATE G2: **PASS**
 
 - [ ] **PHASE 3: Desktop "Store Home" Close-Out (`lirune-store-home`)**
   - [ ] 3.1 Code checks (`npm ci`, `npm run lint`, `npm test`, `npm run validate:corpus`, `npm audit --omit=dev`, `npm run validate:release:config`)

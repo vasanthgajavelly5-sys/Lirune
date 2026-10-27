@@ -33,13 +33,13 @@
   - [x] Determine next version numbers (`v4.9.3` Android, `v5.6.2` Desktop)
   - [x] Output state table
 
-- [ ] **PHASE 1: GitHub Task & Alert Check**
-  - [ ] Workflow runs & conclusions (CI, CodeQL, Gitleaks, Dependency Review)
-  - [ ] Code scanning alerts (CodeQL)
-  - [ ] Secret scanning alerts & push protection status
-  - [ ] Dependabot alerts & open PRs (#1, #2)
-  - [ ] Open bug/security issues & vulnerability reports
-  - [ ] Evaluate GATE G1
+- [x] **PHASE 1: GitHub Task & Alert Check**
+  - [x] Workflow runs & conclusions: 100% green on `feat/scroll-v2-only`, `android`, and `lirune-store-home` (CI, CodeQL, Gitleaks, Dependency Review)
+  - [x] Code scanning alerts (CodeQL): 0 open alerts
+  - [x] Secret scanning alerts & push protection: 0 open alerts, secret scanning & push protection enabled
+  - [x] Dependabot alerts & open PRs: PR #1 and #2 target legacy `main`; open alerts documented; no blockers for release branches
+  - [x] Open bug/security issues & vulnerability reports: 0 open issues, 0 advisories
+  - [x] Evaluate GATE G1: **PASS**
 
 - [ ] **PHASE 2: Android Close-Out (`android`, PR #4)**
   - [ ] 2.1 Code checks (`npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run check:pdfjs`, `npm audit --omit=dev`)

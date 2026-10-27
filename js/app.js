@@ -12,16 +12,24 @@ const App = (() => {
   let homeZoomControl = null;
 
   async function init() {
+    // Bind window controls immediately so minimize, maximize, and close always work
+    bindWindowControls();
+
     // Initialize subsystem managers in parallel (they share a single cached DB
     // connection, so parallel init avoids sequential IndexedDB round-trips)
     showLibraryLoading(true);
-    await Promise.all([
-      ThemeManager.init(),
-      ReaderSettings.init(),
-      AppPrefs.init(),
-      Library.init()
-    ]);
-    hideLibraryLoading();
+    try {
+      await Promise.all([
+        ThemeManager.init(),
+        ReaderSettings.init(),
+        AppPrefs.init(),
+        Library.init()
+      ]);
+    } catch (err) {
+      console.error('Subsystem initialization error:', err);
+    } finally {
+      hideLibraryLoading();
+    }
 
     SettingsUI.init();
     if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
@@ -48,7 +56,6 @@ const App = (() => {
     bindKeyboardShortcuts();
     bindSearchOverlay();
     bindFullscreenState();
-    bindWindowControls();
     bindViewportClamping();
 
     console.log('Lirune Reader successfully initialized');

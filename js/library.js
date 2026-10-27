@@ -1398,27 +1398,6 @@ const RENDER_BATCH_SIZE = 50;
     enhanceSelect(collectionSelect);
     enhanceSelect(sortSelect);
 
-    if (!dropdownGlobalListenersBound) {
-      dropdownGlobalListenersBound = true;
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.custom-dropdown')) {
-          document.querySelectorAll('.custom-dropdown.open').forEach(d => {
-            d.classList.remove('open');
-            d.querySelector('.custom-dropdown-trigger')?.setAttribute('aria-expanded', 'false');
-          });
-        }
-      });
-
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-          document.querySelectorAll('.custom-dropdown.open').forEach(d => {
-            d.classList.remove('open');
-            d.querySelector('.custom-dropdown-trigger')?.setAttribute('aria-expanded', 'false');
-          });
-        }
-      });
-    }
-
     if (searchInput) {
       searchInput.addEventListener('input', Utils.debounce((e) => {
         searchQuery = e.target.value.trim();

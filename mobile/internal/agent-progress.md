@@ -286,20 +286,28 @@
 - [x] 1.4 Commit inventory to agent-progress.md
 
 ### Phase 2: Settings Migration
-- [ ] 2.1 Remove `scrollEngine` from `ReaderSettings` interface, `DEFAULT_READER_SETTINGS`, and `validateReaderSettings`
-- [ ] 2.2 Silently tolerate and drop legacy `scrollEngine` values in stored settings, backups, and per-book overrides
-- [ ] 2.3 Retain `scrollEngineCache` (default `false`) wired into LRU chapter eviction in `EpubReaderView.tsx`
-- [ ] 2.4 Add unit tests for legacy settings migration ('v1', 'v2', undefined, garbage)
-- [ ] 2.5 Test settings import and per-book settings
+- [x] 2.1 Remove `scrollEngine` from `ReaderSettings` interface, `DEFAULT_READER_SETTINGS`, and `validateReaderSettings`
+- [x] 2.2 Silently tolerate and drop legacy `scrollEngine` values in stored settings, backups, and per-book overrides
+- [x] 2.3 Retain `scrollEngineCache` (default `false`) wired into LRU chapter eviction in `EpubReaderView.tsx`
+- [x] 2.4 Add unit tests for legacy settings migration ('v1', 'v2', undefined, garbage)
+- [x] 2.5 Test settings import and per-book settings
+
+#### Phase 2 Summary
+- **What changed**: Dropped `scrollEngine` entirely from `ReaderSettings` and `DEFAULT_READER_SETTINGS` in `mobile/models/Book.ts`. Sanitized it out in `validateReaderSettings` so legacy configs with `'v1'` or `'v2'` drop the property cleanly without error. Retained `scrollEngineCache?: boolean` for low-memory host AST eviction. Removed the `Scroll Engine` segmented control toggle from `mobile/components/reader/SettingsSheet.tsx`.
+- **Tests added**: Added regression assertions in `mobile/tests/regressions.test.ts` and `mobile/tests/scrollEngineV2Utils.test.ts` verifying `scrollEngine` is stripped from parsed settings while preserving `scrollEngineCache`.
 
 ### Phase 3: Remove v1
-- [ ] 3.1 Remove v1 continuous script and shell branches in `mobile/services/epub/readerDocument.ts`
-- [ ] 3.2 Remove v1 host hydration logic (`hydrateIndices`, `startBackgroundDrain`, v1 injection) in `mobile/components/reader/EpubReaderView.tsx`
-- [ ] 3.3 Remove v1-only helpers in `mobile/utils/scrollEngineUtils.ts` and consolidate `formatScrollAnchor` into `scrollEngineV2Utils.ts`
-- [ ] 3.4 Remove `Scroll Engine` segmented control toggle in `mobile/components/reader/SettingsSheet.tsx`
-- [ ] 3.5 Remove v1-only test file `mobile/tests/scrollEngineUtils.test.ts` and add guard regression tests
-- [ ] 3.6 Full check pass (typecheck, lint, 380+ tests, check:pdfjs)
+- [x] 3.1 Remove v1 continuous script and shell branches in `mobile/services/epub/readerDocument.ts`
+- [x] 3.2 Remove v1 host hydration logic (`hydrateIndices`, `startBackgroundDrain`, v1 injection) in `mobile/components/reader/EpubReaderView.tsx`
+- [x] 3.3 Remove v1-only helpers in `mobile/utils/scrollEngineUtils.ts` and consolidate `formatScrollAnchor` into `scrollEngineV2Utils.ts`
+- [x] 3.4 Remove `Scroll Engine` segmented control toggle in `mobile/components/reader/SettingsSheet.tsx`
+- [x] 3.5 Remove v1-only test file `mobile/tests/scrollEngineUtils.test.ts` and add guard regression tests
+- [x] 3.6 Full check pass (typecheck, lint, 382 tests pass, check:pdfjs)
 - [ ] 3.7 Assemble debug APK and smoke test
+
+#### Phase 3 Summary
+- **What changed**: Deleted legacy `continuousScript`, removed v1 conditionals in `buildContinuousShell` and `buildReaderDocument` in `mobile/services/epub/readerDocument.ts`. Removed `hydrateIndices`, `startBackgroundDrain`, and all v1 drain tokens from `mobile/components/reader/EpubReaderView.tsx`, consolidating on `hydrateChapters` and v2 locators. Deleted `mobile/utils/scrollEngineUtils.ts` and `mobile/tests/scrollEngineUtils.test.ts`. Migrated `formatScrollAnchor` and `parseScrollAnchor` into `scrollEngineV2Utils.ts`.
+- **Tests added/updated**: Updated `mobile/tests/epubEngine.test.ts` and `mobile/tests/scrollEngineV2Utils.test.ts`. 382 tests passing, typecheck 0 errors, lint 0 errors, check:pdfjs PASS.
 
 ### Phase 4: Live QC (v2 only)
 - [ ] 4.1 Run S1-S15 live scenarios on `tab_lowend` and `tab_modern`

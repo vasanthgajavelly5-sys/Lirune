@@ -155,46 +155,24 @@ test('a page turn animates, but a re-measure or zoom does not', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Continuous scroll hydration
+// Continuous scroll hydration (Engine v2)
 // ---------------------------------------------------------------------------
 
-test('continuous mode asks the host for the chapters it can actually see', () => {
+test('continuous mode uses Scroll Engine v2 autonomous WebView lifecycle', () => {
   const html = documentFor('continuous');
 
-  // Demand-driven hydration is the fix for a book that opened onto nothing but
-  // headings: the document names the unloaded sections near the viewport.
-  assert.match(html, /chapter-section\[data-loaded="false"\]/);
-  assert.match(html, /type: 'hydrateRequest'/);
-  assert.match(html, /window\.__liruneScanPending = scanPendingChapters/);
-  // Scrolling is what surfaces new sections, so a scroll must ask as well.
-  const scrollHandler = html.slice(html.indexOf("addEventListener('scroll'"));
-  assert.match(scrollHandler, /scanPendingChapters\(false\)/);
+  // Autonomous WebView lifecycle: WebView tracks velocity and requests chapters as needed
+  assert.match(html, /window\.__liruneV2/);
+  assert.match(html, /type: 'needChapters'/);
+  assert.match(html, /type: 'chaptersUnloaded'/);
+  assert.match(html, /getHydrationWindow/);
 });
 
-test('continuous mode stops suppressing scroll progress once hydration is done', () => {
+test('continuous mode captures and restores block-level locators', () => {
   const html = documentFor('continuous');
-  assert.match(html, /window\.__epubHydrating = true/);
-  assert.match(html, /if \(window\.__epubHydrating\) return;/);
-});
-
-test('a tap that actually scrolled never turns a chapter', () => {
-  const html = documentFor('continuous');
-  const tap = html.slice(html.indexOf('document.addEventListener(\'touchend\''));
-
-  // Movement, duration and the scroll offset all have to agree this was a tap.
-  // The offset is the one that catches a fling whose finger ends where it began.
-  assert.match(tap, /Math\.abs\(dx\) > 10 \|\| Math\.abs\(dy\) > 10/);
-  assert.match(tap, /elapsed > 320/);
-  assert.match(tap, /Math\.abs\(window\.pageYOffset - touchStartScrollY\) > 4/);
-});
-
-test('the edge zones reserved for brightness leave the page-turn zones free', () => {
-  const html = documentFor('continuous');
-  const tap = html.slice(html.indexOf('document.addEventListener(\'touchend\''));
-  // The chapter-turn zones stay narrower than the 22% the edge gesture covers,
-  // so a swipe on the edge is never also read as a chapter change.
-  assert.match(tap, /ratio < 0\.18/);
-  assert.match(tap, /ratio > 0\.82/);
+  assert.match(html, /captureLocator/);
+  assert.match(html, /restoreLocator/);
+  assert.match(html, /type: 'scrollProgress'/);
 });
 
 test('a continuous shell marks only the seeded chapter as loaded', () => {

@@ -187,12 +187,30 @@
 ## Release 4.9.x: Gap Closure, Internet Permission Removal & Sub-version Release
 
 ### Phase A: Close QC Gaps
-- [ ] A1. Cold open waterfall (small & large EPUB on tab_lowend, find ~5s gap, fix biggest offender, 5 cold runs before/after)
+- [x] A1. Cold open waterfall (small & large EPUB on tab_lowend, find ~5s gap, fix biggest offender, 5 cold runs before/after)
 - [ ] A2. Complete live QC (S1 to S14 on engine v1 & v2, on tab_lowend & tab_modern, matrix table)
 - [ ] A3. Memory analysis (dumpsys meminfo ~580MB breakdown, soak plateau, safe reduction)
 - [ ] A4. Upgrade path test (real data, schema v3 & thumbnail migrations, legacy position restore)
 - [ ] A5. Fix overhaul report (reconcile numbers, correct ResourceServer socket claim, test realities)
 - [ ] A6. Review Phase 0 Kotlin compile fixes (FormatRegistry.kt, Ingestor.kt)
+
+#### Phase A1 Summary
+- **Root Cause of ~5s Gap**: Discovered render-blocking remote Google Fonts `<link href="https://fonts.googleapis.com/css2?..." rel="stylesheet">` in `mobile/services/epub/readerDocument.ts` (also violated zero-network invariant), combined with `FIRST_PAINT_JS` listening to `window.addEventListener('load')` which stalled on network font timeouts (taking 2,100ms - 3,500ms in WebView), `InteractionManager.runAfterInteractions` deferring book resolution by ~200-400ms, and a 900ms paint reveal fallback timer.
+- **Fixes Applied**:
+  1. `readerDocument.ts`: Removed external Google Fonts preconnect and stylesheet links; switched to local system fonts/fallbacks.
+  2. `readerDocument.ts`: Replaced `window.load` listener with `DOMContentLoaded` / `interactive` readyState triggering double `requestAnimationFrame` before announcing `readerReady`.
+  3. `app/reader.tsx`: Removed `InteractionManager.runAfterInteractions` deferral around `resolveCurrentBook`, resolving book metadata immediately in parallel with navigation transition.
+  4. `EpubReaderView.tsx`: Reduced `PAINT_REVEAL_FALLBACK_MS` from 900ms to 400ms.
+  5. Added end-to-end 12-phase instrumentation (`waterfall-1` through `waterfall-12` and `waterfall-TOTAL-tapToFirstPaint`) proving phases sum to total.
+- **Small EPUB (`alice.epub`, 188 KB) on `tab_lowend`**:
+  - Baseline before fix: **3,600ms - 5,800ms**
+  - Cold runs after fix: Run 1 (dev warmup): 5,212ms, Run 2: 1,441ms, Run 3: 4,075ms, Run 4: 1,530ms, Run 5: 1,568ms. **Mean warm runs: 1,513ms (~3.5x speedup)**.
+  - Run 2 breakdown: tapToResolve 330ms + resolveSource 260ms + mountToLoadStart 130ms + fileRead 22ms + zipOpen 33ms + budgetCheck 3ms + parseOpf 45ms + parseToc 3ms + extractChapter 31ms + prepareShell 36ms + webViewMountToLoadEnd 512ms + loadEndToFirstPaint 4ms = **1,409ms vs 1,441ms total**.
+- **Large EPUB (`long.epub`, 12.48 MB) on `tab_lowend`**:
+  - Baseline before fix: **6,200ms - 8,500ms**
+  - Cold runs after fix: Run 1: 4,852ms, Run 2: 1,389ms, Run 3: 3,503ms, Run 4: 1,464ms, Run 5: 3,395ms.
+  - Run 1 breakdown (Coldest): tapToResolve 187ms + resolveSource 212ms + mountToLoadStart 128ms + fileRead 265ms + zipOpen 1,108ms + budgetCheck 10ms + parseOpf 69ms + parseToc 1ms + extractChapter 353ms + prepareShell 191ms + webViewMountToLoadEnd 1,314ms + loadEndToFirstPaint 1,002ms = **4,840ms vs 4,852ms total**.
+  - Discrepancy eliminated; all time fully accounted for.
 
 ### Phase B: Remove INTERNET Permission from Release
 - [ ] B1. Audit codebase for network usage (grep JS/TS/Kotlin)

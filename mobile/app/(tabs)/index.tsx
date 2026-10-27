@@ -40,6 +40,7 @@ import {
   EmptyFavoritesState,
   EmptyCollectionsFilterState,
 } from '@/components/EmptyState';
+import { perf } from '@/utils/perf';
 
 export default function LibraryScreen() {
   const router = useRouter();
@@ -171,6 +172,7 @@ export default function LibraryScreen() {
 
   // Actions
   const handleOpenBook = useCallback((book: Book) => {
+    perf.mark('waterfall-tap');
     void openBook(book);
     router.push({
       pathname: '/reader',

@@ -12,7 +12,6 @@ import {
   ActivityIndicator,
   Text,
   TouchableOpacity,
-  InteractionManager,
 } from 'react-native';
 import { useStableInsets } from '@/hooks/useStableInsets';
 import { Ionicons } from '@expo/vector-icons';
@@ -56,6 +55,7 @@ import type { SelectionPayload } from '@/services/reader/selectionBridge';
 import { SourceUnavailableError, UnsupportedFormatError } from '@/utils/errors';
 import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
+import { perf } from '@/utils/perf';
 
 const TAG = 'ReaderScreen';
 const HIGHLIGHT_COLORS = ['#FFEB3B', '#4ECDC4', '#FF8A80', '#A8E6CF', '#FFD3B6', '#DED2F9'];
@@ -208,6 +208,8 @@ export default function ReaderScreen() {
     : null;
 
   const resolveCurrentBook = useCallback(async (book: Book) => {
+    perf.mark('waterfall-resolve-start');
+    perf.measure('waterfall-1-tapToResolveStart', 'waterfall-tap');
     setResolutionStatus('resolving');
     setResolvedSource(null);
     setErrorMessage(null);
@@ -217,6 +219,8 @@ export default function ReaderScreen() {
       if (useReaderStore.getState().currentBook?.id !== book.id) return;
       setResolvedSource({ bookId: book.id, path: resolved.localPath });
       setResolutionStatus('ready');
+      perf.mark('waterfall-resolve-end');
+      perf.measure('waterfall-2-resolveSource', 'waterfall-resolve-start');
       logger.debug(TAG, `Source ready for book (${book.id})`);
     } catch (err: any) {
       logger.error(TAG, `Source resolution error for book (${book.id})`, err);
@@ -258,10 +262,7 @@ export default function ReaderScreen() {
     if (!currentBook || !bookSourceKey) return;
     if (resolvedBookKeyRef.current === bookSourceKey) return;
     resolvedBookKeyRef.current = bookSourceKey;
-    const task = InteractionManager.runAfterInteractions(() => {
-      void resolveCurrentBook(currentBook);
-    });
-    return () => task.cancel();
+    void resolveCurrentBook(currentBook);
   }, [currentBook, bookSourceKey, resolveCurrentBook]);
 
   // 3. Android Hardware & Gesture Back Button Handling

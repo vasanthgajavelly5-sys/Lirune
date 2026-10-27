@@ -986,7 +986,10 @@ export function buildContinuousShell(
  */
 const FIRST_PAINT_JS = `
 (function () {
+  var announced = false;
   function announce() {
+    if (announced) return;
+    announced = true;
     window.requestAnimationFrame(function () {
       window.requestAnimationFrame(function () {
         try {
@@ -995,8 +998,12 @@ const FIRST_PAINT_JS = `
       });
     });
   }
-  if (document.readyState === 'complete') announce();
-  else window.addEventListener('load', announce, { once: true });
+  if (document.readyState === 'interactive' || document.readyState === 'complete') {
+    announce();
+  } else {
+    document.addEventListener('DOMContentLoaded', announce, { once: true });
+    window.addEventListener('load', announce, { once: true });
+  }
 })();
 `;
 
@@ -1081,9 +1088,6 @@ export function buildReaderDocument(input: ReaderDocumentInput): string {
 <html>
 <head>
   ${VIEWPORT_META}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,700;1,400&family=Bitter:ital,wght@0,400;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,700;1,7..72,400&family=Lora:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,700;1,8..60,400&family=Vollkorn:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
   ${bookCss}
   <style id="reader-css">${readerCss(input)}</style>
 </head>

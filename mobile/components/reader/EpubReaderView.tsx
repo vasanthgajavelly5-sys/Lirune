@@ -87,7 +87,7 @@ const BACKGROUND_CHAPTER_LIMIT = 4;
  * never does (an older WebView, a script that failed to parse), so the reader is
  * never stuck behind a spinner that cannot finish.
  */
-const PAINT_REVEAL_FALLBACK_MS = 900;
+const PAINT_REVEAL_FALLBACK_MS = 400;
 
 /**
  * Longest continuous mode may suppress scroll progress while filling the first
@@ -846,6 +846,8 @@ export function EpubReaderView({
       paintRevealRef.current = null;
     }
     setWebViewPainted(true);
+    perf.measure('waterfall-12-loadEndToFirstPaint', 'waterfall-loadEnd');
+    perf.measure('waterfall-TOTAL-tapToFirstPaint', 'waterfall-tap');
     perf.measure('loadEpub-total');
 
     // Launch lazy location generation in the background AFTER first paint
@@ -910,10 +912,12 @@ export function EpubReaderView({
 
       try {
         perf.mark('loadEpub-total');
+        perf.measure('waterfall-3-mountToLoadStart', 'waterfall-resolve-end');
         currentPhase = 'open';
         perf.mark('loadEpub-fileRead');
         const buffer = await fileStorage.readAsArrayBuffer(bookPath);
         perf.measure('loadEpub-fileRead');
+        perf.measure('waterfall-4-fileRead', 'loadEpub-fileRead');
         if (!buffer || buffer.byteLength === 0) {
           throw new Error('EPUB file is empty or missing from storage.');
         }
@@ -922,10 +926,12 @@ export function EpubReaderView({
         archiveRef.current = archive;
         sourcePathRef.current = bookPath;
         perf.measure('loadEpub-zipOpen');
+        perf.measure('waterfall-5-zipOpen', 'loadEpub-zipOpen');
 
         perf.mark('loadEpub-budgetCheck');
         validateArchiveBudget(archive.budgetEntries());
         perf.measure('loadEpub-budgetCheck');
+        perf.measure('waterfall-6-budgetCheck', 'loadEpub-budgetCheck');
 
         currentPhase = 'parse-opf';
         perf.mark('loadEpub-parseOpf');
@@ -943,6 +949,7 @@ export function EpubReaderView({
         }
         packageRef.current = epubPackage;
         perf.measure('loadEpub-parseOpf');
+        perf.measure('waterfall-7-parseOpf', 'loadEpub-parseOpf');
 
         currentPhase = 'parse-toc';
         perf.mark('loadEpub-parseToc');
@@ -966,6 +973,7 @@ export function EpubReaderView({
               href: createSpineTarget(index),
             }));
         perf.measure('loadEpub-parseToc');
+        perf.measure('waterfall-8-parseToc', 'loadEpub-parseToc');
 
         let initialIdx = 0;
         const savedTarget = targetCfi ? parseSpineTarget(targetCfi) : null;
@@ -991,8 +999,10 @@ export function EpubReaderView({
         });
         chapterCacheRef.current.set(initialIdx, initialChapter);
         perf.measure('loadEpub-extractInitialChapter');
+        perf.measure('waterfall-9-extractInitialChapter', 'loadEpub-extractInitialChapter');
 
         currentPhase = 'render';
+        perf.mark('waterfall-prepareShell-start');
         continuousDocumentRef.current = settings.flow === 'scrolled';
 
         if (isMounted) {
@@ -1039,6 +1049,8 @@ export function EpubReaderView({
           tocRef.current = toc;
           if (onTOCLoaded) onTOCLoaded(toc);
           onChapterCountLoaded?.(loadedChapters.length);
+          perf.mark('waterfall-shellReady');
+          perf.measure('waterfall-10-prepareShell', 'waterfall-prepareShell-start');
           setIsLoading(false);
 
           if (!continuousDocumentRef.current && initialIdx + 1 < loadedChapters.length) {
@@ -1404,6 +1416,8 @@ if (!targetCfi || chapters.length === 0) return;
 
   const handleLoadEnd = useCallback(() => {
     webViewReadyRef.current = true;
+    perf.mark('waterfall-loadEnd');
+    perf.measure('waterfall-11-webViewMountToLoadEnd', 'waterfall-shellReady');
     // The document announces its own first paint; this only covers a document
     // that never does.
     if (paintRevealRef.current) clearTimeout(paintRevealRef.current);

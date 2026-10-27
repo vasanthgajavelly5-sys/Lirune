@@ -3,6 +3,9 @@ node_modules/
 
 # Production builds and installers
 dist/
+*.apk
+SHA256SUMS.txt
+release_notes_*.md
 
 # Test corpus / EPUB library
 Master_EPUB_Library_All/

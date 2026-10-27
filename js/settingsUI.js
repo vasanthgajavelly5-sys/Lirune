@@ -35,13 +35,23 @@ const SettingsUI = (() => {
   ];
 
   const FONT_OPTIONS = [
-    { value: 'Cormorant Garamond', label: 'Cormorant', note: 'Refined book serif' },
-    { value: 'Lora', label: 'Lora', note: 'Editorial serif' },
-    { value: 'Playfair Display', label: 'Playfair', note: 'Classic display' },
-    { value: 'Inter', label: 'Inter', note: 'Modern sans' },
-    { value: 'Georgia', label: 'Georgia', note: 'Literary serif' },
-    { value: 'JetBrains Mono', label: 'Mono', note: 'Technical code' },
-    { value: 'Original', label: 'Publisher', note: 'Original EPUB' }
+    { value: 'Serif', label: 'Classic Serif', note: 'Georgia / Noto Serif' },
+    { value: 'Sans-Serif', label: 'Modern Sans', note: 'Clean & readable' },
+    { value: 'Cormorant Garamond', label: 'Cormorant', note: 'Lirune Signature Serif' },
+    { value: 'Merriweather', label: 'Merriweather', note: 'Screen reading serif' },
+    { value: 'Literata', label: 'Literata', note: 'E-reader serif' },
+    { value: 'Inter', label: 'Inter', note: 'Precision screen sans' },
+    { value: 'Lora', label: 'Lora', note: 'Literary & calligraphic' },
+    { value: 'EB Garamond', label: 'EB Garamond', note: 'Classic book serif' },
+    { value: 'Bitter', label: 'Bitter', note: 'Contemporary slab serif' },
+    { value: 'Source Serif', label: 'Source Serif', note: 'Adobe book serif' },
+    { value: 'OpenDyslexic', label: 'OpenDyslexic', note: 'Accessibility & reading ease' },
+    { value: 'Playfair Display', label: 'Playfair Display', note: 'High contrast editorial' },
+    { value: 'Vollkorn', label: 'Vollkorn', note: 'Quiet book typeface' },
+    { value: 'Alegreya', label: 'Alegreya', note: 'Rhythmic literature face' },
+    { value: 'Charter', label: 'Charter', note: 'Warm book text' },
+    { value: 'JetBrains Mono', label: 'Monospace', note: 'Technical & typewriter' },
+    { value: 'Original', label: 'Publisher Default', note: 'Original EPUB' }
   ];
 
   const SORT_OPTIONS = [
@@ -58,10 +68,16 @@ const SettingsUI = (() => {
     sepia: 'Sepia',
     night: 'Night',
     paper: 'Paper',
-    contrast1: 'Contrast 1',
-    contrast2: 'Contrast 2',
-    contrast3: 'Contrast 3',
-    contrast4: 'Contrast 4',
+    contrast1: 'OLED (Pure Black)',
+    contrast2: 'Amber (Warm Night)',
+    contrast3: 'Navy (Deep Midnight)',
+    contrast4: 'Sage (Soft Forest)',
+    nord: 'Nord (Frost)',
+    gruvbox: 'Gruvbox (Warm Retro)',
+    solarized: 'Solarized (Teal Dark)',
+    rosepine: 'Rose Pine (Dusk)',
+    dracula: 'Dracula (Gothic)',
+    mocha: 'Mocha (Catppuccin)',
     custom: 'Custom'
   };
 
@@ -198,10 +214,16 @@ const SettingsUI = (() => {
           <button type="button" class="theme-preset${theme === 'sepia' ? ' active' : ''}" data-theme="sepia" aria-pressed="${theme === 'sepia' ? 'true' : 'false'}" title="Sepia"><span class="theme-swatch theme-swatch-sepia"></span><span class="theme-preset-name">Sepia</span></button>
           <button type="button" class="theme-preset${theme === 'night' ? ' active' : ''}" data-theme="night" aria-pressed="${theme === 'night' ? 'true' : 'false'}" title="Night"><span class="theme-swatch theme-swatch-night"></span><span class="theme-preset-name">Night</span></button>
           <button type="button" class="theme-preset${theme === 'paper' ? ' active' : ''}" data-theme="paper" aria-pressed="${theme === 'paper' ? 'true' : 'false'}" title="Paper"><span class="theme-swatch theme-swatch-paper"></span><span class="theme-preset-name">Paper</span></button>
-          <button type="button" class="theme-preset${theme === 'contrast1' ? ' active' : ''}" data-theme="contrast1" aria-pressed="${theme === 'contrast1' ? 'true' : 'false'}" title="Contrast 1 (OLED)"><span class="theme-swatch theme-swatch-contrast1"></span><span class="theme-preset-name">OLED</span></button>
-          <button type="button" class="theme-preset${theme === 'contrast2' ? ' active' : ''}" data-theme="contrast2" aria-pressed="${theme === 'contrast2' ? 'true' : 'false'}" title="Contrast 2 (Amber)"><span class="theme-swatch theme-swatch-contrast2"></span><span class="theme-preset-name">Amber</span></button>
-          <button type="button" class="theme-preset${theme === 'contrast3' ? ' active' : ''}" data-theme="contrast3" aria-pressed="${theme === 'contrast3' ? 'true' : 'false'}" title="Contrast 3 (Navy)"><span class="theme-swatch theme-swatch-contrast3"></span><span class="theme-preset-name">Navy</span></button>
-          <button type="button" class="theme-preset${theme === 'contrast4' ? ' active' : ''}" data-theme="contrast4" aria-pressed="${theme === 'contrast4' ? 'true' : 'false'}" title="Contrast 4 (Sage)"><span class="theme-swatch theme-swatch-contrast4"></span><span class="theme-preset-name">Sage</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast1' ? ' active' : ''}" data-theme="contrast1" aria-pressed="${theme === 'contrast1' ? 'true' : 'false'}" title="OLED (Pure Black)"><span class="theme-swatch theme-swatch-contrast1"></span><span class="theme-preset-name">OLED</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast2' ? ' active' : ''}" data-theme="contrast2" aria-pressed="${theme === 'contrast2' ? 'true' : 'false'}" title="Amber (Warm Night)"><span class="theme-swatch theme-swatch-contrast2"></span><span class="theme-preset-name">Amber</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast3' ? ' active' : ''}" data-theme="contrast3" aria-pressed="${theme === 'contrast3' ? 'true' : 'false'}" title="Navy (Deep Midnight)"><span class="theme-swatch theme-swatch-contrast3"></span><span class="theme-preset-name">Navy</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast4' ? ' active' : ''}" data-theme="contrast4" aria-pressed="${theme === 'contrast4' ? 'true' : 'false'}" title="Sage (Soft Forest)"><span class="theme-swatch theme-swatch-contrast4"></span><span class="theme-preset-name">Sage</span></button>
+          <button type="button" class="theme-preset${theme === 'nord' ? ' active' : ''}" data-theme="nord" aria-pressed="${theme === 'nord' ? 'true' : 'false'}" title="Nord (Arctic Frost)"><span class="theme-swatch theme-swatch-nord"></span><span class="theme-preset-name">Nord</span></button>
+          <button type="button" class="theme-preset${theme === 'gruvbox' ? ' active' : ''}" data-theme="gruvbox" aria-pressed="${theme === 'gruvbox' ? 'true' : 'false'}" title="Gruvbox (Warm Retro)"><span class="theme-swatch theme-swatch-gruvbox"></span><span class="theme-preset-name">Gruvbox</span></button>
+          <button type="button" class="theme-preset${theme === 'solarized' ? ' active' : ''}" data-theme="solarized" aria-pressed="${theme === 'solarized' ? 'true' : 'false'}" title="Solarized (Teal Dark)"><span class="theme-swatch theme-swatch-solarized"></span><span class="theme-preset-name">Solarized</span></button>
+          <button type="button" class="theme-preset${theme === 'rosepine' ? ' active' : ''}" data-theme="rosepine" aria-pressed="${theme === 'rosepine' ? 'true' : 'false'}" title="Rose Pine (Soothing Dusk)"><span class="theme-swatch theme-swatch-rosepine"></span><span class="theme-preset-name">Rose Pine</span></button>
+          <button type="button" class="theme-preset${theme === 'dracula' ? ' active' : ''}" data-theme="dracula" aria-pressed="${theme === 'dracula' ? 'true' : 'false'}" title="Dracula (Gothic)"><span class="theme-swatch theme-swatch-dracula"></span><span class="theme-preset-name">Dracula</span></button>
+          <button type="button" class="theme-preset${theme === 'mocha' ? ' active' : ''}" data-theme="mocha" aria-pressed="${theme === 'mocha' ? 'true' : 'false'}" title="Mocha (Catppuccin)"><span class="theme-swatch theme-swatch-mocha"></span><span class="theme-preset-name">Mocha</span></button>
         </div>
       </div>
       ${selectRow('qs-font', 'Font', FONT_OPTIONS.map(f => ({ value: f.value, label: f.label })), reader.fontFamily)}

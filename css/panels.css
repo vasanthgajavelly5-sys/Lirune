@@ -912,6 +912,12 @@
 .theme-swatch-contrast2 { background: linear-gradient(135deg, #000000 50%, #FFE600 50%); }
 .theme-swatch-contrast3 { background: linear-gradient(135deg, #071426 50%, #7DD3FC 50%); }
 .theme-swatch-contrast4 { background: linear-gradient(135deg, #E4F1E5 50%, #176B3A 50%); }
+.theme-swatch-nord      { background: linear-gradient(135deg, #2E3440 50%, #88C0D0 50%); }
+.theme-swatch-gruvbox   { background: linear-gradient(135deg, #282828 50%, #FABD2F 50%); }
+.theme-swatch-solarized { background: linear-gradient(135deg, #002B36 50%, #2AA198 50%); }
+.theme-swatch-rosepine  { background: linear-gradient(135deg, #191724 50%, #EB6F92 50%); }
+.theme-swatch-dracula   { background: linear-gradient(135deg, #282A36 50%, #BD93F9 50%); }
+.theme-swatch-mocha     { background: linear-gradient(135deg, #1E1E2E 50%, #CBA6F7 50%); }
 .theme-swatch-custom { background: linear-gradient(135deg, #FDFCF8 50%, #245A8D 50%); }
 .theme-preset.active .theme-swatch { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
 .theme-preset-name { font-size: 0.72rem; color: var(--text-tertiary); font-weight: 500; }

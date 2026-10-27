@@ -455,8 +455,10 @@ const EpubLoader = (() => {
     const colors = ThemeManager.getThemeColors(themeName);
     const settings = ReaderSettings.getSettings();
 
-    const fontFam = settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', Georgia, serif`;
-    const headingFam = settings.fontFamily === 'Playfair Display' ? "'Playfair Display', Georgia, serif" : fontFam;
+    const fontFam = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getFontCssStack)
+      ? ReaderSettings.getFontCssStack(settings.fontFamily)
+      : (settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', Georgia, serif`);
+    const headingFam = settings.fontFamily === 'Playfair Display' ? "\"Playfair Display\", Georgia, serif" : fontFam;
     const fontSize = Math.round((settings.fontSize || 18) * currentZoom / 100);
     const alignment = settings.alignment || 'left';
     const lineHeight = settings.lineHeight || 1.6;
@@ -875,9 +877,9 @@ const EpubLoader = (() => {
     const colors = ThemeManager.getThemeColors(themeName);
     const settings = ReaderSettings.getSettings();
 
-    const fontFam = settings.fontFamily === 'Original'
-      ? 'inherit'
-      : `'${settings.fontFamily}', "Georgia", serif`;
+    const fontFam = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getFontCssStack)
+      ? ReaderSettings.getFontCssStack(settings.fontFamily)
+      : (settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', "Georgia", serif`);
 
     rendition.themes.default({
       body: {
@@ -906,7 +908,9 @@ const EpubLoader = (() => {
     }
 
     if (settings.fontFamily) {
-      const font = settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', serif`;
+      const font = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getFontCssStack)
+        ? ReaderSettings.getFontCssStack(settings.fontFamily)
+        : (settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', serif`);
       rendition.themes.font(font);
     }
 

@@ -4,8 +4,13 @@
 
 const ThemeManager = (() => {
   const APP_THEMES = ['dark', 'light'];
-  const READER_THEMES = ['neutral', 'sepia', 'night', 'paper', 'contrast1', 'contrast2', 'contrast3', 'contrast4', 'custom'];
-  const LEGACY_READER_THEMES = { dark: 'night', light: 'neutral', oled: 'night', sepia: 'sepia' };
+  const READER_THEMES = [
+    'neutral', 'sepia', 'night', 'paper',
+    'contrast1', 'contrast2', 'contrast3', 'contrast4',
+    'nord', 'gruvbox', 'solarized', 'rosepine', 'dracula', 'mocha',
+    'custom'
+  ];
+  const LEGACY_READER_THEMES = { dark: 'night', light: 'neutral', oled: 'contrast1', sepia: 'sepia' };
   let currentAppTheme = 'light';
   let currentReaderTheme = 'neutral';
   let customColors = null;
@@ -54,6 +59,30 @@ const ThemeManager = (() => {
     contrast4: {
       bg: '#E4F1E5', surface: '#F3FAF3', text: '#102B19', muted: '#4D6B55',
       link: '#176B3A', selection: 'rgba(23,107,58,0.28)', selectionText: '#FFFFFF'
+    },
+    nord: {
+      bg: '#2E3440', surface: '#3B4252', text: '#ECEFF4', muted: '#D8DEE9',
+      link: '#88C0D0', selection: 'rgba(136,192,208,0.35)', selectionText: '#FFFFFF'
+    },
+    gruvbox: {
+      bg: '#282828', surface: '#32302F', text: '#EBDBB2', muted: '#A89984',
+      link: '#FABD2F', selection: 'rgba(250,189,47,0.35)', selectionText: '#282828'
+    },
+    solarized: {
+      bg: '#002B36', surface: '#073642', text: '#93A1A1', muted: '#657B83',
+      link: '#2AA198', selection: 'rgba(42,161,152,0.35)', selectionText: '#002B36'
+    },
+    rosepine: {
+      bg: '#191724', surface: '#1F1D2E', text: '#E0DEF4', muted: '#908CAA',
+      link: '#EB6F92', selection: 'rgba(235,111,146,0.35)', selectionText: '#FFFFFF'
+    },
+    dracula: {
+      bg: '#282A36', surface: '#343746', text: '#F8F8F2', muted: '#6272A4',
+      link: '#BD93F9', selection: 'rgba(189,147,249,0.35)', selectionText: '#282A36'
+    },
+    mocha: {
+      bg: '#1E1E2E', surface: '#24273A', text: '#CDD6F4', muted: '#A6ADC8',
+      link: '#CBA6F7', selection: 'rgba(203,166,247,0.35)', selectionText: '#1E1E2E'
     }
   };
 

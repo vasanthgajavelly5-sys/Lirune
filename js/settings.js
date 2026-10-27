@@ -16,9 +16,155 @@ const ReaderSettings = (() => {
   let currentSettings = { ...DEFAULT_SETTINGS };
   let persistTimer = null;
 
+  const READER_FONTS = [
+    {
+      id: 'Serif',
+      name: 'Classic Serif',
+      subtitle: 'Georgia / Noto Serif',
+      cssStack: 'Georgia, "Noto Serif", "Times New Roman", serif',
+      category: 'serif'
+    },
+    {
+      id: 'Sans-Serif',
+      name: 'Modern Sans',
+      subtitle: 'Clean & readable',
+      cssStack: 'system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif',
+      category: 'sans'
+    },
+    {
+      id: 'Cormorant',
+      name: 'Cormorant',
+      subtitle: 'Lirune Signature Serif',
+      cssStack: '"Cormorant Garamond", Garamond, "Palatino Linotype", Georgia, serif',
+      category: 'serif'
+    },
+    {
+      id: 'Merriweather',
+      name: 'Merriweather',
+      subtitle: 'Designed for screen reading',
+      cssStack: 'Merriweather, Georgia, "Noto Serif", serif',
+      category: 'serif'
+    },
+    {
+      id: 'Literata',
+      name: 'Literata',
+      subtitle: 'Google Play Books e-reader serif',
+      cssStack: 'Literata, "Noto Serif", Georgia, serif',
+      category: 'serif'
+    },
+    {
+      id: 'Inter',
+      name: 'Inter',
+      subtitle: 'Precision screen sans',
+      cssStack: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      category: 'sans'
+    },
+    {
+      id: 'Lora',
+      name: 'Lora',
+      subtitle: 'Literary & calligraphic',
+      cssStack: 'Lora, "Literata", Merriweather, Georgia, serif',
+      category: 'serif'
+    },
+    {
+      id: 'EBGaramond',
+      name: 'EB Garamond',
+      subtitle: 'Classic Renaissance book serif',
+      cssStack: '"EB Garamond", Garamond, Georgia, serif',
+      category: 'serif'
+    },
+    {
+      id: 'Bitter',
+      name: 'Bitter',
+      subtitle: 'Contemporary slab serif for reading',
+      cssStack: 'Bitter, Georgia, serif',
+      category: 'slab'
+    },
+    {
+      id: 'SourceSerif',
+      name: 'Source Serif',
+      subtitle: 'Adobe open-source book serif',
+      cssStack: '"Source Serif 4", "Source Serif Pro", Georgia, serif',
+      category: 'serif'
+    },
+    {
+      id: 'OpenDyslexic',
+      name: 'OpenDyslexic',
+      subtitle: 'Accessibility & reading ease',
+      cssStack: 'OpenDyslexic, sans-serif',
+      category: 'special'
+    },
+    {
+      id: 'Playfair',
+      name: 'Playfair Display',
+      subtitle: 'High contrast editorial',
+      cssStack: '"Playfair Display", Georgia, "Times New Roman", serif',
+      category: 'serif'
+    },
+    {
+      id: 'Vollkorn',
+      name: 'Vollkorn',
+      subtitle: 'Quiet & robust book typeface',
+      cssStack: 'Vollkorn, Georgia, serif',
+      category: 'serif'
+    },
+    {
+      id: 'Alegreya',
+      name: 'Alegreya',
+      subtitle: 'Rhythmic literature face',
+      cssStack: 'Alegreya, Georgia, serif',
+      category: 'serif'
+    },
+    {
+      id: 'Charter',
+      name: 'Charter',
+      subtitle: 'Warm book text',
+      cssStack: 'Charter, "Book Antiqua", Georgia, serif',
+      category: 'serif'
+    },
+    {
+      id: 'Monospace',
+      name: 'Monospace',
+      subtitle: 'Code & typewriter',
+      cssStack: '"JetBrains Mono", "Roboto Mono", Consolas, "Courier New", Courier, monospace',
+      category: 'mono'
+    },
+    {
+      id: 'Original',
+      name: 'Publisher Default',
+      subtitle: 'Original EPUB styling',
+      cssStack: 'inherit',
+      category: 'special'
+    }
+  ];
+
+  function getFontCssStack(fontId) {
+    if (!fontId || fontId === 'Original' || fontId === 'inherit') {
+      return 'inherit';
+    }
+    const clean = fontId.trim().toLowerCase();
+    // Match aliases
+    if (clean === 'cormorant garamond') return '"Cormorant Garamond", Garamond, "Palatino Linotype", Georgia, serif';
+    if (clean === 'jetbrains mono') return '"JetBrains Mono", "Roboto Mono", Consolas, "Courier New", Courier, monospace';
+    if (clean === 'georgia') return 'Georgia, "Noto Serif", "Times New Roman", serif';
+    if (clean === 'playfair') return '"Playfair Display", Georgia, "Times New Roman", serif';
+    if (clean === 'eb garamond') return '"EB Garamond", Garamond, Georgia, serif';
+    if (clean === 'source serif') return '"Source Serif 4", "Source Serif Pro", Georgia, serif';
+
+    const match = READER_FONTS.find(
+      f => f.id.toLowerCase() === clean || f.name.toLowerCase() === clean
+    );
+    return match ? match.cssStack : `${fontId}, Georgia, serif`;
+  }
+
   function normalizeSettings(settings) {
     const merged = { ...DEFAULT_SETTINGS, ...settings };
-    const allowedFonts = ['Cormorant Garamond', 'Lora', 'Playfair Display', 'Inter', 'Georgia', 'JetBrains Mono', 'Original'];
+    const allowedFonts = [
+      'Cormorant Garamond', 'Cormorant', 'Serif', 'Sans-Serif', 'Merriweather',
+      'Literata', 'Inter', 'Lora', 'EBGaramond', 'EB Garamond', 'Bitter',
+      'SourceSerif', 'Source Serif', 'OpenDyslexic', 'Playfair Display', 'Playfair',
+      'Vollkorn', 'Alegreya', 'Charter', 'Monospace', 'JetBrains Mono', 'Georgia', 'Original'
+    ];
     merged.fontSize = Math.min(36, Math.max(12, Number(merged.fontSize) || DEFAULT_SETTINGS.fontSize));
     merged.fontFamily = allowedFonts.includes(merged.fontFamily) ? merged.fontFamily : DEFAULT_SETTINGS.fontFamily;
     merged.alignment = ['left', 'center', 'right', 'justify'].includes(merged.alignment) ? merged.alignment : DEFAULT_SETTINGS.alignment;
@@ -230,6 +376,8 @@ const ReaderSettings = (() => {
     defaults: () => ({ ...DEFAULT_SETTINGS }),
     adjustZoom,
     setZoom,
-    getZoom
+    getZoom,
+    getFonts: () => [...READER_FONTS],
+    getFontCssStack
   };
 })();

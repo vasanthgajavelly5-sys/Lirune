@@ -158,9 +158,9 @@ const DocumentAdapter = (() => {
       const s = this.settings || {};
       const scale = this.zoom / 100;
       const baseSize = Number(s.fontSize) || 18;
-      const fontFamily = !s.fontFamily || s.fontFamily === 'Original'
-        ? 'inherit'
-        : `'${s.fontFamily}', Georgia, serif`;
+      const fontFamily = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getFontCssStack)
+        ? ReaderSettings.getFontCssStack(s.fontFamily)
+        : (!s.fontFamily || s.fontFamily === 'Original' ? 'inherit' : `'${s.fontFamily}', Georgia, serif`);
       const lineHeight = Number(s.lineHeight) || 1.6;
       const marginPercent = Number.isFinite(Number(s.margin)) ? Number(s.margin) : 10;
       const alignment = s.alignment || 'left';

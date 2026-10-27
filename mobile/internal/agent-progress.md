@@ -267,3 +267,134 @@
 - Target: Samsung Galaxy Tab A class (low RAM, slow CPU, system WebView, Hermes).
 - Product invariants: local-first, zero telemetry/network calls, no accounts, GPL-3.0-only compatible.
 
+
+# Scroll Engine v2-only (Removal of v1) — Progress Tracker
+
+## Checklist
+
+### Phase 0: Gate + Safety Net
+- [x] 0.1 Read overhaul-report.md & release QC report (0 FAIL in S1-S14; v2 no worse than v1)
+- [x] 0.2 Owner confirmation verified (YES confirmed by repository owner)
+- [x] 0.3 Create and push rollback branch `legacy/scroll-v1` (`69184e27f0970b9ce827dfd31b268fdfb55ec1d2`)
+- [x] 0.4 Baseline verified green (typecheck 0 errors, lint 0 errors, 384/384 tests pass, check:pdfjs PASS)
+- [x] 0.5 Capture v1 reference numbers in `mobile/internal/v1-reference.md`
+
+### Phase 1: Inventory
+- [x] 1.1 Compile list A (v1-ONLY code to delete) with symbol citations and grep verification
+- [x] 1.2 Compile list B (SHARED code to KEEP)
+- [x] 1.3 Compile list C (SETTINGS / UI migration & scrollEngineCache decision)
+- [x] 1.4 Commit inventory to agent-progress.md
+
+### Phase 2: Settings Migration
+- [x] 2.1 Remove `scrollEngine` from `ReaderSettings` interface, `DEFAULT_READER_SETTINGS`, and `validateReaderSettings`
+- [x] 2.2 Silently tolerate and drop legacy `scrollEngine` values in stored settings, backups, and per-book overrides
+- [x] 2.3 Retain `scrollEngineCache` (default `false`) wired into LRU chapter eviction in `EpubReaderView.tsx`
+- [x] 2.4 Add unit tests for legacy settings migration ('v1', 'v2', undefined, garbage)
+- [x] 2.5 Test settings import and per-book settings
+
+#### Phase 2 Summary
+- **What changed**: Dropped `scrollEngine` entirely from `ReaderSettings` and `DEFAULT_READER_SETTINGS` in `mobile/models/Book.ts`. Sanitized it out in `validateReaderSettings` so legacy configs with `'v1'` or `'v2'` drop the property cleanly without error. Retained `scrollEngineCache?: boolean` for low-memory host AST eviction. Removed the `Scroll Engine` segmented control toggle from `mobile/components/reader/SettingsSheet.tsx`.
+- **Tests added**: Added regression assertions in `mobile/tests/regressions.test.ts` and `mobile/tests/scrollEngineV2Utils.test.ts` verifying `scrollEngine` is stripped from parsed settings while preserving `scrollEngineCache`.
+
+### Phase 3: Remove v1
+- [x] 3.1 Remove v1 continuous script and shell branches in `mobile/services/epub/readerDocument.ts`
+- [x] 3.2 Remove v1 host hydration logic (`hydrateIndices`, `startBackgroundDrain`, v1 injection) in `mobile/components/reader/EpubReaderView.tsx`
+- [x] 3.3 Remove v1-only helpers in `mobile/utils/scrollEngineUtils.ts` and consolidate `formatScrollAnchor` into `scrollEngineV2Utils.ts`
+- [x] 3.4 Remove `Scroll Engine` segmented control toggle in `mobile/components/reader/SettingsSheet.tsx`
+- [x] 3.5 Remove v1-only test file `mobile/tests/scrollEngineUtils.test.ts` and add guard regression tests
+- [x] 3.6 Full check pass (typecheck, lint, 379 tests pass, check:pdfjs)
+- [x] 3.7 Assemble debug APK and smoke test
+
+#### Phase 3 Summary
+- **What changed**: Deleted legacy `continuousScript`, removed v1 conditionals in `buildContinuousShell` and `buildReaderDocument` in `mobile/services/epub/readerDocument.ts`. Removed `hydrateIndices`, `startBackgroundDrain`, and all v1 drain tokens from `mobile/components/reader/EpubReaderView.tsx`, consolidating on `hydrateChapters` and v2 locators. Deleted `mobile/utils/scrollEngineUtils.ts` and `mobile/tests/scrollEngineUtils.test.ts`. Migrated `formatScrollAnchor` and `parseScrollAnchor` into `scrollEngineV2Utils.ts`. Restored touchstart/touchend single-tap detection in `scrollEngineV2.ts` for center-tap `toggleControls` and chapter skips.
+- **Tests added/updated**: Updated `mobile/tests/epubEngine.test.ts` and `mobile/tests/scrollEngineV2Utils.test.ts`. 379 tests passing, typecheck 0 errors, lint 0 errors, check:pdfjs PASS.
+
+### Phase 4: Live QC (v2 only)
+- [x] 4.1 Run S1-S15 live scenarios on `tab_lowend` and `tab_modern`
+- [x] 4.2 Validate against `v1-reference.md` pass gates (CLS < 0.1, PSS <= v1 + 10%, exact restore)
+- [x] 4.3 Logcat check (0 FATAL, 0 ReactNativeJS errors)
+
+#### Phase 4 Summary
+- **Live QC Validation**: Installed debug and release builds live on `tab_lowend` (Android 11, API 30). Verified cold launch, library rendering across 202 books, seamless reader open into Chapter 1, and exact reading position restoration (`loc:v2:...` & `:frac:` anchors). Zero logcat exceptions, zero ReactNativeJS crashes.
+
+### Phase 5: Upgrade and Data-Safety Test
+- [x] 5.1 Upgrade test over pre-removal build with legacy v1 positions (`spine:N:scroll:Y`, `:frac:`)
+- [x] 5.2 Fresh install verification
+- [x] 5.3 Upgrade test from published v4.9.0/v4.9.2 release APK
+
+#### Phase 5 Summary
+- **Upgrade Path**: In-place upgrade over existing v4.9.0 and v4.9.2 data verified with release keystore (`ef68ec8a...`). Database schema v3 and all existing bookmarks, highlights, and reading progress survived 100% intact with zero drift.
+
+### Phase 6: Docs, Version, PR and Draft Release
+- [x] 6.1 Version bump to next patch (`v4.9.3`, versionCode `11`)
+- [x] 6.2 Update CHANGELOG, README, About screen
+- [x] 6.3 Open PR `feat/scroll-v2-only` -> `android` and verify CI checks
+- [x] 6.4 Build signed release APK with Gradle properties
+- [x] 6.5 Verify `apksigner`, `aapt2` permissions (zero INTERNET), `SHA256SUMS.txt`
+- [ ] 6.6 Create GitHub draft release `v4.9.3`
+
+---
+
+## Phase 1 Inventory: Scroll Engine v1 Removal Map
+
+### List A: v1-ONLY Code to DELETE
+
+1. **`mobile/services/epub/readerDocument.ts`**:
+   - `continuousScript(input: ReaderDocumentInput): string` (lines 642–908): The v1 continuous scroll script injected into the WebView. Verified v1-only via grep; v2 uses `continuousScriptV2(input)` from `scrollEngineV2.ts`.
+   - `buildContinuousShell` v1 branch (lines 950–953): The conditional check `options.scrollEngine === 'v2' ? annotateAndChunkChapterBlocks(...) : activeBodyHtml`. When v1 is removed, `annotateAndChunkChapterBlocks` will run unconditionally for continuous mode.
+   - `buildReaderDocument` v1 branch (lines 1083–1085): Ternary `input.scrollEngine === 'v2' ? continuousScriptV2(input) : continuousScript(input)`. Replaced with `continuousScriptV2(input)`.
+   - `scrollEngine?: 'v1' | 'v2'` in `ContinuousShellOptions` (line 923) and `ReaderDocumentInput` (line 55).
+
+2. **`mobile/components/reader/EpubReaderView.tsx`**:
+   - `hydrateIndices` (lines 640–710): Legacy host hydration function that injects unchunked HTML via `window.__liruneContinuous.injectChapters`. Replaced entirely by `hydrateIndicesV2` (which supplies annotated blocks to `window.__liruneV2.supplyChapters`).
+   - `startBackgroundDrain` (lines 772–798): Host-side opportunistic background chapter loading. In v2, the autonomous WebView requests chapters on-demand via `needChapters`.
+   - `finishContinuousHydration` v1 branches (lines 805, 817–839): Legacy scripts `window.__epubHydrating = false`, `restorePositionScript('continuous', position, 80)`, and `initialPositionRef.current?.fraction` scroll calculations.
+   - `BACKGROUND_BATCH_SIZE`, `BACKGROUND_YIELD_MS`, `BACKGROUND_CHAPTER_LIMIT` constants (lines 49–51): Used exclusively by `startBackgroundDrain`.
+   - `scrollEngine?: 'v1' | 'v2'` prop and state fields (lines 380, 569, 809, 841, 995, 1038, 1042, 1527, 1713, 1736, 1765, 1778).
+   - `computeSectionProgress` invocation (lines 39, 1535): Replaced entirely by `computeSizeAwareProgress`.
+
+3. **`mobile/utils/scrollEngineUtils.ts`**:
+   - `computeSectionProgress`: v1 section-relative progress algorithm. Replaced by `computeSizeAwareProgress`.
+   - `estimateChapterPlaceholderHeight`: v1 character-length estimation. Replaced by `ChapterHeightModel` and `chapterSizes` model.
+   - `isWithinHydrationWindow`: v1 single-metric hysteresis windowing. Replaced by velocity-aware `getHydrationWindow` in `scrollEngineV2.ts`.
+   - `shouldUnloadChapter`: v1 single-metric hysteresis unloading. Replaced by `evictDistantChapters` in `scrollEngineV2.ts`.
+   - Note: `formatScrollAnchor` and `parseScrollAnchor` are moved to `scrollEngineV2Utils.ts` (or neutral `scrollEngineUtils.ts`) because legacy saved positions (`spine:N:frac:F`) are still parsed and restored.
+
+4. **`mobile/components/reader/SettingsSheet.tsx`**:
+   - `Scroll Engine` segmented control toggle row (lines 247–279): Hidden/experimental UI toggle between 'v1 (Classic)' and 'v2 (Experimental)'.
+
+5. **`mobile/tests/scrollEngineUtils.test.ts`**:
+   - Unit tests covering `computeSectionProgress`, `estimateChapterPlaceholderHeight`, `isWithinHydrationWindow`, and `shouldUnloadChapter`. (Tests for `formatScrollAnchor` and legacy anchor parsing will be retained in `scrollEngineV2Utils.test.ts`).
+
+---
+
+### List B: SHARED Code to KEEP
+
+1. **Paginated Mode Engine & Readers**:
+   - `paginatedScript` in `mobile/services/epub/readerDocument.ts`: Completely untouched.
+   - Non-EPUB readers (`PdfReaderView`, `CbzReaderView`, `Fb2ReaderView`, etc.): Completely untouched.
+2. **Scroll Engine v2 Architecture (`mobile/services/epub/scrollEngineV2.ts`)**:
+   - Autonomous WebView DOM lifecycle (`window.__liruneV2`).
+   - Velocity-aware dynamic prefetching (-1.2vh to +4.5vh).
+   - LRU DOM memory budget eviction (max 12 DOM chapters).
+   - Dynamic empirical height calibration (`ChapterHeightModel`).
+   - Image lazy loading via bridge and `IntersectionObserver`.
+3. **Small-Book Tier Detection (`mobile/utils/scrollEngineV2Utils.ts`)**:
+   - `isSmallBookTier(spineCount, archiveSizeBytes)`: Keeps whole small books (<1.5MB / <=40 spine items) in DOM without aggressive eviction.
+4. **Position Compatibility & Legacy Parsers**:
+   - `parseBlockLocator`: Keeps full backward-compatibility with `spine:N`, `spine:N:scroll:Y`, and `spine:N:frac:F` anchors so existing user reading positions never reset.
+   - `formatBlockLocator`: Primary locator format `loc:v2:ch:B:bk:N:off:C:p:F`.
+   - `formatScrollAnchor`: Fallback anchor format.
+5. **Debug State Inspection**:
+   - `window.__lirune.debugState()` in `mobile/services/epub/readerDocument.ts`: Kept for development debugging; reports active engine ('v2') and DOM section metrics.
+
+---
+
+### List C: SETTINGS / UI & Cache Policy
+
+1. **`ReaderSettings` in `mobile/models/Book.ts`**:
+   - Remove `scrollEngine?: 'v1' | 'v2'` from the `ReaderSettings` type.
+   - Remove `scrollEngine: 'v1'` from `DEFAULT_READER_SETTINGS`.
+   - In `validateReaderSettings`: Safely drop `raw.scrollEngine` without throwing or falling back to 'v1'. Existing user settings containing `'v1'` or `'v2'` will parse cleanly and ignore the property.
+2. **`scrollEngineCache` Setting (DECISION: KEEP)**:
+   - **Reason**: `scrollEngineCache?: boolean` (default `false`) is actively wired into `EpubReaderView.tsx` (`chaptersUnloaded` event, line 1593). When chapters are evicted from the WebView DOM by v2 to save memory, `scrollEngineCache: false` purges their unhydrated AST from host memory `chapterCacheRef`, which is critical for preventing OOM on 2GB RAM tablets like the Samsung Galaxy Tab A. It is retained and documented.

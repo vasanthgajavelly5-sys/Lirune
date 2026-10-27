@@ -51,8 +51,6 @@ export interface ReaderDocumentInput {
   currentChapterIndex?: number;
   /** Id of the chapter the continuous shell should render content into. */
   activeChapterBodyId?: string;
-  /** Active scroll engine version ('v1' | 'v2'). */
-  scrollEngine?: 'v1' | 'v2';
 }
 
 function escapeHtml(value: string): string {
@@ -639,274 +637,6 @@ function paginatedScript(input: ReaderDocumentInput): string {
   `;
 }
 
-function continuousScript(input: ReaderDocumentInput): string {
-  return `
-    window.__epubHydrating = true;
-    var currentZoom = 1.0;
-    var baseFontSize = ${input.fontSize};
-    var initialPinchDist = 0;
-    var initialZoom = 1.0;
-    var lastTapTime = 0;
-    var touchStartX = 0;
-    var touchStartY = 0;
-    var touchStartTime = 0;
-    var touchStartScrollY = 0;
-    var lastHydrateRequest = 0;
-
-    function applyContinuousZoom() {
-      var container = document.getElementById('continuous-container') || document.body;
-      container.style.fontSize = Math.round(baseFontSize * currentZoom) + 'px';
-    }
-
-    /**
-     * Injects chapters while compensating viewport scroll position so that content
-     * above the current viewport does not shift what the user is reading.
-     */
-    window.__liruneInjectChaptersConfirmed = function (payload, requestId) {
-      var oldScrollY = window.pageYOffset;
-      var insertedAboveHeight = 0;
-      var insertedIndices = [];
-
-      for (var i = 0; i < payload.length; i++) {
-        var chapter = payload[i];
-        var body = document.getElementById('chapter-body-' + chapter.index);
-        var section = document.getElementById('chapter-' + chapter.index);
-        if (!body || !section || section.getAttribute('data-loaded') === 'true') continue;
-
-        var prevHeight = section.offsetHeight;
-        var sectionTop = section.getBoundingClientRect().top + oldScrollY;
-
-        if (window.__liruneInjectStyles) window.__liruneInjectStyles(chapter.index, chapter.sheets);
-        body.innerHTML = chapter.body;
-        section.style.minHeight = '';
-        section.setAttribute('data-loaded', 'true');
-        if (window.__liruneChapterHeader) {
-          window.__liruneChapterHeader(chapter.index, chapter.hasHeading, chapter.title);
-        }
-
-        var newHeight = section.offsetHeight;
-        var delta = newHeight - prevHeight;
-        // If the section is completely above the current viewport, compensate scroll
-        if (sectionTop + prevHeight <= oldScrollY && delta !== 0) {
-          insertedAboveHeight += delta;
-        }
-        insertedIndices.push(chapter.index);
-      }
-
-      if (insertedAboveHeight !== 0) {
-        window.scrollTo(0, oldScrollY + insertedAboveHeight);
-      }
-
-      try {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'chaptersConfirmed',
-          requestId: requestId,
-          indices: insertedIndices
-        }));
-      } catch (e) {}
-
-      if (window.__liruneScanPending) window.__liruneScanPending(true);
-    };
-
-    /**
-     * Asks the host to hydrate the chapters the reader can see.
-     *
-     * Continuous mode used to inline every chapter before revealing the first
-     * frame, so a 400-chapter book opened onto a screen of placeholders for as
-     * long as the whole archive took to extract — and any chapter that failed to
-     * extract stayed a "Loading chapter…" placeholder for good. Hydration is
-     * now demand-driven: the document reports which unloaded sections are near
-     * the viewport and the host fills exactly those.
-     */
-    function scanPendingChapters(force) {
-      var now = Date.now();
-      if (!force && now - lastHydrateRequest < 120) return;
-      lastHydrateRequest = now;
-      var sections = document.querySelectorAll('.chapter-section[data-loaded="false"]');
-      var pending = [];
-      var vh = window.innerHeight || 800;
-      for (var i = 0; i < sections.length; i++) {
-        var rect = sections[i].getBoundingClientRect();
-        // Single metric hysteresis: prefetch 1.5vh above to 2.5vh below
-        if (rect.bottom < -1.5 * vh) continue;
-        if (rect.top > 3.5 * vh) break;
-        pending.push(Number(sections[i].getAttribute('data-chapter-index')));
-        if (pending.length >= 6) break;
-      }
-      if (!pending.length) return;
-      try {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'hydrateRequest',
-          indices: pending
-        }));
-      } catch (e) {}
-    }
-    window.__liruneScanPending = scanPendingChapters;
-
-    function unloadFarChapters() {
-      var loadedSections = document.querySelectorAll('.chapter-section[data-loaded="true"]');
-      var vh = window.innerHeight || 800;
-      var unloaded = [];
-      for (var k = 0; k < loadedSections.length; k++) {
-        var s = loadedSections[k];
-        var idxAttr = s.getAttribute('data-chapter-index');
-        if (idxAttr === 'cover') continue;
-        var sIdx = Number(idxAttr);
-        if (isNaN(sIdx)) continue;
-
-        var r = s.getBoundingClientRect();
-        // Hysteresis: NEVER unload if intersecting viewport or within 2.5vh above / 3.5vh below
-        if (r.bottom >= -2.5 * vh && r.top <= 3.5 * vh) continue;
-
-        // Unload strictly when > 4 viewports away
-        if (r.bottom < -4.0 * vh || r.top > 5.0 * vh) {
-          var currentH = s.offsetHeight;
-          if (currentH > 40) {
-            s.style.minHeight = currentH + 'px';
-          }
-          var bodyEl = document.getElementById('chapter-body-' + sIdx);
-          if (bodyEl) {
-            bodyEl.innerHTML = '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>';
-          }
-          s.setAttribute('data-loaded', 'false');
-          unloaded.push(sIdx);
-        }
-      }
-      if (unloaded.length > 0) {
-        try {
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'chaptersUnloaded',
-            indices: unloaded
-          }));
-        } catch (e) {}
-      }
-    }
-
-    document.addEventListener('touchstart', function (e) {
-      if (e.touches.length === 2) {
-        initialPinchDist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        initialZoom = currentZoom;
-        return;
-      }
-      if (e.touches.length === 1) {
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-        touchStartTime = Date.now();
-        touchStartScrollY = window.pageYOffset;
-      }
-    }, { passive: true });
-
-    document.addEventListener('touchmove', function (e) {
-      if (e.touches.length === 2 && initialPinchDist > 24) {
-        var currentDist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        var scale = currentDist / initialPinchDist;
-        var newZoom = Math.max(0.8, Math.min(2.5, initialZoom * scale));
-        if (Math.abs(newZoom - currentZoom) > 0.08) {
-          currentZoom = newZoom;
-          applyContinuousZoom();
-        }
-      }
-    }, { passive: true });
-
-    document.addEventListener('touchend', function (e) {
-      if (e.changedTouches.length !== 1) return;
-      var dx = e.changedTouches[0].clientX - touchStartX;
-      var dy = e.changedTouches[0].clientY - touchStartY;
-      var elapsed = Date.now() - touchStartTime;
-      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
-      if (elapsed > 320) return;
-      if (Math.abs(window.pageYOffset - touchStartScrollY) > 4) return;
-
-      var now = Date.now();
-      if (now - lastTapTime < 320 && currentZoom !== 1.0) {
-        currentZoom = 1.0;
-        applyContinuousZoom();
-        lastTapTime = 0;
-        return;
-      }
-      lastTapTime = now;
-
-      var ratio = e.changedTouches[0].clientX / (window.innerWidth || 1);
-      if (ratio < 0.18) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prevChapter' }));
-      else if (ratio > 0.82) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'nextChapter' }));
-      else window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'toggleControls' }));
-    }, { passive: true });
-
-    var scrollRafId = null;
-    var lastProgressTime = 0;
-    var idleScrollTimer = null;
-
-    function sendProgress(chapterIndex, fraction) {
-      var doc = document.documentElement;
-      var total = (doc ? doc.scrollHeight : 1) - (window.innerHeight || 0);
-      var percent = total > 0 ? Math.min(100, Math.round((window.pageYOffset / total) * 100)) : 0;
-      try {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'scrollProgress',
-          percent: percent,
-          scrollY: window.pageYOffset,
-          chapterIndex: chapterIndex,
-          fraction: fraction
-        }));
-      } catch (e) {}
-    }
-
-    function handleScrollTick() {
-      if (window.__epubHydrating) return;
-
-      var readingLine = (window.innerHeight || 800) * 0.35;
-      var sections = document.querySelectorAll('.chapter-section');
-      var currentChapter = 0;
-      var currentFraction = 0;
-
-      for (var i = 0; i < sections.length; i++) {
-        var r = sections[i].getBoundingClientRect();
-        if (r.top <= readingLine && r.bottom > readingLine) {
-          currentChapter = Number(sections[i].getAttribute('data-chapter-index')) || 0;
-          var secH = r.height || 1;
-          currentFraction = Math.max(0, Math.min(1, (readingLine - r.top) / secH));
-          break;
-        } else if (r.top <= readingLine) {
-          currentChapter = Number(sections[i].getAttribute('data-chapter-index')) || 0;
-        }
-      }
-
-      var now = Date.now();
-      if (now - lastProgressTime >= 250) {
-        lastProgressTime = now;
-        sendProgress(currentChapter, currentFraction);
-      }
-
-      if (idleScrollTimer) clearTimeout(idleScrollTimer);
-      idleScrollTimer = setTimeout(function () {
-        sendProgress(currentChapter, currentFraction);
-        unloadFarChapters();
-      }, 250);
-    }
-
-    window.addEventListener('scroll', function () {
-      if (scrollRafId) return;
-      scrollRafId = window.requestAnimationFrame(function () {
-        scrollRafId = null;
-        scanPendingChapters(false);
-        handleScrollTick();
-      });
-    }, { passive: true });
-
-    window.addEventListener('load', function () {
-      window.setTimeout(function () { scanPendingChapters(true); }, 0);
-    });
-
-    window.__lirunePager = null;
-  `;
-}
-
 export interface ContinuousShellOptions {
   /**
    * Whether the active chapter's own body opens with a heading. The active
@@ -919,8 +649,6 @@ export interface ContinuousShellOptions {
   coverHtml?: string;
   /** Approximate byte/char size per chapter used to calibrate placeholder height and prevent CLS */
   chapterSizes?: number[];
-  /** Active scroll engine version */
-  scrollEngine?: 'v1' | 'v2';
 }
 
 /**
@@ -947,10 +675,7 @@ export function buildContinuousShell(
       `</section>`
     );
   }
-  const renderedActiveBody =
-    options.scrollEngine === 'v2'
-      ? annotateAndChunkChapterBlocks(activeBodyHtml, activeIndex).annotatedHtml
-      : activeBodyHtml;
+  const renderedActiveBody = annotateAndChunkChapterBlocks(activeBodyHtml, activeIndex).annotatedHtml;
 
   for (let index = 0; index < chapterCount; index++) {
     const isActive = index === activeIndex;
@@ -1061,7 +786,7 @@ const DEBUG_HELPER_JS = `
     var sections = document.querySelectorAll('.chapter-section');
     var loaded = document.querySelectorAll('.chapter-section[data-loaded="true"]');
     return {
-      engine: v2 ? 'v2' : 'v1',
+      engine: 'v2',
       scrollY: window.pageYOffset || 0,
       viewportHeight: window.innerHeight || 0,
       scrollHeight: document.documentElement ? document.documentElement.scrollHeight : 0,
@@ -1077,12 +802,7 @@ const DEBUG_HELPER_JS = `
 export function buildReaderDocument(input: ReaderDocumentInput): string {
   const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV !== 'production';
   const bookCss = input.bookCss ? `<style id="book-css">${input.bookCss}</style>` : '';
-  const script =
-    input.mode === 'paginated'
-      ? paginatedScript(input)
-      : input.scrollEngine === 'v2'
-        ? continuousScriptV2(input)
-        : continuousScript(input);
+  const script = input.mode === 'paginated' ? paginatedScript(input) : continuousScriptV2(input);
 
   return `<!DOCTYPE html>
 <html>

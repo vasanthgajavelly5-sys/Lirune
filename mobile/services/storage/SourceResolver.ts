@@ -134,7 +134,8 @@ export class SourceResolver {
         // Try native stream copy first for Android content URIs
         if (nativeStorage.isAvailable()) {
           try {
-            const nativeBytes = await nativeStorage.copyContentUriToStorage(canonicalUri, cachedFilePath);
+            const rawCachedPath = cachedFilePath.startsWith('file://') ? cachedFilePath.replace('file://', '') : cachedFilePath;
+            const nativeBytes = await nativeStorage.copyContentUriToStorage(canonicalUri, rawCachedPath);
             if (nativeBytes !== null && nativeBytes > 0) {
               copied = true;
               logger.info(TAG, `Native stream staged ${nativeBytes} bytes into cache`);

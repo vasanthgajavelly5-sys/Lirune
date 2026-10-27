@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DEFAULT_READER_SETTINGS, validateReaderSettings } from '../models/Book.ts';
 import {
   isSmallBookTier,
   computeSizeAwareProgress,
   formatBlockLocator,
+  formatScrollAnchor,
+  parseScrollAnchor,
   parseBlockLocator,
   annotateAndChunkChapterBlocks,
   ChapterHeightModel,
@@ -132,4 +135,36 @@ test('computeHydrationWindow adapts to scrolling velocity', () => {
   const fastUp = computeHydrationWindow(-1.5, 800);
   assert.ok(fastUp.topRatio < -2.0);
   assert.ok(fastUp.topRatio >= -3.5);
+});
+
+test('formatScrollAnchor and parseScrollAnchor roundtrip accurately', () => {
+  const cfi = formatScrollAnchor(3, 0.4258);
+  assert.equal(cfi, 'spine:3:frac:0.4258');
+
+  const parsed = parseScrollAnchor(cfi);
+  assert.ok(parsed);
+  assert.equal(parsed.chapterIndex, 3);
+  assert.equal(parsed.fraction, 0.4258);
+
+  // Clamps negative and out-of-bounds fractions
+  assert.equal(formatScrollAnchor(-1, -0.5), 'spine:0:frac:0.0000');
+  assert.equal(formatScrollAnchor(5, 1.5), 'spine:5:frac:1.0000');
+});
+
+test('parseScrollAnchor handles legacy scroll and anchor formats', () => {
+  const legacyScroll = parseScrollAnchor('spine:12:scroll:4500');
+  assert.ok(legacyScroll);
+  assert.equal(legacyScroll.chapterIndex, 12);
+  assert.equal(legacyScroll.scrollY, 4500);
+
+  const anchorTarget = parseScrollAnchor('spine:7:anchor:heading-2');
+  assert.ok(anchorTarget);
+  assert.equal(anchorTarget.chapterIndex, 7);
+  assert.equal(anchorTarget.anchor, 'heading-2');
+});
+
+test('GUARD: scrollEngine field and v1 engine switch are absent from reader settings', () => {
+  assert.equal('scrollEngine' in DEFAULT_READER_SETTINGS, false);
+  const validated: any = validateReaderSettings({ scrollEngine: 'v1' });
+  assert.equal('scrollEngine' in validated, false);
 });

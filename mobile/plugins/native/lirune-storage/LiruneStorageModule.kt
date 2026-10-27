@@ -851,7 +851,8 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
         moduleScope.launch(Dispatchers.IO) {
             try {
                 val sourceUri = Uri.parse(sourceUriString)
-                val destFile = File(destPath)
+                val rawDestPath = if (destPath.startsWith("file://")) Uri.parse(destPath).path ?: destPath.removePrefix("file://") else destPath
+                val destFile = File(rawDestPath)
                 destFile.parentFile?.mkdirs()
 
                 val inputStream = if (sourceUriString.startsWith("file://") || sourceUriString.startsWith("/")) {

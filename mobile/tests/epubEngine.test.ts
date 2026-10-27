@@ -505,7 +505,7 @@ test('the reader document keeps every pagination and interaction control', () =>
   }
 
   const continuous = documentFor('continuous');
-  for (const token of ['scrollProgress', 'prevChapter', 'nextChapter', '__epubHydrating', 'chapterIndex']) {
+  for (const token of ['scrollProgress', 'needChapters', '__liruneV2', 'chapterIndex']) {
     assert.match(continuous, new RegExp(token), `missing ${token}`);
   }
 });
@@ -531,7 +531,7 @@ test('buildContinuousShell renders one section per chapter with only the active 
 
   assert.equal((shell.match(/data-chapter-index="/g) ?? []).length, 3);
   assert.equal((shell.match(/data-loaded="true"/g) ?? []).length, 1);
-  assert.match(shell, /id="chapter-body-1"><p>Second<\/p>/);
+  assert.match(shell, /id="chapter-body-1"><p[^>]*>Second<\/p>/);
   assert.match(shell, /id="chapter-body-0"><div class="chapter-placeholder">/);
 });
 

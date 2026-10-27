@@ -78,6 +78,65 @@ export function formatBlockLocator(loc: BlockLocator): string {
 }
 
 /**
+ * Formats a stable scroll anchor CFI that survives font size, orientation,
+ * and layout changes (fallback format).
+ */
+export function formatScrollAnchor(chapterIndex: number, fraction: number): string {
+  const safeChapter = Math.max(0, Math.floor(chapterIndex));
+  const safeFrac = Math.max(0, Math.min(1, Number.isFinite(fraction) ? fraction : 0));
+  return `spine:${safeChapter}:frac:${safeFrac.toFixed(4)}`;
+}
+
+export interface ParsedScrollAnchor {
+  chapterIndex: number;
+  fraction?: number;
+  scrollY?: number;
+  anchor?: string;
+}
+
+/**
+ * Parses scroll targets and anchors, including legacy `spine:N:scroll:Y`,
+ * stable `spine:N:frac:F`, and fragment `spine:N:anchor:A`.
+ */
+export function parseScrollAnchor(target: string): ParsedScrollAnchor | null {
+  if (!target || typeof target !== 'string') return null;
+  const match = target.match(/^spine:(\d+)(?::(frac|scroll|anchor):(.+))?$/);
+  if (!match) return null;
+
+  const chapterIndex = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(chapterIndex) || chapterIndex < 0) return null;
+
+  const mode = match[2];
+  const value = match[3];
+
+  if (mode === 'frac') {
+    const fraction = Number.parseFloat(value);
+    return {
+      chapterIndex,
+      ...(Number.isFinite(fraction) ? { fraction: Math.max(0, Math.min(1, fraction)) } : {}),
+    };
+  }
+
+  if (mode === 'scroll') {
+    const scrollY = Number.parseInt(value, 10);
+    return {
+      chapterIndex,
+      ...(Number.isFinite(scrollY) ? { scrollY: Math.max(0, scrollY) } : {}),
+    };
+  }
+
+  if (mode === 'anchor') {
+    try {
+      return { chapterIndex, anchor: decodeURIComponent(value) };
+    } catch {
+      return { chapterIndex, anchor: value };
+    }
+  }
+
+  return { chapterIndex };
+}
+
+/**
  * Parses a block locator or legacy anchor string back into a structured BlockLocator.
  */
 export function parseBlockLocator(anchor: string): BlockLocator | null {

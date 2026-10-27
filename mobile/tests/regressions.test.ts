@@ -549,18 +549,26 @@ test('validateReaderSettings: safely falls back to valid defaults on corrupted p
   assert.equal(validated.columns, 'auto');
   assert.equal(validated.brightness, 10); // Clamped to MIN_READER_BRIGHTNESS
   assert.equal(validated.keepScreenAwake, true);
-  assert.equal(validated.scrollEngine, 'v1');
   assert.equal(validated.scrollEngineCache, false);
+  assert.equal('scrollEngine' in (validated as any), false);
 });
 
-test('validateReaderSettings: preserves valid scrollEngine and scrollEngineCache flags', () => {
-  const custom = {
-    scrollEngine: 'v2',
-    scrollEngineCache: true,
-  };
-  const validated = validateReaderSettings(custom);
-  assert.equal(validated.scrollEngine, 'v2');
-  assert.equal(validated.scrollEngineCache, true);
+test('validateReaderSettings: drops legacy scrollEngine flags and preserves scrollEngineCache', () => {
+  // Legacy 'v1' input
+  const withV1: any = validateReaderSettings({ scrollEngine: 'v1', scrollEngineCache: true });
+  assert.equal('scrollEngine' in withV1, false);
+  assert.equal(withV1.scrollEngine, undefined);
+  assert.equal(withV1.scrollEngineCache, true);
+
+  // Legacy 'v2' input
+  const withV2: any = validateReaderSettings({ scrollEngine: 'v2' });
+  assert.equal('scrollEngine' in withV2, false);
+  assert.equal(withV2.scrollEngineCache, false);
+
+  // Garbage input
+  const withGarbage: any = validateReaderSettings({ scrollEngine: 'garbage_value', scrollEngineCache: 'non_bool' });
+  assert.equal('scrollEngine' in withGarbage, false);
+  assert.equal(withGarbage.scrollEngineCache, false);
 });
 
 test('validateAccessibilitySettings: bounds scaling and sanitizes booleans', () => {

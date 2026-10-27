@@ -244,6 +244,40 @@ export function SettingsSheet({
               </View>
             </View>
 
+            {/* Scroll Engine (v1 Standard vs v2 Experimental) */}
+            {settings.flow === 'scrolled' && (
+              <View style={[styles.controlRow, { marginTop: 12 }]}>
+                <Text style={[styles.controlLabel, { color: textColor }]}>Scroll Engine</Text>
+                <View style={[styles.segmentedControl, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
+                  {(['v1', 'v2'] as const).map((engine) => {
+                    const isSelected = (settings.scrollEngine ?? 'v1') === engine;
+                    return (
+                      <TouchableOpacity
+                        key={engine}
+                        style={[
+                          styles.segmentBtn,
+                          isSelected && { backgroundColor: activeAccent },
+                        ]}
+                        onPress={() => onUpdateSettings({ scrollEngine: engine })}
+                      >
+                        <Text
+                          style={[
+                            styles.segmentText,
+                            {
+                              color: isSelected ? activeAccentFg : mutedColor,
+                              fontWeight: isSelected ? '700' : '500',
+                            },
+                          ]}
+                        >
+                          {engine === 'v1' ? 'v1 (Classic)' : 'v2 (Experimental)'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             {/* Columns — 'auto' follows the measured window, 1 and 2 force it */}
             <View style={[styles.controlRow, { marginTop: 12 }]}>
               <Text style={[styles.controlLabel, { color: textColor }]}>Columns</Text>

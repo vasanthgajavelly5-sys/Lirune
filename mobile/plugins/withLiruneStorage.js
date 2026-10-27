@@ -244,6 +244,21 @@ function withStorageManifest(config, options = {}) {
   });
 }
 
+const RELEASE_MANIFEST_CONTENT = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+</manifest>
+`;
+
+function writeReleaseManifestOverlay(platformProjectRoot) {
+  const releaseDir = path.join(platformProjectRoot, 'app', 'src', 'release');
+  fs.mkdirSync(releaseDir, { recursive: true });
+  const manifestPath = path.join(releaseDir, 'AndroidManifest.xml');
+  fs.writeFileSync(manifestPath, RELEASE_MANIFEST_CONTENT, 'utf8');
+  return manifestPath;
+}
+
 function copyKotlinSources(config) {
   return withDangerousMod(config, [
     'android',
@@ -258,6 +273,8 @@ function copyKotlinSources(config) {
         if (!entry.endsWith('.kt')) continue;
         fs.copyFileSync(path.join(KOTLIN_SOURCE_DIR, entry), path.join(targetDir, entry));
       }
+
+      writeReleaseManifestOverlay(platformProjectRoot);
       return cfg;
     },
   ]);
@@ -321,3 +338,5 @@ module.exports.cleanAndConfigureIntentFilters = cleanAndConfigureIntentFilters;
 module.exports.SUPPORTED_MIME_TYPES = SUPPORTED_MIME_TYPES;
 module.exports.SUPPORTED_EXTENSIONS = SUPPORTED_EXTENSIONS;
 module.exports.BLOCKED_EXTENSIONS = BLOCKED_EXTENSIONS;
+module.exports.writeReleaseManifestOverlay = writeReleaseManifestOverlay;
+module.exports.RELEASE_MANIFEST_CONTENT = RELEASE_MANIFEST_CONTENT;

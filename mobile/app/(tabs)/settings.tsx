@@ -789,7 +789,7 @@ export default function SettingsScreen() {
           <View style={styles.infoRow}>
             <Text style={[styles.rowLabel, { color: colors.text }]}>Version</Text>
             <Text style={[styles.rowValue, { color: colors.textSecondary }]}>
-              {Constants.expoConfig?.version ?? '4.9.0'} (Android)
+              {Constants.expoConfig?.version ?? '4.9.2'} (Android)
             </Text>
           </View>
 

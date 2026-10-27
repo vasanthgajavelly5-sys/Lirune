@@ -19,7 +19,12 @@ const {
   cleanAndConfigureIntentFilters,
   SUPPORTED_EXTENSIONS,
   BLOCKED_EXTENSIONS,
+  writeReleaseManifestOverlay,
+  RELEASE_MANIFEST_CONTENT,
 } = require('../plugins/withLiruneStorage.js');
+import * as os from 'node:os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 const APPLY_SHAPE = `package com.lirune.reader
 
@@ -179,4 +184,36 @@ test('cleanAndConfigureIntentFilters removes catch-alls and configures explicit 
   // 8. Assert SEND and SEND_MULTIPLE exist
   assert.ok(filters.some((f: any) => f.action?.[0]?.$?.['android:name'] === 'android.intent.action.SEND'));
   assert.ok(filters.some((f: any) => f.action?.[0]?.$?.['android:name'] === 'android.intent.action.SEND_MULTIPLE'));
+});
+
+test('writeReleaseManifestOverlay generates src/release/AndroidManifest.xml with tools:node="remove" for INTERNET', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-manifest-test-'));
+  try {
+    const writtenPath = writeReleaseManifestOverlay(tmpDir);
+    assert.ok(fs.existsSync(writtenPath), 'Overlay manifest must exist');
+    const content = fs.readFileSync(writtenPath, 'utf8');
+    assert.match(content, /xmlns:tools="http:\/\/schemas\.android\.com\/tools"/);
+    assert.match(content, /<uses-permission\s+android:name="android\.permission\.INTERNET"\s+tools:node="remove"\s*\/>/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('RELEASE_MANIFEST_CONTENT strictly removes INTERNET while cleanManifestPermissions preserves VIBRATE and storage permissions', () => {
+  // 1. Assert release overlay targets INTERNET with tools:node="remove"
+  assert.match(RELEASE_MANIFEST_CONTENT, /<uses-permission\s+android:name="android\.permission\.INTERNET"\s+tools:node="remove"\s*\/>/);
+
+  // 2. Assert cleanManifestPermissions preserves VIBRATE and READ_EXTERNAL_STORAGE in main manifest
+  const manifest = {
+    'uses-permission': [
+      { $: { 'android:name': 'android.permission.INTERNET' } },
+      { $: { 'android:name': 'android.permission.VIBRATE' } },
+      { $: { 'android:name': 'android.permission.READ_EXTERNAL_STORAGE' } },
+    ],
+  };
+  const cleaned = cleanManifestPermissions(manifest, false);
+  const names = cleaned['uses-permission'].map((p: any) => p.$['android:name']);
+  assert.ok(names.includes('android.permission.VIBRATE'), 'VIBRATE must be preserved');
+  assert.ok(names.includes('android.permission.READ_EXTERNAL_STORAGE'), 'READ_EXTERNAL_STORAGE must be preserved');
+  assert.ok(names.includes('android.permission.INTERNET'), 'INTERNET kept in main manifest for Metro dev');
 });

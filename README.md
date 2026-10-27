@@ -74,6 +74,9 @@ through GitHub Releases.
 - Runs on phones and tablets; the reader geometry adapts to the measured
   viewport, including two-column reading on tablets and correct behaviour in
   landscape
+- **Zero Network Permissions:** Distributed release APKs explicitly strip
+  `android.permission.INTERNET` at the manifest level (`tools:node="remove"`).
+  The application is physically barred by Android from network access.
 
 Download the APK from the [Releases page](#download).
 

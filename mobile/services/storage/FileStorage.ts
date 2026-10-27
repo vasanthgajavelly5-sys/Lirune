@@ -14,6 +14,9 @@ const TAG = 'FileStorage';
 const BOOKS_DIR = `${FileSystem.documentDirectory || ''}books/`;
 const COVERS_DIR = `${FileSystem.documentDirectory || ''}covers/`;
 
+/** Maximum file size in bytes permitted to be loaded in a single base64 string buffer (15MB). */
+export const MAX_BASE64_FILE_BYTES = 15 * 1024 * 1024;
+
 function base64ToBuffer(base64: string): ArrayBuffer {
   if (typeof Buffer !== 'undefined') {
     const buf = Buffer.from(base64, 'base64');
@@ -143,6 +146,10 @@ export class FileStorageService {
       } catch (copyErr) {
         logger.warn(TAG, `copyAsync failed, trying content stream fallback for: ${sourceUri}`, copyErr);
         try {
+          const sourceInfo = await FileSystem.getInfoAsync(sourceUri).catch(() => null);
+          if (sourceInfo && sourceInfo.exists && typeof sourceInfo.size === 'number' && sourceInfo.size > MAX_BASE64_FILE_BYTES) {
+            throw new Error(`File is too large (${Math.round(sourceInfo.size / (1024 * 1024))}MB) to copy via base64 buffer.`);
+          }
           let base64Data: string;
           if (sourceUri.startsWith('content://')) {
             base64Data = await FileSystem.StorageAccessFramework.readAsStringAsync(sourceUri, {
@@ -309,6 +316,11 @@ export class FileStorageService {
     if (Platform.OS === 'web') {
       const res = await fetch(filePath);
       const blob = await res.blob();
+      if (blob.size > MAX_BASE64_FILE_BYTES) {
+        throw new Error(
+          `File exceeds maximum base64 buffer limit of 15MB (${Math.round(blob.size / (1024 * 1024))}MB). Use streaming or chunked reading instead.`
+        );
+      }
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -319,6 +331,20 @@ export class FileStorageService {
         reader.readAsDataURL(blob);
       });
     }
+
+    try {
+      const info = await FileSystem.getInfoAsync(filePath);
+      if (info.exists && !info.isDirectory && typeof info.size === 'number' && info.size > MAX_BASE64_FILE_BYTES) {
+        throw new Error(
+          `File exceeds maximum base64 buffer limit of 15MB (${Math.round(info.size / (1024 * 1024))}MB). Use streaming or chunked reading instead.`
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('exceeds maximum base64 buffer limit')) {
+        throw err;
+      }
+    }
+
     return await FileSystem.readAsStringAsync(filePath, {
       encoding: FileSystem.EncodingType.Base64,
     });

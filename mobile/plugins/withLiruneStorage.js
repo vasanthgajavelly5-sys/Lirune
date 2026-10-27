@@ -36,7 +36,6 @@ function cleanManifestPermissions(manifest, isAllFiles = false) {
     'android.permission.READ_MEDIA_IMAGES',
     'android.permission.READ_MEDIA_VIDEO',
     'android.permission.READ_MEDIA_AUDIO',
-    'android.permission.READ_EXTERNAL_STORAGE',
     'android.permission.WRITE_EXTERNAL_STORAGE',
   ]);
   if (!isAllFiles) {
@@ -48,6 +47,21 @@ function cleanManifestPermissions(manifest, isAllFiles = false) {
     const name = perm?.$?.['android:name'];
     return !prohibited.has(name);
   });
+
+  const readExt = filtered.find(
+    (perm) => perm?.$?.['android:name'] === 'android.permission.READ_EXTERNAL_STORAGE'
+  );
+  if (readExt) {
+    if (!readExt.$) readExt.$ = { 'android:name': 'android.permission.READ_EXTERNAL_STORAGE' };
+    readExt.$['android:maxSdkVersion'] = '32';
+  } else {
+    filtered.push({
+      $: {
+        'android:name': 'android.permission.READ_EXTERNAL_STORAGE',
+        'android:maxSdkVersion': '32',
+      },
+    });
+  }
 
   if (isAllFiles) {
     const hasManage = filtered.some(
@@ -230,6 +244,21 @@ function withStorageManifest(config, options = {}) {
   });
 }
 
+const RELEASE_MANIFEST_CONTENT = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+</manifest>
+`;
+
+function writeReleaseManifestOverlay(platformProjectRoot) {
+  const releaseDir = path.join(platformProjectRoot, 'app', 'src', 'release');
+  fs.mkdirSync(releaseDir, { recursive: true });
+  const manifestPath = path.join(releaseDir, 'AndroidManifest.xml');
+  fs.writeFileSync(manifestPath, RELEASE_MANIFEST_CONTENT, 'utf8');
+  return manifestPath;
+}
+
 function copyKotlinSources(config) {
   return withDangerousMod(config, [
     'android',
@@ -244,6 +273,8 @@ function copyKotlinSources(config) {
         if (!entry.endsWith('.kt')) continue;
         fs.copyFileSync(path.join(KOTLIN_SOURCE_DIR, entry), path.join(targetDir, entry));
       }
+
+      writeReleaseManifestOverlay(platformProjectRoot);
       return cfg;
     },
   ]);
@@ -307,3 +338,5 @@ module.exports.cleanAndConfigureIntentFilters = cleanAndConfigureIntentFilters;
 module.exports.SUPPORTED_MIME_TYPES = SUPPORTED_MIME_TYPES;
 module.exports.SUPPORTED_EXTENSIONS = SUPPORTED_EXTENSIONS;
 module.exports.BLOCKED_EXTENSIONS = BLOCKED_EXTENSIONS;
+module.exports.writeReleaseManifestOverlay = writeReleaseManifestOverlay;
+module.exports.RELEASE_MANIFEST_CONTENT = RELEASE_MANIFEST_CONTENT;

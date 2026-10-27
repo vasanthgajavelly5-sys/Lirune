@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useCallback, useMemo, ReactNode } from 'react';
 import { useColorScheme } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { Colors, type ColorScheme, READER_THEMES, type ReaderThemePalette } from './Colors';
 import { useSettingsStore, type AppThemeOption } from '@/state/settingsStore';
 
 type ThemeColors = { [K in keyof typeof Colors.dark]: string };
 
-interface ThemeContextValue {
+export interface ThemeContextValue {
   scheme: ColorScheme;
   colors: ThemeColors;
   setScheme: (scheme: ColorScheme) => void;
@@ -13,7 +14,7 @@ interface ThemeContextValue {
   getReaderPalette: (themeName: string) => ReaderThemePalette;
 }
 
-const ThemeContext = createContext<ThemeContextValue | null>(null);
+export const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const systemScheme = useColorScheme();
@@ -72,7 +73,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
   }, [scheme, accessibility.highContrast, setScheme, toggleScheme, getReaderPalette]);
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      {children}
+    </ThemeContext.Provider>
+  );
 }
 
 export function useThemeContext() {

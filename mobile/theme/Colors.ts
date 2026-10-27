@@ -30,6 +30,11 @@ export const Colors = {
     warning: '#FFB86C',
     error: '#FF6B6B',
     muted: '#888880',
+    favorite: '#FF6584',
+    blocked: '#E06C75',
+    blockedSoft: 'rgba(224, 108, 117, 0.13)',
+    modalBackground: '#1C1C22',
+    accentAlternative: '#C9B8FF',
     // Reader defaults
     readingBackground: '#1B1D21',
     readingText: '#E7E3D8',
@@ -60,6 +65,11 @@ export const Colors = {
     warning: '#D48800',
     error: '#D84040',
     muted: '#888884',
+    favorite: '#E11D48',
+    blocked: '#D84040',
+    blockedSoft: 'rgba(216, 64, 64, 0.13)',
+    modalBackground: '#FFFFFF',
+    accentAlternative: '#6D28D9',
     // Reader defaults
     readingBackground: '#FDFCF8',
     readingText: '#1A1410',

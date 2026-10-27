@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Book } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { useLibraryStore } from '@/state/libraryStore';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 interface ReaderTabsSheetProps {
   visible: boolean;
@@ -38,6 +39,7 @@ export function ReaderTabsSheet({
   themeName = 'neutral',
 }: ReaderTabsSheetProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useThemeContext();
   const { books } = useLibraryStore();
   const activeTheme = READER_THEMES[themeName] || READER_THEMES.neutral;
   const isThemeDark = themeName === 'night' || themeName.startsWith('contrast');
@@ -47,7 +49,7 @@ export function ReaderTabsSheet({
   const textColor = activeTheme.text;
   const mutedColor = activeTheme.muted;
   const borderColor = isThemeDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.10)';
-  const activeAccent = activeTheme.link || (isThemeDark ? '#C9B8FF' : '#4C4666');
+  const activeAccent = activeTheme.link || colors.accent;
 
   // Sort books: current book first, then by lastReadDate descending
   const sortedBooks = React.useMemo(() => {
@@ -130,7 +132,7 @@ export function ReaderTabsSheet({
                   accessibilityLabel={`Switch to ${item.title}`}
                 >
                   {/* Thumbnail / Cover */}
-                  <View style={[styles.coverThumb, { backgroundColor: item.coverColor || '#2A2A30' }]}>
+                  <View style={[styles.coverThumb, { backgroundColor: item.coverColor || colors.surfaceElevated }]}>
                     {item.coverUrl ? (
                       <Image
                         source={{ uri: item.coverUrl.startsWith('file://') ? item.coverUrl : `file://${item.coverUrl}` }}

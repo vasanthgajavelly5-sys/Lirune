@@ -11,6 +11,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.security.DigestOutputStream
 import java.security.MessageDigest
 import java.util.UUID

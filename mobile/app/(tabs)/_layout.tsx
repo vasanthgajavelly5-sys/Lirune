@@ -14,6 +14,7 @@ export default function TabLayout() {
         screenOptions={{
           headerShown: false,
           tabBarStyle: { display: 'none' }, // Generic bottom tab bar completely removed
+          freezeOnBlur: true,
         }}
       >
         <Tabs.Screen

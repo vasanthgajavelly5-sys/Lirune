@@ -53,8 +53,8 @@ export function ErrorReportModal({
           style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}
           onPress={(e) => e.stopPropagation()}
         >
-          <View style={styles.iconCircle}>
-            <Ionicons name="warning-outline" size={32} color="#E06C75" />
+          <View style={[styles.iconCircle, { backgroundColor: colors.blockedSoft }]}>
+            <Ionicons name="warning-outline" size={32} color={colors.blocked} />
           </View>
 
           <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
@@ -120,7 +120,6 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#e06c751a',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,

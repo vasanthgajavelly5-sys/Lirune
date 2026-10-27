@@ -31,6 +31,7 @@ import {
   readingPositionScript,
   restorePositionScript,
 } from '../services/reader/readingPosition.ts';
+import { sanitizeHtml } from '../services/security/sanitizeHtml.ts';
 
 async function archiveOf(entries: Record<string, string | Uint8Array>): Promise<EpubArchive> {
   const zip = new JSZip();
@@ -258,6 +259,44 @@ test('inline style url() never rewrites remote, blob or fragment references', as
   assert.doesNotMatch(result, /blob:/);
   assert.match(result, /fill:url\(&quot;#gradient&quot;\)/);
   assert.match(result, /data:image\/png;base64,AAAA/);
+});
+
+test('inlineMarkupResources with lazyImages rewrites <img> src to placeholder and sets data-src', async () => {
+  const archive = await archiveOf({
+    'OEBPS/images/cat.png': 'fake-cat-bytes',
+    'OEBPS/images/dog.jpg': 'fake-dog-bytes',
+  });
+
+  const html =
+    '<p><img src="images/cat.png" alt="Cat"/></p>' +
+    '<div><img src=\'images/dog.jpg\' class="inline-dog"></div>' +
+    '<div style="background-image:url(images/cat.png)"></div>';
+
+  const lazyResult = await inlineMarkupResources(html, 'OEBPS/', archive, { lazyImages: true });
+
+  // img tags become lazy placeholders with data-src
+  assert.match(lazyResult, /<img src="data:image\/svg\+xml,[^"]+" data-src="OEBPS\/images\/cat\.png" alt="Cat"\/>/);
+  assert.match(lazyResult, /<img src='data:image\/svg\+xml,[^']+' data-src='OEBPS\/images\/dog\.jpg' class="inline-dog">/);
+  // Non-img style url() inlines normally as data URI
+  assert.match(lazyResult, /url\((?:&quot;|")data:image\/png;base64,/);
+
+  // Sanitizer preserves placeholder src and data-src
+  const sanitized = sanitizeHtml(lazyResult);
+  assert.match(sanitized, /data-src="OEBPS\/images\/cat\.png"/);
+  assert.match(sanitized, /data-src="OEBPS\/images\/dog\.jpg"/);
+  assert.match(sanitized, /src="data:image\/svg\+xml/);
+});
+
+test('inlineMarkupResources without lazyImages inlines <img> src as data URI', async () => {
+  const archive = await archiveOf({
+    'OEBPS/images/cat.png': 'fake-cat-bytes',
+  });
+
+  const html = '<p><img src="images/cat.png" alt="Cat"/></p>';
+  const regularResult = await inlineMarkupResources(html, 'OEBPS/', archive);
+
+  assert.match(regularResult, /<img src="data:image\/png;base64,[^"]+" alt="Cat"\/>/);
+  assert.doesNotMatch(regularResult, /data-src=/);
 });
 
 test('SVG covers become an <img> while inline SVG diagrams survive untouched', async () => {

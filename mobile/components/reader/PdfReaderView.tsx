@@ -851,7 +851,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 14,
   },
-  floatingPageText: { color: '#EEEEEE', fontSize: 12, fontWeight: '600' },
+  floatingPageText: { color: 'rgba(255, 255, 255, 0.92)', fontSize: 12, fontWeight: '600' },
   fitButton: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10 },
-  fitButtonText: { color: '#EEEEEE', fontSize: 11.5, fontWeight: '600' },
+  fitButtonText: { color: 'rgba(255, 255, 255, 0.92)', fontSize: 11.5, fontWeight: '600' },
 });

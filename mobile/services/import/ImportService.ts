@@ -14,6 +14,7 @@ import {
 } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
 import { fileStorage } from '@/services/storage/FileStorage';
+import { ThumbnailService } from '@/services/storage/ThumbnailService';
 import { MetadataExtractor } from '@/services/metadata/MetadataExtractor';
 import { FormatDetector } from '@/services/discovery/FormatDetector';
 import { findDuplicate } from './duplicateCheck';
@@ -219,6 +220,10 @@ export class ImportService {
           fileName,
           bookId
         );
+
+        if (metadata.coverUrl) {
+          void ThumbnailService.generateThumbnail(metadata.coverUrl);
+        }
 
         // 5. Construct domain Book record
         const now = Date.now();

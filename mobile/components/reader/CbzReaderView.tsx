@@ -365,7 +365,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   floatingPageText: {
-    color: '#EEEEEE',
+    color: 'rgba(255, 255, 255, 0.92)',
     fontSize: 12,
     fontWeight: '600',
   },

@@ -69,7 +69,7 @@ export function BookDetailsModal({
           style={[
             styles.container,
             {
-              backgroundColor: isDark ? '#1C1C22' : '#FFFFFF',
+              backgroundColor: colors.modalBackground,
               borderColor: colors.borderSubtle,
             },
           ]}
@@ -88,7 +88,7 @@ export function BookDetailsModal({
               <View
                 style={[
                   styles.coverWrapper,
-                  { backgroundColor: book.coverColor || '#2E2B38' },
+                  { backgroundColor: book.coverColor || colors.accentSoft },
                 ]}
               >
                 {book.coverUrl ? (
@@ -139,12 +139,12 @@ export function BookDetailsModal({
                     <Ionicons
                       name={book.isFavorite ? 'heart' : 'heart-outline'}
                       size={14}
-                      color={book.isFavorite ? '#FF6584' : colors.textMuted}
+                      color={book.isFavorite ? colors.favorite : colors.textMuted}
                     />
                     <Text
                       style={[
                         styles.favoriteText,
-                        { color: book.isFavorite ? '#FF6584' : colors.textMuted },
+                        { color: book.isFavorite ? colors.favorite : colors.textMuted },
                       ]}
                     >
                       {book.isFavorite ? 'Favorited' : 'Favorite'}

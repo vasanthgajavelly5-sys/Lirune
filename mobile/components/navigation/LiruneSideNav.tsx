@@ -272,7 +272,7 @@ function LiruneSlideDrawer({
           styles.drawer,
           {
             width: drawerWidth,
-            backgroundColor: isDark ? '#18181D' : '#FFFFFF',
+            backgroundColor: colors.surface,
             borderRightColor: colors.borderSubtle,
             paddingTop: insets.top + 16,
             paddingBottom: insets.bottom + 16,
@@ -407,7 +407,7 @@ function LiruneSideRail() {
       style={[
         styles.sideRail,
         {
-          backgroundColor: isDark ? '#18181D' : '#FFFFFF',
+          backgroundColor: colors.surface,
           borderRightColor: colors.borderSubtle,
           paddingTop: insets.top + 16,
           paddingBottom: insets.bottom + 16,

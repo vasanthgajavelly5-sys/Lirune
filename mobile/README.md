@@ -144,12 +144,10 @@ with `INSTALL_FAILED_NO_MATCHING_ABIS`.
 | Permission | Why |
 |---|---|
 | `VIBRATE` | Page-turn and find-selection feedback |
-| `MANAGE_EXTERNAL_STORAGE` | "Scan Phone" can only see EPUBs and PDFs in Downloads and at the storage root with All files access — MediaStore does not index them and the SAF picker will not hand out those locations |
-| `READ_EXTERNAL_STORAGE` | Android 10 and below |
+| `READ_EXTERNAL_STORAGE` | Android 12 and below (API <= 32) reading access with `android:maxSdkVersion="32"` |
+| `MANAGE_EXTERNAL_STORAGE` | Optional: included only when prebuilt with `LIRUNE_ALLFILES=1`. Enables "Scan Phone" to walk all storage directories and find books in Downloads and root storage on Android 11+ without per-directory SAF authorizations. Without this flag, builds are Play Store compliant and rely on MediaStore + SAF folder picking. |
 
-All files access is requested with an explanation and only ever reads file names
-and paths already on the device; nothing is uploaded. "Not now" is remembered —
-Settings has an explicit row to ask again.
+All files access (`MANAGE_EXTERNAL_STORAGE`) is never enabled by default in standard distribution builds unless `LIRUNE_ALLFILES=1` is passed at `expo prebuild` time. When present, it is requested with an explicit explanation and only ever reads file names and paths already on the device; nothing is uploaded. "Not now" is remembered — Settings has an explicit row to ask again.
 
 ### Reading comfort
 - **Edge brightness** — swipe up or down on either 44dp screen edge to dim or

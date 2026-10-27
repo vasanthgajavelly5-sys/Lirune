@@ -78,7 +78,7 @@ jobs:
 
       - name: Attest Artifact Provenance
         if: success()
-        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebfb773fb89671d6 # v1.4.2
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
         with:
           subject-path: 'release-dist/*'
         continue-on-error: true

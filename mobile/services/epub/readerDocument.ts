@@ -15,6 +15,8 @@
 import type { ReaderLayout } from '../reader/readerLayout.ts';
 import { SELECTION_WATCHER_JS } from '../reader/selectionBridge.ts';
 import { readingPositionScript, type ReaderMode } from '../reader/readingPosition.ts';
+import { continuousScriptV2 } from './scrollEngineV2.ts';
+import { annotateAndChunkChapterBlocks } from '../../utils/scrollEngineV2Utils.ts';
 
 export interface ReaderPalette {
   bg: string;
@@ -49,6 +51,8 @@ export interface ReaderDocumentInput {
   currentChapterIndex?: number;
   /** Id of the chapter the continuous shell should render content into. */
   activeChapterBodyId?: string;
+  /** Active scroll engine version ('v1' | 'v2'). */
+  scrollEngine?: 'v1' | 'v2';
 }
 
 function escapeHtml(value: string): string {
@@ -111,6 +115,12 @@ export function readerCss(input: ReaderDocumentInput): string {
   const { columnStep, sideInset } = paginatedColumnGeometry(layout, input.twoColumn);
 
   return `
+    :root {
+      --reader-bg: ${palette.bg};
+      --reader-text: ${palette.text};
+      --reader-muted: ${palette.muted};
+      --reader-link: ${palette.link};
+    }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html {
       width: 100%;
@@ -119,8 +129,8 @@ export function readerCss(input: ReaderDocumentInput): string {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-      background-color: ${palette.bg};
-      color: ${palette.text};
+      background-color: var(--reader-bg, ${palette.bg});
+      color: var(--reader-text, ${palette.text});
       ${input.mode === 'paginated' ? 'overflow: hidden;' : 'overflow-x: hidden;'}
       word-wrap: break-word;
       overflow-wrap: break-word;
@@ -132,8 +142,8 @@ export function readerCss(input: ReaderDocumentInput): string {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-      background-color: ${palette.bg} !important;
-      color: ${palette.text} !important;
+      background-color: var(--reader-bg, ${palette.bg}) !important;
+      color: var(--reader-text, ${palette.text}) !important;
       font-family: ${input.fontFamily};
       font-size: ${input.fontSize}px;
       line-height: ${input.lineHeight};
@@ -284,6 +294,8 @@ export function readerCss(input: ReaderDocumentInput): string {
     .chapter-section {
       break-inside: auto;
       page-break-inside: auto;
+      content-visibility: auto;
+      contain-intrinsic-size: auto 600px;
     }
 
     /* --- EPUB semantics: footnotes / endnotes ---------------------------- */
@@ -712,11 +724,12 @@ function continuousScript(input: ReaderDocumentInput): string {
       lastHydrateRequest = now;
       var sections = document.querySelectorAll('.chapter-section[data-loaded="false"]');
       var pending = [];
+      var vh = window.innerHeight || 800;
       for (var i = 0; i < sections.length; i++) {
         var rect = sections[i].getBoundingClientRect();
-        if (rect.bottom < -window.innerHeight) continue;
-        // Document order, so the first section past the window ends the scan.
-        if (rect.top > window.innerHeight * 1.5) break;
+        // Single metric hysteresis: prefetch 1.5vh above to 2.5vh below
+        if (rect.bottom < -1.5 * vh) continue;
+        if (rect.top > 3.5 * vh) break;
         pending.push(Number(sections[i].getAttribute('data-chapter-index')));
         if (pending.length >= 6) break;
       }
@@ -729,6 +742,45 @@ function continuousScript(input: ReaderDocumentInput): string {
       } catch (e) {}
     }
     window.__liruneScanPending = scanPendingChapters;
+
+    function unloadFarChapters() {
+      var loadedSections = document.querySelectorAll('.chapter-section[data-loaded="true"]');
+      var vh = window.innerHeight || 800;
+      var unloaded = [];
+      for (var k = 0; k < loadedSections.length; k++) {
+        var s = loadedSections[k];
+        var idxAttr = s.getAttribute('data-chapter-index');
+        if (idxAttr === 'cover') continue;
+        var sIdx = Number(idxAttr);
+        if (isNaN(sIdx)) continue;
+
+        var r = s.getBoundingClientRect();
+        // Hysteresis: NEVER unload if intersecting viewport or within 2.5vh above / 3.5vh below
+        if (r.bottom >= -2.5 * vh && r.top <= 3.5 * vh) continue;
+
+        // Unload strictly when > 4 viewports away
+        if (r.bottom < -4.0 * vh || r.top > 5.0 * vh) {
+          var currentH = s.offsetHeight;
+          if (currentH > 40) {
+            s.style.minHeight = currentH + 'px';
+          }
+          var bodyEl = document.getElementById('chapter-body-' + sIdx);
+          if (bodyEl) {
+            bodyEl.innerHTML = '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>';
+          }
+          s.setAttribute('data-loaded', 'false');
+          unloaded.push(sIdx);
+        }
+      }
+      if (unloaded.length > 0) {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'chaptersUnloaded',
+            indices: unloaded
+          }));
+        } catch (e) {}
+      }
+    }
 
     document.addEventListener('touchstart', function (e) {
       if (e.touches.length === 2) {
@@ -755,8 +807,6 @@ function continuousScript(input: ReaderDocumentInput): string {
         );
         var scale = currentDist / initialPinchDist;
         var newZoom = Math.max(0.8, Math.min(2.5, initialZoom * scale));
-        // One font-size change relayouts the whole document, so the step is wide
-        // on purpose: a fine-grained threshold turned a pinch into a stutter.
         if (Math.abs(newZoom - currentZoom) > 0.08) {
           currentZoom = newZoom;
           applyContinuousZoom();
@@ -764,15 +814,6 @@ function continuousScript(input: ReaderDocumentInput): string {
       }
     }, { passive: true });
 
-    /**
-     * A tap, not a scroll.
-     *
-     * The reader turns chapters from the screen edges and toggles the controls
-     * from the middle, so a gesture that actually moved the page must never
-     * reach this handler. Movement, duration and the scroll offset at touch
-     * start are all checked: a fling that ends with the finger back near where
-     * it started still moved the page, and the offset is the only honest signal.
-     */
     document.addEventListener('touchend', function (e) {
       if (e.changedTouches.length !== 1) return;
       var dx = e.changedTouches[0].clientX - touchStartX;
@@ -797,47 +838,65 @@ function continuousScript(input: ReaderDocumentInput): string {
       else window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'toggleControls' }));
     }, { passive: true });
 
-    window.addEventListener('scroll', function () {
-      scanPendingChapters(false);
-      if (window.__epubHydrating) return;
+    var scrollRafId = null;
+    var lastProgressTime = 0;
+    var idleScrollTimer = null;
+
+    function sendProgress(chapterIndex, fraction) {
       var doc = document.documentElement;
-      var total = doc.scrollHeight - window.innerHeight;
+      var total = (doc ? doc.scrollHeight : 1) - (window.innerHeight || 0);
       var percent = total > 0 ? Math.min(100, Math.round((window.pageYOffset / total) * 100)) : 0;
-      var markers = Array.prototype.slice.call(document.querySelectorAll('[data-chapter-index]'));
-      var chapterIndex = 0;
-      for (var i = 0; i < markers.length; i++) {
-        if (markers[i].getBoundingClientRect().top <= window.innerHeight * 0.4) {
-          chapterIndex = Number(markers[i].getAttribute('data-chapter-index')) || 0;
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'scrollProgress',
+          percent: percent,
+          scrollY: window.pageYOffset,
+          chapterIndex: chapterIndex,
+          fraction: fraction
+        }));
+      } catch (e) {}
+    }
+
+    function handleScrollTick() {
+      if (window.__epubHydrating) return;
+
+      var readingLine = (window.innerHeight || 800) * 0.35;
+      var sections = document.querySelectorAll('.chapter-section');
+      var currentChapter = 0;
+      var currentFraction = 0;
+
+      for (var i = 0; i < sections.length; i++) {
+        var r = sections[i].getBoundingClientRect();
+        if (r.top <= readingLine && r.bottom > readingLine) {
+          currentChapter = Number(sections[i].getAttribute('data-chapter-index')) || 0;
+          var secH = r.height || 1;
+          currentFraction = Math.max(0, Math.min(1, (readingLine - r.top) / secH));
+          break;
+        } else if (r.top <= readingLine) {
+          currentChapter = Number(sections[i].getAttribute('data-chapter-index')) || 0;
         }
       }
 
-      // Continuous windowing: render current chapter ± 2, unload the rest to keep DOM memory flat
-      var loadedSections = document.querySelectorAll('.chapter-section[data-loaded="true"]');
-      for (var k = 0; k < loadedSections.length; k++) {
-        var s = loadedSections[k];
-        var idxAttr = s.getAttribute('data-chapter-index');
-        if (idxAttr === 'cover') continue;
-        var sIdx = Number(idxAttr);
-        if (isNaN(sIdx)) continue;
-        if (Math.abs(sIdx - chapterIndex) > 2) {
-          var currentH = s.offsetHeight;
-          if (currentH > 40) {
-            s.style.minHeight = currentH + 'px';
-          }
-          var bodyEl = document.getElementById('chapter-body-' + sIdx);
-          if (bodyEl) {
-            bodyEl.innerHTML = '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>';
-          }
-          s.setAttribute('data-loaded', 'false');
-        }
+      var now = Date.now();
+      if (now - lastProgressTime >= 250) {
+        lastProgressTime = now;
+        sendProgress(currentChapter, currentFraction);
       }
 
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'scrollProgress',
-        percent: percent,
-        scrollY: window.pageYOffset,
-        chapterIndex: chapterIndex
-      }));
+      if (idleScrollTimer) clearTimeout(idleScrollTimer);
+      idleScrollTimer = setTimeout(function () {
+        sendProgress(currentChapter, currentFraction);
+        unloadFarChapters();
+      }, 250);
+    }
+
+    window.addEventListener('scroll', function () {
+      if (scrollRafId) return;
+      scrollRafId = window.requestAnimationFrame(function () {
+        scrollRafId = null;
+        scanPendingChapters(false);
+        handleScrollTick();
+      });
     }, { passive: true });
 
     window.addEventListener('load', function () {
@@ -858,6 +917,10 @@ export interface ContinuousShellOptions {
   activeHasLeadingHeading?: boolean;
   /** Optional standalone cover image HTML to render before chapter 0 */
   coverHtml?: string;
+  /** Approximate byte/char size per chapter used to calibrate placeholder height and prevent CLS */
+  chapterSizes?: number[];
+  /** Active scroll engine version */
+  scrollEngine?: 'v1' | 'v2';
 }
 
 /**
@@ -884,18 +947,27 @@ export function buildContinuousShell(
       `</section>`
     );
   }
+  const renderedActiveBody =
+    options.scrollEngine === 'v2'
+      ? annotateAndChunkChapterBlocks(activeBodyHtml, activeIndex).annotatedHtml
+      : activeBodyHtml;
+
   for (let index = 0; index < chapterCount; index++) {
     const isActive = index === activeIndex;
     const title = chapterTitles[index] || '';
     const hasHeading = isActive && options.activeHasLeadingHeading === true;
+    const estimatedHeight =
+      options.chapterSizes && options.chapterSizes[index]
+        ? Math.max(120, Math.min(100000, Math.round((options.chapterSizes[index] / 40) * 22)))
+        : 600;
     const header =
       `<div class="chapter-header"${title ? '' : ' style="display:none"'}>${
         title ? `<h2 class="chapter-marker">${escapeHtml(title)}</h2>` : ''
       }</div>`;
     sections.push(
-      `<section id="chapter-${index}" data-chapter-index="${index}" class="chapter-section" data-loaded="${isActive ? 'true' : 'false'}" data-has-heading="${hasHeading ? 'true' : 'false'}">` +
+      `<section id="chapter-${index}" data-chapter-index="${index}" class="chapter-section" data-loaded="${isActive ? 'true' : 'false'}" data-has-heading="${hasHeading ? 'true' : 'false'}"${isActive ? '' : ` style="min-height:${estimatedHeight}px"`}>` +
         header +
-        `<div class="chapter-body" id="chapter-body-${index}">${isActive ? activeBodyHtml : '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>'}</div>` +
+        `<div class="chapter-body" id="chapter-body-${index}">${isActive ? renderedActiveBody : '<div class="chapter-placeholder"><p class="loading-hint">Loading chapter…</p></div>'}</div>` +
         `</section>`
     );
   }
@@ -914,7 +986,10 @@ export function buildContinuousShell(
  */
 const FIRST_PAINT_JS = `
 (function () {
+  var announced = false;
   function announce() {
+    if (announced) return;
+    announced = true;
     window.requestAnimationFrame(function () {
       window.requestAnimationFrame(function () {
         try {
@@ -923,8 +998,12 @@ const FIRST_PAINT_JS = `
       });
     });
   }
-  if (document.readyState === 'complete') announce();
-  else window.addEventListener('load', announce, { once: true });
+  if (document.readyState === 'interactive' || document.readyState === 'complete') {
+    announce();
+  } else {
+    document.addEventListener('DOMContentLoaded', announce, { once: true });
+    window.addEventListener('load', announce, { once: true });
+  }
 })();
 `;
 
@@ -970,19 +1049,45 @@ const LINK_INTERCEPTOR_JS = `
 })();
 `;
 
+/**
+ * Development-only debugging helper exposed on window.__lirune.debugState().
+ * Disabled/omitted in release builds.
+ */
+const DEBUG_HELPER_JS = `
+(function () {
+  window.__lirune = window.__lirune || {};
+  window.__lirune.debugState = function () {
+    var v2 = window.__liruneV2;
+    var sections = document.querySelectorAll('.chapter-section');
+    var loaded = document.querySelectorAll('.chapter-section[data-loaded="true"]');
+    return {
+      engine: v2 ? 'v2' : 'v1',
+      scrollY: window.pageYOffset || 0,
+      viewportHeight: window.innerHeight || 0,
+      scrollHeight: document.documentElement ? document.documentElement.scrollHeight : 0,
+      totalSections: sections ? sections.length : 0,
+      loadedSections: loaded ? loaded.length : 0,
+      timestamp: Date.now()
+    };
+  };
+})();
+`;
+
 /** Builds the complete reader document for either mode. */
 export function buildReaderDocument(input: ReaderDocumentInput): string {
+  const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV !== 'production';
   const bookCss = input.bookCss ? `<style id="book-css">${input.bookCss}</style>` : '';
   const script =
-    input.mode === 'paginated' ? paginatedScript(input) : continuousScript(input);
+    input.mode === 'paginated'
+      ? paginatedScript(input)
+      : input.scrollEngine === 'v2'
+        ? continuousScriptV2(input)
+        : continuousScript(input);
 
   return `<!DOCTYPE html>
 <html>
 <head>
   ${VIEWPORT_META}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,700;1,400&family=Bitter:ital,wght@0,400;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,700;1,7..72,400&family=Lora:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,700;1,8..60,400&family=Vollkorn:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
   ${bookCss}
   <style id="reader-css">${readerCss(input)}</style>
 </head>
@@ -998,6 +1103,7 @@ export function buildReaderDocument(input: ReaderDocumentInput): string {
     ${SELECTION_WATCHER_JS}
     ${LINK_INTERCEPTOR_JS}
     ${FIRST_PAINT_JS}
+    ${isDev ? DEBUG_HELPER_JS : ''}
   </script>
 </body>
 </html>`;

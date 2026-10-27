@@ -427,6 +427,14 @@ export async function inlineStyleUrls(
   return out;
 }
 
+export interface InlineMarkupOptions {
+  /** If true, <img> tags use a lightweight transparent SVG placeholder src and data-src for lazy loading. */
+  lazyImages?: boolean;
+}
+
+const LAZY_IMAGE_PLACEHOLDER =
+  'data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%201%201%22%3E%3C/svg%3E';
+
 /**
  * Rewrites every resource reference in a content document: `src`, `xlink:href`
  * and `url()` inside `style` attributes.
@@ -437,7 +445,8 @@ export async function inlineStyleUrls(
 export async function inlineMarkupResources(
   html: string,
   baseDir: string,
-  archive: EpubArchive
+  archive: EpubArchive,
+  options: InlineMarkupOptions = {}
 ): Promise<string> {
   const tokens = scanTokens(html);
   if (tokens.length === 0) return html;
@@ -464,14 +473,29 @@ export async function inlineMarkupResources(
         if (href.startsWith('#') || /^data:/i.test(href)) return null;
         const path = resolveZipPath(baseDir, href);
         if (!path) return null;
+
+        if (options.lazyImages && token.lower === 'img' && attribute.name === 'src') {
+          return { lazy: true, path };
+        }
+
         return (await archive.dataUri(path)) ?? null;
       })
     );
 
     attributes.forEach((attribute, index) => {
-      const value = values[index];
-      if (value === null) return;
+      const val = values[index];
+      if (val === null) return;
       if (attribute.valueEnd <= attribute.valueStart) return;
+
+      if (typeof val === 'object' && val !== null && 'lazy' in val) {
+        const escapedPath = val.path.replace(/"/g, '&quot;');
+        const quote = attribute.quote || '"';
+        const replacement = `${LAZY_IMAGE_PLACEHOLDER}${quote} data-src=${quote}${escapedPath}`;
+        edits.push({ start: attribute.valueStart, end: attribute.valueEnd, value: replacement });
+        return;
+      }
+
+      const value = val as string;
       // The replacement is spliced between the attribute's own quote characters,
       // so a quote in the new value has to be entity-encoded for that delimiter.
       const escaped =

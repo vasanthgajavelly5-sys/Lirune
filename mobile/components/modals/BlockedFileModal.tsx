@@ -55,7 +55,7 @@ export function BlockedFileModal({ info, onDismiss }: BlockedFileModalProps) {
       <View style={styles.backdrop}>
         <View style={[styles.dialogCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
           <View style={styles.iconCircle}>
-            <Ionicons name="ban-outline" size={40} color="#E06C75" />
+            <Ionicons name="ban-outline" size={40} color={colors.blocked} />
           </View>
 
           <Text style={[styles.title, { color: colors.text }]}>

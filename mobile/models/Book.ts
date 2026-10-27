@@ -240,6 +240,7 @@ export interface Book {
   filePath?: string; // App-local persistent file path (legacy/backward compat)
   fileSize: number; // Bytes
   coverUrl?: string; // App-local cover image path
+  thumbnailUrl?: string; // App-local ~400px optimized cover thumbnail
   coverColor: string; // Fallback palette color
   progress: number; // 0 - 100 percentage
   currentCfi?: string; // CFI or position token (e.g., page:n, scroll:y)
@@ -362,6 +363,10 @@ export interface ReaderSettings {
   brightness?: number;
   /** Hold a screen wake lock for as long as a book stays open. */
   keepScreenAwake?: boolean;
+  /** Scroll engine version: 'v1' (classic continuous) or 'v2' (virtualized block locator engine). Default 'v1'. */
+  scrollEngine?: 'v1' | 'v2';
+  /** Whether to retain off-screen chapter DOM/data in memory cache. Default false (low memory footprint). */
+  scrollEngineCache?: boolean;
 }
 
 /** Narrowest brightness the edge gesture can dial down to. */
@@ -386,6 +391,8 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   columns: 'auto',
   brightness: 100,
   keepScreenAwake: true,
+  scrollEngine: 'v1',
+  scrollEngineCache: false,
 };
 
 const VALID_THEMES = new Set([
@@ -422,6 +429,8 @@ export function validateReaderSettings(raw: any): ReaderSettings {
   const columns = VALID_COLUMNS.has(raw.columns) ? raw.columns : DEFAULT_READER_SETTINGS.columns;
   const brightness = clampReaderBrightness(raw.brightness);
   const keepScreenAwake = typeof raw.keepScreenAwake === 'boolean' ? raw.keepScreenAwake : (DEFAULT_READER_SETTINGS.keepScreenAwake ?? true);
+  const scrollEngine = raw.scrollEngine === 'v2' ? 'v2' : 'v1';
+  const scrollEngineCache = typeof raw.scrollEngineCache === 'boolean' ? raw.scrollEngineCache : false;
 
   return {
     theme,
@@ -436,6 +445,8 @@ export function validateReaderSettings(raw: any): ReaderSettings {
     columns,
     brightness,
     keepScreenAwake,
+    scrollEngine,
+    scrollEngineCache,
   };
 }
 
@@ -475,5 +486,5 @@ export type AppThemeOption = 'dark' | 'light' | 'system';
 
 export function validateAppTheme(raw: any): AppThemeOption {
   if (raw === 'dark' || raw === 'light' || raw === 'system') return raw;
-  return 'light';
+  return 'system';
 }

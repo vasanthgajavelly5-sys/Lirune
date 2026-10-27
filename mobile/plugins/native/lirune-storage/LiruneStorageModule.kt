@@ -5,6 +5,8 @@ import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -33,7 +35,6 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
     private val moduleScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val sourceManager by lazy { SourceManager(reactContext) }
     private val sessionManager by lazy { BookSessionManager(reactContext) }
-    private val resourceServer by lazy { ResourceServer(sessionManager).also { it.start() } }
     private val scanner by lazy { Scanner(reactContext, ::emitEventMap) }
     private val ingestor by lazy {
         val booksDir = File(reactContext.filesDir, "books")
@@ -366,12 +367,7 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun getResourceServerUrl(handleId: String, promise: Promise) {
-        try {
-            val url = "http://127.0.0.1:${resourceServer.port}/book/$handleId"
-            promise.resolve(url)
-        } catch (e: Exception) {
-            promise.reject("SERVER_URL_ERROR", e.message, e)
-        }
+        promise.resolve(null)
     }
 
     // ==========================================
@@ -1077,6 +1073,68 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(closed)
         } catch (e: Exception) {
             promise.reject("ARCHIVE_CLOSE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun createThumbnail(sourcePath: String, targetPath: String, targetWidth: Int, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val cleanSource = if (sourcePath.startsWith("file://")) sourcePath.substring(7) else sourcePath
+                val cleanTarget = if (targetPath.startsWith("file://")) targetPath.substring(7) else targetPath
+                val srcFile = File(cleanSource)
+                if (!srcFile.exists()) {
+                    promise.resolve(false)
+                    return@launch
+                }
+
+                val options = BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                BitmapFactory.decodeFile(srcFile.absolutePath, options)
+                val srcWidth = options.outWidth
+                val srcHeight = options.outHeight
+                if (srcWidth <= 0 || srcHeight <= 0) {
+                    promise.resolve(false)
+                    return@launch
+                }
+
+                var sampleSize = 1
+                val targetW = if (targetWidth > 0) targetWidth else 400
+                while ((srcWidth / (sampleSize * 2)) >= targetW) {
+                    sampleSize *= 2
+                }
+
+                val decodeOptions = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = Bitmap.Config.RGB_565
+                }
+                val sampled = BitmapFactory.decodeFile(srcFile.absolutePath, decodeOptions)
+                if (sampled == null) {
+                    promise.resolve(false)
+                    return@launch
+                }
+
+                val finalBitmap = if (sampled.width > targetW) {
+                    val targetH = (sampled.height * (targetW.toFloat() / sampled.width.toFloat())).toInt()
+                    val scaled = Bitmap.createScaledBitmap(sampled, targetW, targetH, true)
+                    if (scaled != sampled) sampled.recycle()
+                    scaled
+                } else {
+                    sampled
+                }
+
+                val outFile = File(cleanTarget)
+                outFile.parentFile?.mkdirs()
+                FileOutputStream(outFile).use { fos ->
+                    finalBitmap.compress(Bitmap.CompressFormat.JPEG, 85, fos)
+                    fos.flush()
+                }
+                finalBitmap.recycle()
+                promise.resolve(true)
+            } catch (_: Exception) {
+                promise.resolve(false)
+            }
         }
     }
 

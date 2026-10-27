@@ -5,11 +5,12 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { AppState } from 'react-native';
+import { AppState, InteractionManager } from 'react-native';
 import * as Linking from 'expo-linking';
+import * as SplashScreen from 'expo-splash-screen';
 
-import { ThemeProvider } from '@/theme/ThemeContext';
+import { ThemeProvider, useThemeContext } from '@/theme/ThemeContext';
+import { READER_THEMES } from '@/theme/Colors';
 import { useSettingsStore } from '@/state/settingsStore';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useReaderStore } from '@/state/readerStore';
@@ -19,44 +20,60 @@ import { ImportService } from '@/services/import/ImportService';
 import { getDatabase } from '@/services/database/Database';
 import { useImportQueueStore } from '@/state/importQueueStore';
 import { BlockedFileModal, BlockedFileInfo } from '@/components/modals/BlockedFileModal';
+import { canHideSplashScreen } from '@/utils/initGating';
 import { logger } from '@/utils/logger';
+
+// Prevent splash screen from auto-hiding until critical launch state is loaded
+void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const TAG = 'RootLayout';
 
 function AppInitializer({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { loadSettings } = useSettingsStore();
-  const { loadLibrary } = useLibraryStore();
+  const { loadSettings, isLoaded: settingsLoaded } = useSettingsStore();
+  const { loadLibrary, hasLoaded: libraryLoaded } = useLibraryStore();
 
   useEffect(() => {
-    loadSettings();
-    loadLibrary();
-    // Housekeeping, off the critical path: an import interrupted by a crash left a
-    // `.part` file behind, which is never a usable book.
-    void fileStorage.cleanupPartialImports();
+    void loadSettings();
+    void loadLibrary();
+  }, [loadSettings, loadLibrary]);
 
-    // Workstream A: Validate persisted SAF grants at launch and recover journal
-    void (async () => {
-      try {
-        const db = await getDatabase();
-        if (db) {
-          const rows = await db.getAllAsync<{ id: number; tree_uri: string }>('SELECT id, tree_uri FROM sources');
-          if (rows.length > 0) {
-            const uris = rows.map((r) => r.tree_uri).filter(Boolean);
-            const res = await nativeStorage.validatePersistedGrants(uris);
-            const revokedSet = new Set(res.revokedUris);
-            for (const r of rows) {
-              const isValid = revokedSet.has(r.tree_uri) ? 0 : 1;
-              await db.runAsync('UPDATE sources SET grant_valid = ? WHERE id = ?', [isValid, r.id]);
+  const isReady = canHideSplashScreen({ settingsLoaded, libraryLoaded });
+
+  // Hide splash screen once settings & library are loaded, and run secondary housekeeping off the critical path
+  useEffect(() => {
+    if (!isReady) return;
+
+    void SplashScreen.hideAsync().catch(() => {});
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      // Housekeeping off critical path: clean partial imports & validate SAF grants
+      void fileStorage.cleanupPartialImports();
+
+      void (async () => {
+        try {
+          const db = await getDatabase();
+          if (db) {
+            const rows = await db.getAllAsync<{ id: number; tree_uri: string }>('SELECT id, tree_uri FROM sources');
+            if (rows.length > 0) {
+              const uris = rows.map((r) => r.tree_uri).filter(Boolean);
+              const res = await nativeStorage.validatePersistedGrants(uris);
+              const revokedSet = new Set(res.revokedUris);
+              for (const r of rows) {
+                const isValid = revokedSet.has(r.tree_uri) ? 0 : 1;
+                await db.runAsync('UPDATE sources SET grant_valid = ? WHERE id = ?', [isValid, r.id]);
+              }
             }
           }
+          await useImportQueueStore.getState().recoverJournalOnLaunch();
+        } catch (err) {
+          logger.warn(TAG, 'Launch grant validation or journal recovery failed', err);
         }
-        await useImportQueueStore.getState().recoverJournalOnLaunch();
-      } catch (err) {
-        logger.warn(TAG, 'Launch grant validation or journal recovery failed', err);
-      }
-    })();
-  }, [loadSettings, loadLibrary]);
+      })();
+    });
+
+    return () => task.cancel();
+  }, [isReady]);
 
   /**
    * Reading progress must reach the database before the app can be killed.
@@ -173,27 +190,38 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ThemedStack() {
+  const { colors } = useThemeContext();
+  const readerTheme = useSettingsStore((s) => s.readerSettings.theme);
+  const readerPalette = READER_THEMES[readerTheme] || READER_THEMES.neutral;
+
+  return (
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        animation: 'slide_from_right',
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="reader"
+        options={{
+          headerShown: false,
+          presentation: 'fullScreenModal',
+          animation: 'fade',
+          contentStyle: { backgroundColor: readerPalette.bg },
+        }}
+      />
+    </Stack>
+  );
+}
+
 export default function RootLayout() {
   return (
     <ThemeProvider>
       <AppInitializer>
-        <StatusBar style="light" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            animation: 'slide_from_right',
-          }}
-        >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="reader"
-            options={{
-              headerShown: false,
-              presentation: 'fullScreenModal',
-              animation: 'fade',
-            }}
-          />
-        </Stack>
+        <ThemedStack />
       </AppInitializer>
     </ThemeProvider>
   );

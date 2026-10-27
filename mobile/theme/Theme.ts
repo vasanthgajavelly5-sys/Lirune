@@ -1,13 +1,14 @@
-import { useColorScheme } from 'react-native';
+import { useContext } from 'react';
 import { Colors, type ColorScheme, type ColorTokens } from './Colors';
 import { Spacing, BorderRadius, Typography, Shadows } from './Tokens';
+import { ThemeContext } from './ThemeContext';
 
 export type { ColorScheme, ColorTokens };
 
 export function useTheme() {
-  const systemScheme = useColorScheme() ?? 'dark';
-  const scheme = (systemScheme === 'light' || systemScheme === 'dark') ? systemScheme : 'dark';
-  const colors = Colors[scheme];
+  const context = useContext(ThemeContext);
+  const scheme = context ? context.scheme : 'dark';
+  const colors = context ? context.colors : Colors[scheme];
 
   return {
     scheme,

@@ -1,6 +1,6 @@
 {
   "name": "mobile",
-  "version": "4.9.1",
+  "version": "4.9.2",
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -12,6 +12,7 @@
     "expo-linking": "^57.0.0",
     "expo-router": "~57.0.24",
     "expo-speech": "^57.0.3",
+    "expo-splash-screen": "~57.0.10",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "jszip": "^3.10.2",

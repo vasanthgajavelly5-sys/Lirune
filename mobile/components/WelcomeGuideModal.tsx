@@ -36,7 +36,7 @@ export function WelcomeGuideModal({
   const steps = [
     {
       icon: 'book' as const,
-      iconColor: isDark ? '#EEECF8' : colors.accent,
+      iconColor: colors.accent,
       title: 'A Calm, Private Home',
       tagline: 'Your books, completely offline and private.',
       description:
@@ -44,7 +44,7 @@ export function WelcomeGuideModal({
     },
     {
       icon: 'library' as const,
-      iconColor: isDark ? '#C9B8FF' : '#6D28D9',
+      iconColor: colors.accentAlternative,
       title: 'All Your Formats',
       tagline: '18 formats: EPUB, PDF, MOBI, AZW, AZW3, FB2, CBZ, CBR, DJVU, DOCX, ODT, RTF, TXT, HTML, DOC, CHM, ZIP, RAR.',
       description:
@@ -52,7 +52,7 @@ export function WelcomeGuideModal({
     },
     {
       icon: 'swap-horizontal' as const,
-      iconColor: isDark ? '#7DD3FC' : '#0284C7',
+      iconColor: colors.success,
       title: 'Page Mode & Scroll Mode',
       tagline: 'Read the way that feels natural to you.',
       description:
@@ -60,7 +60,7 @@ export function WelcomeGuideModal({
     },
     {
       icon: 'heart' as const,
-      iconColor: isDark ? '#FF6584' : '#E11D48',
+      iconColor: colors.favorite,
       title: 'Collections & Annotations',
       tagline: 'Organize your library effortlessly.',
       description:
@@ -98,7 +98,7 @@ export function WelcomeGuideModal({
           style={[
             styles.card,
             {
-              backgroundColor: isDark ? '#1C1C22' : '#FFFFFF',
+              backgroundColor: colors.modalBackground,
               borderColor: colors.borderSubtle,
             },
           ]}

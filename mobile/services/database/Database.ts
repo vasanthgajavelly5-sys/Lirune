@@ -62,6 +62,7 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       filePath TEXT,
       fileSize INTEGER DEFAULT 0,
       coverUrl TEXT,
+      thumbnailUrl TEXT,
       coverColor TEXT,
       progress REAL DEFAULT 0,
       currentCfi TEXT,
@@ -275,6 +276,9 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
         await db.execAsync('ALTER TABLE books ADD COLUMN added_at INTEGER;');
         await db.execAsync('UPDATE books SET added_at = dateAdded WHERE added_at IS NULL;');
       }
+      if (!columns.has('thumbnailUrl')) {
+        await db.execAsync('ALTER TABLE books ADD COLUMN thumbnailUrl TEXT;');
+      }
 
       await db.execAsync(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_books_sha256 ON books(sha256) WHERE sha256 IS NOT NULL;
@@ -288,6 +292,17 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
         INSERT INTO schema_versions (version, applied_at) VALUES (2, unixepoch());
       `);
       logger.info(TAG, 'Database migration v2 applied successfully');
+    }
+
+    if (!appliedVersions.has(3)) {
+      logger.info(TAG, 'Running database migration v3: Add thumbnailUrl to books table');
+      const tableInfo = await db.getAllAsync<{ name: string }>('PRAGMA table_info(books)');
+      const columns = new Set(tableInfo.map((col) => col.name));
+      if (!columns.has('thumbnailUrl')) {
+        await db.execAsync('ALTER TABLE books ADD COLUMN thumbnailUrl TEXT;');
+      }
+      await db.execAsync('INSERT INTO schema_versions (version, applied_at) VALUES (3, unixepoch());');
+      logger.info(TAG, 'Database migration v3 applied successfully');
     }
   } catch (e) {
     logger.warn(TAG, 'Database migration execution failed or partially complete', String(e));

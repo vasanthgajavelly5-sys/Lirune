@@ -35,9 +35,13 @@ data class ZipEntryMeta(
 
 object FormatRegistry {
 
-    private val SUPPORTED_FORMATS = setOf(
+    val SUPPORTED_FORMATS = setOf(
         "epub", "pdf", "txt", "html", "fb2", "cbz", "cbr", "cb7",
         "mobi", "azw", "azw3", "djvu", "doc", "docx", "rtf", "odt", "chm"
+    )
+
+    val BLOCKED_EXTENSIONS = setOf(
+        "apk", "jar", "aab", "xapk", "apks", "dex", "exe", "class", "arsc", "so", "dll"
     )
 
     private val BOOK_ARCHIVE_EXTENSIONS = setOf(

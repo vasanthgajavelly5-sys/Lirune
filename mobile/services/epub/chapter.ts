@@ -55,6 +55,8 @@ export interface ExtractChapterOptions {
    * chapter heading in the content document.
    */
   navigationTitle?: string;
+  /** Whether to lazy-load chapter images using placeholder SVGs. */
+  lazyImages?: boolean;
 }
 
 interface CssChunk {
@@ -173,7 +175,9 @@ export async function extractChapterDocument(
     const css = stylesheets.map((sheet) => sheet.css).join('\n');
 
     // 2. Resources inside the markup
-    const withResources = await inlineMarkupResources(document, chapterDir, archive);
+    const withResources = await inlineMarkupResources(document, chapterDir, archive, {
+      lazyImages: options.lazyImages,
+    });
 
     // 3. SVG covers + bare <image> elements
     const withImages = convertBareImageElements(normalizeSvgCovers(withResources));

@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ReaderSettings, ReaderThemeName, clampReaderBrightness } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { READER_FONTS, getNativeFontFamily } from '@/theme/Typography';
+import { useThemeContext } from '@/theme/ThemeContext';
 
 interface SettingsSheetProps {
   visible: boolean;
@@ -47,6 +48,7 @@ export function SettingsSheet({
   const panelWidth = Math.min(360, Math.floor(screenWidth * 0.88));
 
   const [showAllFontsModal, setShowAllFontsModal] = useState(false);
+  const { colors } = useThemeContext();
   const [fontCategoryFilter, setFontCategoryFilter] = useState<'all' | 'serif' | 'sans' | 'slab' | 'special'>('all');
 
   // Dynamic theme matching reader's active theme
@@ -57,8 +59,8 @@ export function SettingsSheet({
   const textColor = activeTheme.text;
   const mutedColor = activeTheme.muted;
   const borderColor = isThemeDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
-  const activeAccent = activeTheme.link || (isThemeDark ? '#C9B8FF' : '#4C4666');
-  const activeAccentFg = isThemeDark ? '#000000' : '#FFFFFF';
+  const activeAccent = activeTheme.link || colors.accent;
+  const activeAccentFg = colors.accentForeground;
 
   const [anim] = useState(() => new Animated.Value(0));
 
@@ -241,6 +243,40 @@ export function SettingsSheet({
                 })}
               </View>
             </View>
+
+            {/* Scroll Engine (v1 Standard vs v2 Experimental) */}
+            {settings.flow === 'scrolled' && (
+              <View style={[styles.controlRow, { marginTop: 12 }]}>
+                <Text style={[styles.controlLabel, { color: textColor }]}>Scroll Engine</Text>
+                <View style={[styles.segmentedControl, { backgroundColor: surfaceBg, borderColor: borderColor, borderWidth: 1 }]}>
+                  {(['v1', 'v2'] as const).map((engine) => {
+                    const isSelected = (settings.scrollEngine ?? 'v1') === engine;
+                    return (
+                      <TouchableOpacity
+                        key={engine}
+                        style={[
+                          styles.segmentBtn,
+                          isSelected && { backgroundColor: activeAccent },
+                        ]}
+                        onPress={() => onUpdateSettings({ scrollEngine: engine })}
+                      >
+                        <Text
+                          style={[
+                            styles.segmentText,
+                            {
+                              color: isSelected ? activeAccentFg : mutedColor,
+                              fontWeight: isSelected ? '700' : '500',
+                            },
+                          ]}
+                        >
+                          {engine === 'v1' ? 'v1 (Classic)' : 'v2 (Experimental)'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
 
             {/* Columns — 'auto' follows the measured window, 1 and 2 force it */}
             <View style={[styles.controlRow, { marginTop: 12 }]}>

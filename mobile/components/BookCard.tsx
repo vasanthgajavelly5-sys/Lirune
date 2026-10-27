@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Book, ViewMode } from '@/models/Book';
 import { useThemeContext } from '@/theme/ThemeContext';
+import { getListCoverUri } from '@/services/storage/ThumbnailService';
 
 export interface BookCardProps {
   book: Book;
@@ -28,7 +29,7 @@ export interface BookCardProps {
   onDelete?: () => void;
 }
 
-export function BookCard({
+function BookCardComponent({
   book,
   viewMode,
   columnsCount = 2,
@@ -64,11 +65,7 @@ export function BookCard({
     setImageError(false);
   }, [book.coverUrl, book.id]);
 
-  const coverUri = book.coverUrl
-    ? book.coverUrl.startsWith('file://') || book.coverUrl.startsWith('http') || book.coverUrl.startsWith('data:')
-      ? book.coverUrl
-      : `file://${book.coverUrl}`
-    : undefined;
+  const coverUri = getListCoverUri(book);
 
   // ================= GRID MODE =================
   if (viewMode === 'grid') {
@@ -78,7 +75,7 @@ export function BookCard({
           styles.gridCard,
           {
             width: gridCardWidth,
-            backgroundColor: isDark ? '#202026' : '#FFFFFF',
+            backgroundColor: colors.card,
             borderColor: colors.borderSubtle,
           },
         ]}
@@ -91,7 +88,7 @@ export function BookCard({
         <View
           style={[
             styles.gridCoverWrapper,
-            { backgroundColor: book.coverColor || '#2C2D35' },
+            { backgroundColor: book.coverColor || colors.surfaceElevated },
           ]}
         >
           {coverUri && !imageError ? (
@@ -132,7 +129,7 @@ export function BookCard({
               <Ionicons
                 name={book.isFavorite ? 'heart' : 'heart-outline'}
                 size={16}
-                color={book.isFavorite ? '#FF6584' : '#FFFFFF'}
+                color={book.isFavorite ? colors.favorite : '#FFFFFF'}
               />
             </View>
           </TouchableOpacity>
@@ -188,7 +185,7 @@ export function BookCard({
         style={[
           styles.compactCard,
           {
-            backgroundColor: isDark ? '#202026' : '#FFFFFF',
+            backgroundColor: colors.card,
             borderColor: colors.borderSubtle,
           },
         ]}
@@ -200,7 +197,7 @@ export function BookCard({
         <View
           style={[
             styles.compactCoverMini,
-            { backgroundColor: book.coverColor || '#2C2D35' },
+            { backgroundColor: book.coverColor || colors.surfaceElevated },
           ]}
         >
           {coverUri && !imageError ? (
@@ -245,7 +242,7 @@ export function BookCard({
             <Ionicons
               name={book.isFavorite ? 'heart' : 'heart-outline'}
               size={17}
-              color={book.isFavorite ? '#FF6584' : colors.textMuted}
+              color={book.isFavorite ? colors.favorite : colors.textMuted}
             />
           </TouchableOpacity>
         </View>
@@ -259,7 +256,7 @@ export function BookCard({
       style={[
         styles.listCard,
         {
-          backgroundColor: isDark ? '#202026' : '#FFFFFF',
+          backgroundColor: colors.card,
           borderColor: colors.borderSubtle,
         },
       ]}
@@ -272,7 +269,7 @@ export function BookCard({
       <View
         style={[
           styles.listCoverWrapper,
-          { backgroundColor: book.coverColor || '#2C2D35' },
+          { backgroundColor: book.coverColor || colors.surfaceElevated },
         ]}
       >
         {coverUri && !imageError ? (
@@ -331,7 +328,7 @@ export function BookCard({
             <Ionicons
               name={book.isFavorite ? 'heart' : 'heart-outline'}
               size={18}
-              color={book.isFavorite ? '#FF6584' : colors.textMuted}
+              color={book.isFavorite ? colors.favorite : colors.textMuted}
             />
           </TouchableOpacity>
         </View>
@@ -374,7 +371,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   fallbackTitle: {
-    color: '#F0F0EB',
+    color: 'rgba(255, 255, 255, 0.95)',
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'center',
@@ -382,7 +379,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   fallbackAuthor: {
-    color: '#C0C0BA',
+    color: 'rgba(255, 255, 255, 0.75)',
     fontSize: 11,
     textAlign: 'center',
   },
@@ -398,7 +395,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   badgeText: {
-    color: '#EEECF8',
+    color: 'rgba(255, 255, 255, 0.92)',
     fontSize: 9.5,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -578,3 +575,26 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 });
+
+function areBookCardPropsEqual(prev: BookCardProps, next: BookCardProps): boolean {
+  if (prev.viewMode !== next.viewMode) return false;
+  if (prev.columnsCount !== next.columnsCount) return false;
+  if (prev.availableWidth !== next.availableWidth) return false;
+
+  const pb = prev.book;
+  const nb = next.book;
+  if (pb.id !== nb.id) return false;
+  if (pb.title !== nb.title) return false;
+  if (pb.author !== nb.author) return false;
+  if (pb.coverUrl !== nb.coverUrl) return false;
+  if (pb.thumbnailUrl !== nb.thumbnailUrl) return false;
+  if (pb.coverColor !== nb.coverColor) return false;
+  if (pb.progress !== nb.progress) return false;
+  if (pb.isFavorite !== nb.isFavorite) return false;
+  if (pb.format !== nb.format) return false;
+  if (pb.currentChapter !== nb.currentChapter) return false;
+
+  return true;
+}
+
+export const BookCard = React.memo(BookCardComponent, areBookCardPropsEqual);

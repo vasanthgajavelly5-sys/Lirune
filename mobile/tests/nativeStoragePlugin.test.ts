@@ -11,6 +11,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import * as os from 'node:os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const {
@@ -22,10 +26,6 @@ const {
   writeReleaseManifestOverlay,
   RELEASE_MANIFEST_CONTENT,
 } = require('../plugins/withLiruneStorage.js');
-import * as os from 'node:os';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

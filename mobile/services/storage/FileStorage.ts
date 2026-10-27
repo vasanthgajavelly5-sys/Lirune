@@ -134,7 +134,8 @@ export class FileStorageService {
     }
 
     // Try high-performance native stream copy first for Android content/file URIs
-    const nativeBytes = await nativeStorage.copyContentUriToStorage(normalizedSource, stagingPath);
+    const rawStagingPath = stagingPath.startsWith('file://') ? stagingPath.replace('file://', '') : stagingPath;
+    const nativeBytes = await nativeStorage.copyContentUriToStorage(normalizedSource, rawStagingPath);
     if (nativeBytes !== null && nativeBytes > 0) {
       logger.info(TAG, `Native stream copied ${nativeBytes} bytes to ${stagingPath}`);
     } else {

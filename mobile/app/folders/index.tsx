@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useThemeContext } from '@/theme/ThemeContext';
 import {
   nativeStorage,
@@ -44,6 +45,23 @@ import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
 import { logger } from '@/utils/logger';
 
 const TAG = 'FoldersScreen';
+
+function getDirectoryLabel(uri: string): string {
+  try {
+    const decoded = decodeURIComponent(uri);
+    const idPart = decoded.includes('/tree/')
+      ? decoded.split('/tree/')[1]?.split('/')[0]
+      : decoded;
+    if (idPart) {
+      const cleanPath = idPart.split(':').pop() || '';
+      const segments = cleanPath.split('/').filter(Boolean);
+      if (segments.length > 0) {
+        return segments[segments.length - 1];
+      }
+    }
+  } catch {}
+  return 'Selected Folder';
+}
 
 interface SafSourceRow {
   id: number;
@@ -259,6 +277,16 @@ export default function FoldersScreen() {
           visible: true,
           title: 'Permission Lost',
           message: 'Android system settings have revoked access to this location. Please re-authorize it to browse.',
+        });
+        return;
+      }
+
+      // Guard against invalid entries where a single file URI was mistakenly saved
+      if (source.tree_uri.includes('/document/') && !source.tree_uri.includes('/tree/')) {
+        setInfoDialog({
+          visible: true,
+          title: 'Invalid Folder Location',
+          message: 'This location is a single file rather than a folder. Please remove it using the trash icon and use "Add Folder Location" to select a folder.',
         });
         return;
       }
@@ -494,23 +522,36 @@ export default function FoldersScreen() {
   // Add location via SAF tree picker
   const handleAddLocation = async () => {
     try {
-      // In mobile Expo environment, DocumentPicker or custom SAF intent handles tree picking
-      const result = await DocumentPicker.getDocumentAsync({
-        type: SUPPORTED_DOCUMENT_MIMES,
-        copyToCacheDirectory: false,
-      });
+      const { StorageAccessFramework } = FileSystem;
+      if (!StorageAccessFramework?.requestDirectoryPermissionsAsync) {
+        setInfoDialog({
+          visible: true,
+          title: 'Unsupported',
+          message: 'Folder access is not supported on this platform.',
+        });
+        return;
+      }
 
-      if (result.canceled || !result.assets || result.assets.length === 0) return;
+      let permissions;
+      try {
+        permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+      } catch (pickerErr: any) {
+        logger.warn(TAG, 'Directory picker error', pickerErr);
+        return;
+      }
 
-      const asset = result.assets[0];
-      const uri = asset.uri;
+      if (!permissions || !permissions.granted || !permissions.directoryUri) {
+        return;
+      }
+
+      const uri = permissions.directoryUri;
 
       // Persist SAF grant if content URI
       if (uri.startsWith('content://')) {
         await nativeStorage.takePersistableGrant(uri);
       }
 
-      const label = asset.name || 'Selected Storage';
+      const label = getDirectoryLabel(uri);
 
       const db = await getDatabase();
       if (db) {
@@ -531,11 +572,28 @@ export default function FoldersScreen() {
         setInfoDialog({
           visible: true,
           title: 'Restricted Folder',
-          message: 'Android does not allow selecting the root of storage or Downloads directly. Pick a subfolder like Documents or Books.',
+          message: 'Android does not allow selecting the root of storage directly. Pick a subfolder like Documents, Books, or Download.',
         });
       } else {
         logger.error(TAG, 'Error adding location', err);
       }
+    }
+  };
+
+  // Remove an authorized location source
+  const handleRemoveLocation = async (source: SafSourceRow) => {
+    try {
+      if (source.tree_uri.startsWith('content://')) {
+        await nativeStorage.releasePersistableGrant(source.tree_uri);
+      }
+      const db = await getDatabase();
+      if (db) {
+        await db.runAsync('DELETE FROM sources WHERE id = ?', [source.id]);
+      }
+      setToastMessage(`Removed location: ${source.label}`);
+      loadLocations();
+    } catch (err) {
+      logger.error(TAG, 'Failed to remove location', err);
     }
   };
 
@@ -566,11 +624,34 @@ export default function FoldersScreen() {
   // Re-authorize a revoked source
   const handleReauthorizeSource = async (source: SafSourceRow) => {
     try {
-      await nativeStorage.takePersistableGrant(source.tree_uri);
-      const db = await getDatabase();
-      if (db) {
-        await db.runAsync('UPDATE sources SET grant_valid = 1 WHERE id = ?', [source.id]);
+      const { StorageAccessFramework } = FileSystem;
+      let reauthorized = false;
+      if (StorageAccessFramework?.requestDirectoryPermissionsAsync) {
+        try {
+          const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync(source.tree_uri);
+          if (permissions.granted && permissions.directoryUri) {
+            reauthorized = true;
+            if (permissions.directoryUri.startsWith('content://')) {
+              await nativeStorage.takePersistableGrant(permissions.directoryUri);
+            }
+            const db = await getDatabase();
+            if (db) {
+              await db.runAsync('UPDATE sources SET tree_uri = ?, grant_valid = 1 WHERE id = ?', [permissions.directoryUri, source.id]);
+            }
+          }
+        } catch {
+          // Fall through to native reauth attempt
+        }
       }
+
+      if (!reauthorized) {
+        await nativeStorage.takePersistableGrant(source.tree_uri);
+        const db = await getDatabase();
+        if (db) {
+          await db.runAsync('UPDATE sources SET grant_valid = 1 WHERE id = ?', [source.id]);
+        }
+      }
+
       setToastMessage('Location re-authorized successfully');
       loadLocations();
     } catch {
@@ -1345,6 +1426,16 @@ export default function FoldersScreen() {
                   {item.tree_uri}
                 </Text>
               </View>
+
+              <TouchableOpacity
+                style={{ padding: 8, marginRight: 6 }}
+                onPress={() => handleRemoveLocation(item)}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove location ${item.label}`}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
 
               {item.grant_valid === 0 ? (
                 <TouchableOpacity

@@ -28,6 +28,10 @@ function resolveZipPath(baseDir, href) {
 }
 
 async function simulateLoad(file) {
+  if (!fs.existsSync(file)) {
+    console.log('Skipping missing fixture:', file);
+    return;
+  }
   console.log('=== Simulating EpubReaderView on:', file);
   const data = fs.readFileSync(file);
   const zip = await JSZip.loadAsync(data);

@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title Lirune Reader — A calm home for your books
+title Lirune Reader - A calm home for your books
 cd /d "%~dp0"
 
 echo ========================================================

@@ -237,14 +237,27 @@
 
 ### Phase C: Prepare Next Sub-Version Release (4.9.2)
 - [x] C1. Version bump (app.json, package.json, constants, About, README, CHANGELOG)
-- [ ] C2. Open PR from feat/smooth-overhaul into android (no force push, check CI/CodeQL/Gitleaks)
-- [ ] C3. Build signed release APK using gradle.properties signing setup
-- [ ] C4. Verify APK (apksigner fingerprint, aapt2 badging, SHA256SUMS.txt)
-- [ ] C5. Upgrade smoke test with signed APK
+- [x] C2. Open PR from feat/smooth-overhaul into android (no force push, check CI/CodeQL/Gitleaks)
+- [x] C3. Build signed release APK using gradle.properties signing setup
+- [x] C4. Verify APK (apksigner fingerprint, aapt2 badging, SHA256SUMS.txt)
+- [x] C5. Upgrade smoke test with signed APK
+
+#### Phase C Summary
+- **PR Created**: [#3](https://github.com/vasanthgajavelly5-sys/Lirune/pull/3) (`feat/smooth-overhaul` into `android`).
+- **CI / Checks**: Gitleaks Secret Scan PASS, Dependency Review PASS, CodeQL (JS/TS) PASS, Mobile Validation (Node 22 / Ubuntu) PASS.
+- **Signed APK**: Built `Lirune-Reader-v4.9.2-release.apk` with `assembleRelease` using release keystore (`ef68ec8a...`).
+- **Permissions Verified**: `aapt2 dump permissions` confirmed `android.permission.INTERNET` is completely absent.
+- **Checksums**: SHA-256 generated in `SHA256SUMS.txt` (`766f92722553e57cabcd819cc8f334f35f86b43a0da6be7698bc4d9d412428d8`).
+- **Upgrade Test**: Installed signed APK over `v4.9.0` release on `tab_modern`. In-place upgrade succeeded with zero data loss.
 
 ### Phase D: Draft GitHub Release & Final Report
-- [ ] D1. Create draft GitHub release via gh release create --draft
-- [ ] D2. Generate final report mobile/internal/release-4.9.2-report.md
+- [x] D1. Create draft GitHub release via gh release create --draft
+- [x] D2. Generate final report mobile/internal/release-4.9.2-report.md
+
+#### Phase D Summary
+- **Draft Release**: Created draft release `v4.9.2` targeting exact commit `e58642e49af7d8538d5dcdc135b710cea0e9801e` with assets `Lirune-Reader-v4.9.2-release.apk` and `SHA256SUMS.txt`.
+- **Release Report**: Comprehensive report written to `mobile/internal/release-4.9.2-report.md`.
+- **Recommendation**: GO FOR RELEASE.
 
 ---
 

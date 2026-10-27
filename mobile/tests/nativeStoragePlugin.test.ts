@@ -25,6 +25,9 @@ const {
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const APPLY_SHAPE = `package com.lirune.reader
 
@@ -186,7 +189,7 @@ test('cleanAndConfigureIntentFilters removes catch-alls and configures explicit 
   assert.ok(filters.some((f: any) => f.action?.[0]?.$?.['android:name'] === 'android.intent.action.SEND_MULTIPLE'));
 });
 
-test('writeReleaseManifestOverlay generates src/release/AndroidManifest.xml with tools:node="remove" for INTERNET', () => {
+test('writeReleaseManifestOverlay generates src/release/AndroidManifest.xml with tools:node="remove" for INTERNET, SYSTEM_ALERT_WINDOW, and WRITE_EXTERNAL_STORAGE', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-manifest-test-'));
   try {
     const writtenPath = writeReleaseManifestOverlay(tmpDir);
@@ -194,14 +197,18 @@ test('writeReleaseManifestOverlay generates src/release/AndroidManifest.xml with
     const content = fs.readFileSync(writtenPath, 'utf8');
     assert.match(content, /xmlns:tools="http:\/\/schemas\.android\.com\/tools"/);
     assert.match(content, /<uses-permission\s+android:name="android\.permission\.INTERNET"\s+tools:node="remove"\s*\/>/);
+    assert.match(content, /<uses-permission\s+android:name="android\.permission\.SYSTEM_ALERT_WINDOW"\s+tools:node="remove"\s*\/>/);
+    assert.match(content, /<uses-permission\s+android:name="android\.permission\.WRITE_EXTERNAL_STORAGE"\s+tools:node="remove"\s*\/>/);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
 
-test('RELEASE_MANIFEST_CONTENT strictly removes INTERNET while cleanManifestPermissions preserves VIBRATE and storage permissions', () => {
-  // 1. Assert release overlay targets INTERNET with tools:node="remove"
+test('RELEASE_MANIFEST_CONTENT strictly removes INTERNET, SYSTEM_ALERT_WINDOW, and WRITE_EXTERNAL_STORAGE while cleanManifestPermissions preserves VIBRATE and storage permissions', () => {
+  // 1. Assert release overlay targets INTERNET, SYSTEM_ALERT_WINDOW, and WRITE_EXTERNAL_STORAGE with tools:node="remove"
   assert.match(RELEASE_MANIFEST_CONTENT, /<uses-permission\s+android:name="android\.permission\.INTERNET"\s+tools:node="remove"\s*\/>/);
+  assert.match(RELEASE_MANIFEST_CONTENT, /<uses-permission\s+android:name="android\.permission\.SYSTEM_ALERT_WINDOW"\s+tools:node="remove"\s*\/>/);
+  assert.match(RELEASE_MANIFEST_CONTENT, /<uses-permission\s+android:name="android\.permission\.WRITE_EXTERNAL_STORAGE"\s+tools:node="remove"\s*\/>/);
 
   // 2. Assert cleanManifestPermissions preserves VIBRATE and READ_EXTERNAL_STORAGE in main manifest
   const manifest = {
@@ -216,4 +223,44 @@ test('RELEASE_MANIFEST_CONTENT strictly removes INTERNET while cleanManifestPerm
   assert.ok(names.includes('android.permission.VIBRATE'), 'VIBRATE must be preserved');
   assert.ok(names.includes('android.permission.READ_EXTERNAL_STORAGE'), 'READ_EXTERNAL_STORAGE must be preserved');
   assert.ok(names.includes('android.permission.INTERNET'), 'INTERNET kept in main manifest for Metro dev');
+});
+
+test('release manifest fails validation if SYSTEM_ALERT_WINDOW or INTERNET appear as active permissions', () => {
+  function validateReleaseManifest(manifestXml: string): void {
+    const permissionRegex = /<uses-permission\s+([^>]+?)\/?>/g;
+    let match: RegExpExecArray | null;
+    while ((match = permissionRegex.exec(manifestXml)) !== null) {
+      const attributes = match[1];
+      const nameMatch = /android:name="([^"]+)"/.exec(attributes);
+      const isRemoved = /tools:node="remove"/.test(attributes);
+      if (nameMatch) {
+        const name = nameMatch[1];
+        if (!isRemoved && (name === 'android.permission.SYSTEM_ALERT_WINDOW' || name === 'android.permission.INTERNET')) {
+          throw new Error(`Disallowed permission ${name} found in release manifest without tools:node="remove"`);
+        }
+      }
+    }
+  }
+
+  // 1. Current RELEASE_MANIFEST_CONTENT passes validation (both are stripped with tools:node="remove")
+  assert.doesNotThrow(() => validateReleaseManifest(RELEASE_MANIFEST_CONTENT));
+
+  // 2. The actual file on disk (mobile/android/app/src/release/AndroidManifest.xml) if present passes
+  const diskReleaseManifest = path.join(__dirname, '..', 'android', 'app', 'src', 'release', 'AndroidManifest.xml');
+  if (fs.existsSync(diskReleaseManifest)) {
+    const diskContent = fs.readFileSync(diskReleaseManifest, 'utf8');
+    assert.doesNotThrow(() => validateReleaseManifest(diskContent));
+  }
+
+  // 3. Fails if SYSTEM_ALERT_WINDOW is declared without tools:node="remove"
+  assert.throws(
+    () => validateReleaseManifest('<manifest><uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" /></manifest>'),
+    /Disallowed permission android\.permission\.SYSTEM_ALERT_WINDOW/
+  );
+
+  // 4. Fails if INTERNET is declared without tools:node="remove"
+  assert.throws(
+    () => validateReleaseManifest('<manifest><uses-permission android:name="android.permission.INTERNET" /></manifest>'),
+    /Disallowed permission android\.permission\.INTERNET/
+  );
 });

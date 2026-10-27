@@ -105,7 +105,7 @@ Commit SHA: `69184e27f0970b9ce827dfd31b268fdfb55ec1d2`.
 - **Draft Release**: [v4.9.3 Draft Release](https://github.com/vasanthgajavelly5-sys/Lirune/releases/tag/untagged-ae34fc3590e9d931ba8f)
 - **APK Checksum**:
   ```text
-  191c6f788e6ef531d4da540a01a7034c58669cfaf2ad54eba48452df29670a6a  Lirune-Reader-v4.9.3-release.apk
+  6d0699a54496884fa19caedf92f705188babe1efe50a1fd8772e3eef0097fc67  Lirune-Reader-v4.9.3-release.apk
   ```
 - **Signing Certificate**:
   ```text
@@ -116,10 +116,8 @@ Commit SHA: `69184e27f0970b9ce827dfd31b268fdfb55ec1d2`.
   ```text
   package: com.lirune.reader
   uses-permission: name='android.permission.READ_EXTERNAL_STORAGE' maxSdkVersion='32'
-  uses-permission: name='android.permission.SYSTEM_ALERT_WINDOW'
   uses-permission: name='android.permission.VIBRATE'
-  uses-permission: name='android.permission.WRITE_EXTERNAL_STORAGE' maxSdkVersion='32'
   permission: com.lirune.reader.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
   uses-permission: name='com.lirune.reader.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'
   ```
-  *(Zero INTERNET permission confirmed).*
+  *(Zero INTERNET, zero SYSTEM_ALERT_WINDOW, and zero WRITE_EXTERNAL_STORAGE confirmed).*

@@ -184,8 +184,41 @@
 
 ---
 
+## Release 4.9.x: Gap Closure, Internet Permission Removal & Sub-version Release
+
+### Phase A: Close QC Gaps
+- [ ] A1. Cold open waterfall (small & large EPUB on tab_lowend, find ~5s gap, fix biggest offender, 5 cold runs before/after)
+- [ ] A2. Complete live QC (S1 to S14 on engine v1 & v2, on tab_lowend & tab_modern, matrix table)
+- [ ] A3. Memory analysis (dumpsys meminfo ~580MB breakdown, soak plateau, safe reduction)
+- [ ] A4. Upgrade path test (real data, schema v3 & thumbnail migrations, legacy position restore)
+- [ ] A5. Fix overhaul report (reconcile numbers, correct ResourceServer socket claim, test realities)
+- [ ] A6. Review Phase 0 Kotlin compile fixes (FormatRegistry.kt, Ingestor.kt)
+
+### Phase B: Remove INTERNET Permission from Release
+- [ ] B1. Audit codebase for network usage (grep JS/TS/Kotlin)
+- [ ] B2. Inspect merged release manifest
+- [ ] B3. Implement release-only INTERNET removal config plugin (tools:node="remove" for release)
+- [ ] B4. Update nativeStoragePlugin.test.ts & add anti-regression release test
+- [ ] B5. Build release variant & verify aapt2 dump permissions (no INTERNET)
+- [ ] B6. Live install release build on tab_lowend and tab_modern, offline/online test
+- [ ] B7. Update README, SECURITY.md, PRIVACY documentation
+
+### Phase C: Prepare Next Sub-Version Release (4.9.2)
+- [ ] C1. Version bump (app.json, package.json, constants, About, README, CHANGELOG)
+- [ ] C2. Open PR from feat/smooth-overhaul into android (no force push, check CI/CodeQL/Gitleaks)
+- [ ] C3. Build signed release APK using gradle.properties signing setup
+- [ ] C4. Verify APK (apksigner fingerprint, aapt2 badging, SHA256SUMS.txt)
+- [ ] C5. Upgrade smoke test with signed APK
+
+### Phase D: Draft GitHub Release & Final Report
+- [ ] D1. Create draft GitHub release via gh release create --draft
+- [ ] D2. Generate final report mobile/internal/release-4.9.2-report.md
+
+---
+
 ## Notes / Decisions / Numbers
 
 - Branch created: `feat/smooth-overhaul` from `android`.
 - Target: Samsung Galaxy Tab A class (low RAM, slow CPU, system WebView, Hermes).
 - Product invariants: local-first, zero telemetry/network calls, no accounts, GPL-3.0-only compatible.
+

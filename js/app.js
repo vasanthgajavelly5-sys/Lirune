@@ -24,6 +24,9 @@ const App = (() => {
     hideLibraryLoading();
 
     SettingsUI.init();
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
+      Utils.enhanceAllSelects();
+    }
 
     homeZoomControl = ZoomControl.create('home-zoom-control', {
       min: 75,

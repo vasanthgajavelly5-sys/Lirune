@@ -133,6 +133,9 @@ const SettingsUI = (() => {
     buildSectionNav();
     buildStaticControls();
     bindEvents();
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
+      Utils.enhanceAllSelects(document.getElementById('settings-panel'));
+    }
   }
 
   /**
@@ -165,6 +168,9 @@ const SettingsUI = (() => {
     if (!host) return;
     host.innerHTML = currentContext === 'reader' ? readerQuickMarkup() : libraryQuickMarkup();
     host.dataset.context = currentContext;
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
+      Utils.enhanceAllSelects(host);
+    }
   }
 
   function libraryQuickMarkup() {
@@ -450,6 +456,9 @@ const SettingsUI = (() => {
         { value: 'contain', label: 'Fit book' }
       ], prefs.coverFit)}
     `;
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
+      Utils.enhanceAllSelects(host);
+    }
   }
 
   function buildAccessibilityControls() {
@@ -920,7 +929,10 @@ const SettingsUI = (() => {
 
   function setSelect(id, value) {
     const select = document.getElementById(`${id}-select`);
-    if (select && select.value !== value) select.value = value;
+    if (select && select.value !== value) {
+      select.value = value;
+      select._customDropdownSync?.();
+    }
   }
 
   function setSwitch(id, checked) {

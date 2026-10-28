@@ -25,6 +25,9 @@ export interface BottomTabItem {
   activeIcon: keyof typeof Ionicons.glyphMap;
 }
 
+// Phone bottom bar: 4 core tabs only — Files & Annotations are
+// accessible via the slide-out drawer hamburger menu on phones,
+// and via the persistent side rail on tablets.
 export const BOTTOM_TAB_ITEMS: BottomTabItem[] = [
   {
     id: 'library',
@@ -46,20 +49,6 @@ export const BOTTOM_TAB_ITEMS: BottomTabItem[] = [
     route: '/collections',
     icon: 'albums-outline',
     activeIcon: 'albums',
-  },
-  {
-    id: 'files',
-    label: 'Files',
-    route: '/search',
-    icon: 'folder-open-outline',
-    activeIcon: 'folder-open',
-  },
-  {
-    id: 'annotations',
-    label: 'Annotations',
-    route: '/annotations',
-    icon: 'create-outline',
-    activeIcon: 'create',
   },
   {
     id: 'settings',

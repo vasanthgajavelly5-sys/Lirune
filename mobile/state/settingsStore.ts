@@ -38,6 +38,11 @@ interface SettingsState {
    */
   scanAccessDismissed: boolean;
   hasCompletedWelcome: boolean;
+  /**
+   * True once the storage-permission prompt (shown after intro) has been seen.
+   * Prevents showing it again on every cold launch.
+   */
+  hasSeenPermissionPrompt: boolean;
   isLoaded: boolean;
 
   // Actions
@@ -52,6 +57,7 @@ interface SettingsState {
   removeAuthorizedFolderUri: (uri: string) => Promise<void>;
   setScanAccessDismissed: (dismissed: boolean) => Promise<void>;
   setHasCompletedWelcome: (completed: boolean) => Promise<void>;
+  setHasSeenPermissionPrompt: (seen: boolean) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -63,6 +69,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   authorizedFolderUris: [],
   scanAccessDismissed: false,
   hasCompletedWelcome: false,
+  hasSeenPermissionPrompt: false,
   isLoaded: false,
 
   loadSettings: async () => {
@@ -77,6 +84,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         savedFolderUris,
         savedScanAccessDismissed,
         savedWelcome,
+        savedSeenPerm,
       ] = await Promise.all([
         repo.getPreference?.('appTheme', 'system'),
         repo.getPreference?.('accentColor', '#EEECF8'),
@@ -86,6 +94,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         repo.getPreference?.('authorizedFolderUris', [] as string[]),
         repo.getPreference?.('scanAccessDismissed', false),
         repo.getPreference?.('hasCompletedWelcome', false),
+        repo.getPreference?.('hasSeenPermissionPrompt', false),
       ]);
 
       const folderUris: string[] = Array.isArray(savedFolderUris) ? savedFolderUris.filter(Boolean) : [];
@@ -102,6 +111,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         authorizedFolderUris: folderUris,
         scanAccessDismissed: !!savedScanAccessDismissed,
         hasCompletedWelcome: !!savedWelcome,
+        hasSeenPermissionPrompt: !!savedSeenPerm,
         isLoaded: true,
       });
       await ttsService.hydrateVoiceSelection();
@@ -224,6 +234,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await repo.setPreference?.('hasCompletedWelcome', hasCompletedWelcome);
     } catch (err) {
       logger.warn(TAG, 'Failed to persist hasCompletedWelcome', err);
+    }
+  },
+
+  setHasSeenPermissionPrompt: async (hasSeenPermissionPrompt: boolean) => {
+    set({ hasSeenPermissionPrompt });
+    const repo = getBookRepository() as any;
+    try {
+      await repo.setPreference?.('hasSeenPermissionPrompt', hasSeenPermissionPrompt);
+    } catch (err) {
+      logger.warn(TAG, 'Failed to persist hasSeenPermissionPrompt', err);
     }
   },
 }));

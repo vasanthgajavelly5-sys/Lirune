@@ -58,6 +58,8 @@ export function BookDetailSheet({
     });
   };
 
+  const isDirectPath = !!(item.uri && (item.uri.startsWith('/') || item.uri.startsWith('file://')));
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
@@ -101,6 +103,11 @@ export function BookDetailSheet({
                 <Ionicons name="lock-closed" size={14} color={colors.error} />
                 <Text style={[styles.statusChipText, { color: colors.error }]}>DRM Protected</Text>
               </View>
+            ) : isDirectPath ? (
+              <View style={[styles.statusChip, { backgroundColor: colors.accent + '18' }]}>
+                <Ionicons name="flash" size={14} color={colors.accent} />
+                <Text style={[styles.statusChipText, { color: colors.accent }]}>Opens in-place · no copy</Text>
+              </View>
             ) : (
               <View style={[styles.statusChip, { backgroundColor: colors.borderSubtle }]}>
                 <Ionicons name="sparkles" size={14} color={colors.textSecondary} />
@@ -109,7 +116,7 @@ export function BookDetailSheet({
             )}
           </View>
 
-          {/* Actions */}
+          {/* Actions — single Open button, no Import/Open duality */}
           <View style={styles.actionsRow}>
             {isContainer && onBrowseArchive ? (
               <TouchableOpacity
@@ -126,32 +133,36 @@ export function BookDetailSheet({
               </TouchableOpacity>
             ) : (
               <>
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.secondaryBtn, { borderColor: colors.borderSubtle }]}
-                  onPress={() => {
-                    onClose();
-                    onImport();
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Import book"
-                >
-                  <Ionicons name="download-outline" size={18} color={colors.text} />
-                  <Text style={[styles.btnText, { color: colors.text }]}>
-                    {isInLibrary ? 'Re-Import' : 'Import'}
-                  </Text>
-                </TouchableOpacity>
+                {/* Secondary: Add to Library — only for SAF/archive files not yet in library */}
+                {!isInLibrary && !isDirectPath && (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.secondaryBtn, { borderColor: colors.borderSubtle }]}
+                    onPress={() => {
+                      onClose();
+                      onImport();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add to library"
+                  >
+                    <Ionicons name="add-circle-outline" size={18} color={colors.text} />
+                    <Text style={[styles.btnText, { color: colors.text }]}>Add to Library</Text>
+                  </TouchableOpacity>
+                )}
 
+                {/* Primary: single Open action */}
                 <TouchableOpacity
-                  style={[styles.actionBtn, styles.primaryBtn, { backgroundColor: colors.accent }]}
+                  style={[styles.actionBtn, styles.primaryBtn, { backgroundColor: colors.accent, flex: 1 }]}
                   onPress={() => {
                     onClose();
                     onOpen();
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel="Open book"
+                  accessibilityLabel={isInLibrary ? 'Open in reader' : 'Open book'}
                 >
                   <Ionicons name="book-outline" size={18} color={colors.accentForeground} />
-                  <Text style={[styles.btnText, { color: colors.accentForeground }]}>Open</Text>
+                  <Text style={[styles.btnText, { color: colors.accentForeground }]}>
+                    {isInLibrary ? 'Open in Reader' : 'Open'}
+                  </Text>
                 </TouchableOpacity>
               </>
             )}

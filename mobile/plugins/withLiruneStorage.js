@@ -234,7 +234,9 @@ function cleanAndConfigureIntentFilters(manifest) {
 }
 
 function withStorageManifest(config, options = {}) {
-  const isAllFiles = Boolean(options.allFiles || process.env.LIRUNE_ALLFILES === '1');
+  // Always enable MANAGE_EXTERNAL_STORAGE — required for ReadEra-style direct
+  // filesystem access so users never see "Use this folder" SAF restrictions.
+  const isAllFiles = true;
   return withAndroidManifest(config, (cfg) => {
     if (cfg.modResults && cfg.modResults.manifest) {
       cfg.modResults.manifest = cleanManifestPermissions(cfg.modResults.manifest, isAllFiles);

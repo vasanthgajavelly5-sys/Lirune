@@ -73,7 +73,7 @@ export const useImportQueueStore = create<ImportQueueState>((set, get) => ({
         uri: entry.uri,
         name: entry.name,
         format: entry.format,
-        mode: entry.mode ?? 'managed',
+        mode: entry.mode ?? ((entry.uri.startsWith('/') || entry.uri.startsWith('file://')) ? 'linked' : 'managed'),
         state: 'queued',
         progress: 0,
         archiveHandleId: entry.archiveHandleId,

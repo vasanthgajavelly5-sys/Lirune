@@ -35,6 +35,7 @@ import { AddToCollectionModal } from '@/components/AddToCollectionModal';
 import { LiruneDialog } from '@/components/LiruneDialog';
 import { LiruneToast } from '@/components/LiruneToast';
 import { WelcomeGuideModal } from '@/components/WelcomeGuideModal';
+import { StoragePermissionModal } from '@/components/StoragePermissionModal';
 import {
   EmptyLibraryState,
   EmptyFavoritesState,
@@ -75,6 +76,8 @@ export default function LibraryScreen() {
   const {
     hasCompletedWelcome,
     setHasCompletedWelcome,
+    hasSeenPermissionPrompt,
+    setHasSeenPermissionPrompt,
     isLoaded: isSettingsLoaded,
   } = useSettingsStore();
 
@@ -85,6 +88,7 @@ export default function LibraryScreen() {
   const [isCollectionModalVisible, setIsCollectionModalVisible] = useState(false);
   const [bookToDelete, setBookToDelete] = useState<Book | null>(null);
   const [isWelcomeGuideVisible, setIsWelcomeGuideVisible] = useState(false);
+  const [isPermissionModalVisible, setIsPermissionModalVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,16 +99,20 @@ export default function LibraryScreen() {
 
   // Show first-launch welcome guide ONLY if stores have finished loading from SQLite,
   // user has never completed it, and there are no books yet.
+  // After the guide completes (or is skipped), the StoragePermissionModal fires.
+  // For returning users who skipped permission previously: also show permission prompt
+  // on first load (only once, gated by hasSeenPermissionPrompt).
   useEffect(() => {
-    if (
-      isSettingsLoaded &&
-      isLibraryLoaded &&
-      !hasCompletedWelcome &&
-      books.length === 0
-    ) {
+    if (!isSettingsLoaded || !isLibraryLoaded) return;
+
+    if (!hasCompletedWelcome && books.length === 0) {
+      // Fresh install: show intro first
       setIsWelcomeGuideVisible(true);
+    } else if (!hasSeenPermissionPrompt) {
+      // Already has books or skipped intro, but never saw permission prompt
+      setIsPermissionModalVisible(true);
     }
-  }, [isSettingsLoaded, isLibraryLoaded, hasCompletedWelcome, books.length]);
+  }, [isSettingsLoaded, isLibraryLoaded, hasCompletedWelcome, hasSeenPermissionPrompt, books.length]);
 
   // Filter & Sort books (Simplified to All, Reading, Favorites)
   const filteredBooks = useMemo(() => {
@@ -624,6 +632,24 @@ export default function LibraryScreen() {
         onDismiss={async () => {
           setIsWelcomeGuideVisible(false);
           await setHasCompletedWelcome(true);
+          // Chain into storage permission prompt
+          if (!hasSeenPermissionPrompt) {
+            setIsPermissionModalVisible(true);
+          }
+        }}
+      />
+
+      {/* Storage Permission Modal — shown after intro OR immediately if intro was skipped */}
+      <StoragePermissionModal
+        visible={isPermissionModalVisible}
+        onComplete={async (granted) => {
+          setIsPermissionModalVisible(false);
+          await setHasSeenPermissionPrompt(true);
+          if (granted) {
+            // Launch system permission settings
+            const { nativeStorage } = await import('@/services/storage/NativeStorageBridge');
+            await nativeStorage.requestAllFilesAccess();
+          }
         }}
       />
 

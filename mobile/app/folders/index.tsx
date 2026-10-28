@@ -42,6 +42,7 @@ import { ErrorReportModal } from '@/components/modals/ErrorReportModal';
 import { LiruneDialog } from '@/components/LiruneDialog';
 import { LiruneToast } from '@/components/LiruneToast';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
+import { ImportService } from '@/services/import/ImportService';
 import { logger } from '@/utils/logger';
 
 const TAG = 'FoldersScreen';
@@ -87,6 +88,9 @@ export default function FoldersScreen() {
   const [activeSource, setActiveSource] = useState<SafSourceRow | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbSegment[]>([]);
 
+  // AllFiles access state — drives ReadEra-style root browsing
+  const [allFilesAccess, setAllFilesAccess] = useState<boolean | null>(null);
+
   // Layer 1 data
   const [volumes, setVolumes] = useState<StorageVolume[]>([]);
   const [sources, setSources] = useState<SafSourceRow[]>([]);
@@ -97,7 +101,7 @@ export default function FoldersScreen() {
   const [isLoadingDir, setIsLoadingDir] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [booksOnly, setBooksOnly] = useState(true);
+  const [booksOnly, setBooksOnly] = useState(false);
   const [sortBy, setSortBy] = useState<SortCriterion>('name');
   const [sortAsc, setSortAsc] = useState(true);
   const [foldersFirst, setFoldersFirst] = useState(true);
@@ -178,13 +182,16 @@ export default function FoldersScreen() {
       if (db) {
         const rows = await db.getAllAsync<SafSourceRow>('SELECT * FROM sources ORDER BY id DESC');
         if (rows.length > 0) {
-          const uris = rows.map((r) => r.tree_uri).filter(Boolean);
-          const valRes = await nativeStorage.validatePersistedGrants(uris);
+          const contentUris = rows.map((r) => r.tree_uri).filter((u) => u && u.startsWith('content://'));
+          const valRes = await nativeStorage.validatePersistedGrants(contentUris);
           const revokedSet = new Set(valRes.revokedUris);
-          const updated = rows.map((r) => ({
-            ...r,
-            grant_valid: revokedSet.has(r.tree_uri) ? 0 : 1,
-          }));
+          const updated = rows.map((r) => {
+            const isFilePath = r.tree_uri.startsWith('/') || r.tree_uri.startsWith('file://');
+            return {
+              ...r,
+              grant_valid: isFilePath ? 1 : (revokedSet.has(r.tree_uri) ? 0 : 1),
+            };
+          });
           setSources(updated);
         } else {
           setSources([]);
@@ -200,6 +207,10 @@ export default function FoldersScreen() {
   useEffect(() => {
     loadLocations();
     loadLibrary();
+    // Check All Files access on mount so Layer 1 volumes are immediately tappable
+    nativeStorage.hasAllFilesAccess()
+      .then((has) => setAllFilesAccess(has))
+      .catch(() => setAllFilesAccess(false));
   }, [loadLocations, loadLibrary]);
 
 
@@ -219,6 +230,7 @@ export default function FoldersScreen() {
       }
 
       setIsLoadingDir(true);
+      setEntries([]);
       const accumulated: NativeDirEntry[] = [];
 
       const unsubs: (() => void)[] = [];
@@ -236,6 +248,7 @@ export default function FoldersScreen() {
           if (activeRequestId.current !== requestId) return;
           setIsLoadingDir(false);
           setIsRefreshing(false);
+          setEntries([...accumulated]);
           // Store in LRU cache (cap at 50)
           if (dirCache.current.size >= 50) {
             const firstKey = dirCache.current.keys().next().value;
@@ -257,7 +270,11 @@ export default function FoldersScreen() {
       );
 
       try {
-        const { requestId } = await nativeStorage.listDirectory(treeUri, docId, { batchSize: 100 });
+        const isFilePath = treeUri.startsWith('/') || treeUri.startsWith('file://') || (!!docId && (docId.startsWith('/') || docId.startsWith('file://')));
+        const { requestId } = await nativeStorage.listDirectory(treeUri, docId || undefined, {
+          batchSize: 100,
+          backend: isFilePath ? 'allFiles' : 'saf',
+        });
         activeRequestId.current = requestId;
       } catch (err) {
         logger.error(TAG, 'listDirectory invocation failed', err);
@@ -269,10 +286,12 @@ export default function FoldersScreen() {
     []
   );
 
-  // Enter a location source
+  // Enter a location source (handles both SAF content:// and AllFiles file:// sources)
   const openLocation = useCallback(
     async (source: SafSourceRow) => {
-      if (source.grant_valid === 0) {
+      // AllFiles path-based source: grant_valid is always 1
+      const isFilePath = source.tree_uri.startsWith('/')  || source.tree_uri.startsWith('file://');
+      if (!isFilePath && source.grant_valid === 0) {
         setInfoDialog({
           visible: true,
           title: 'Permission Lost',
@@ -282,7 +301,7 @@ export default function FoldersScreen() {
       }
 
       // Guard against invalid entries where a single file URI was mistakenly saved
-      if (source.tree_uri.includes('/document/') && !source.tree_uri.includes('/tree/')) {
+      if (!isFilePath && source.tree_uri.includes('/document/') && !source.tree_uri.includes('/tree/')) {
         setInfoDialog({
           visible: true,
           title: 'Invalid Folder Location',
@@ -302,6 +321,30 @@ export default function FoldersScreen() {
       };
       setBreadcrumbs([rootSegment]);
       await fetchDirectory(source.tree_uri);
+    },
+    [fetchDirectory]
+  );
+
+  // Directly open a storage volume using AllFiles backend (no SAF picker)
+  const openVolumeDirectly = useCallback(
+    async (volume: StorageVolume) => {
+      const path = volume.path || '/storage/emulated/0';
+      const syntheticSource: SafSourceRow = {
+        id: -1,
+        tree_uri: path,
+        label: volume.label,
+        volume_id: volume.id || 'primary',
+        status: 'active',
+        last_scan_at: null,
+        grant_valid: 1,
+        import_mode: 'linked',
+      };
+      setActiveSource(syntheticSource);
+      setIsMultiSelect(false);
+      setSelectedIds(new Set());
+      setSearchQuery('');
+      setBreadcrumbs([{ docId: '', name: volume.label }]);
+      await fetchDirectory(path);
     },
     [fetchDirectory]
   );
@@ -663,6 +706,49 @@ export default function FoldersScreen() {
     }
   };
 
+  // Pin the currently-viewed folder as a shortcut in the Folder pane (Layer 1)
+  const handlePinCurrentFolder = useCallback(async () => {
+    if (!activeSource) return;
+    // Build the path/URI for the current folder
+    const currentCrumb = breadcrumbs[breadcrumbs.length - 1];
+    const isFilePath = activeSource.tree_uri.startsWith('/') || activeSource.tree_uri.startsWith('file://');
+
+    let folderUri: string;
+    let folderLabel: string;
+
+    if (isFilePath) {
+      // AllFiles backend: docId is an absolute path
+      const docId = currentCrumb?.docId || '';
+      folderUri = docId && (docId.startsWith('/') || docId.startsWith('file://'))
+        ? docId
+        : activeSource.tree_uri;
+      folderLabel = currentCrumb?.name || activeSource.label;
+    } else {
+      // SAF backend: we don't have a separate tree URI for subfolders; save the parent tree but label as current
+      folderUri = activeSource.tree_uri;
+      folderLabel = currentCrumb?.name || activeSource.label;
+    }
+
+    try {
+      const db = await getDatabase();
+      if (db) {
+        await db.runAsync(
+          `INSERT INTO sources (tree_uri, label, volume_id, status, last_scan_at, grant_valid, import_mode)
+           VALUES (?, ?, ?, 'active', ?, 1, 'managed')
+           ON CONFLICT(tree_uri) DO UPDATE SET
+             label = excluded.label,
+             grant_valid = 1;`,
+          [folderUri, folderLabel, activeSource.volume_id || 'primary', Date.now()]
+        );
+      }
+      setToastMessage(`Pinned "${folderLabel}" to Folders pane`);
+      loadLocations();
+    } catch (err) {
+      logger.error(TAG, 'Failed to pin folder', err);
+      setToastMessage('Could not pin folder');
+    }
+  }, [activeSource, breadcrumbs, loadLocations]);
+
   // Filtered and sorted entries
   const displayedEntries = useMemo(() => {
     let result = entries;
@@ -832,18 +918,18 @@ export default function FoldersScreen() {
     setToastMessage(`Queued all ${bookEntries.length} book(s) from folder for import`);
   };
 
-  // Open book item
+  // Open book item — directly imports and launches reader immediately
   const handleOpenBook = async (item: NativeDirEntry) => {
-    // Check if in library
-    const existing = books.find((b) => b.title.toLowerCase() === item.name.toLowerCase() || b.uri === item.uri);
+    // Check if already in library by URI or title
+    const existing = books.find((b) => b.uri === item.uri || b.filePath === item.uri || b.title.toLowerCase() === item.name.toLowerCase());
     if (existing) {
       await useReaderStore.getState().openBook(existing);
       router.push({ pathname: '/reader', params: { bookId: existing.id } });
       return;
     }
 
-    // Ingest first then open
     if (archiveSession) {
+      // Archive entry: always managed (must extract from zip)
       await enqueue([
         {
           uri: archiveSession.uri,
@@ -855,10 +941,29 @@ export default function FoldersScreen() {
           sourceKind: 'archive',
         },
       ]);
-    } else {
-      await enqueue([{ uri: item.uri, name: item.name, format: item.format || 'epub' }]);
+      setToastMessage('Opening book from archive...');
+      return;
     }
-    setToastMessage('Importing book to open...');
+
+    setToastMessage(`Opening ${item.name}...`);
+    try {
+      const res = await ImportService.importFile(item.uri, item.name, item.size);
+      if (res.success && res.book) {
+        await loadLibrary();
+        await useReaderStore.getState().openBook(res.book);
+        router.push({ pathname: '/reader', params: { bookId: res.book.id } });
+      } else {
+        const errorMsg = res.error
+          ? typeof res.error === 'string'
+            ? res.error
+            : (res.error as any).message || 'Failed to open book'
+          : 'Failed to open book';
+        setToastMessage(errorMsg);
+      }
+    } catch (err: any) {
+      logger.error(TAG, 'Failed opening file', err);
+      setToastMessage('Could not open file.');
+    }
   };
 
   // ==========================================
@@ -1308,12 +1413,12 @@ export default function FoldersScreen() {
           <View style={styles.headerRight}>
             <TouchableOpacity
               style={[styles.headerBtn, { borderColor: colors.borderSubtle }]}
-              onPress={handleAddFiles}
+              onPress={handleAddLocation}
               accessibilityRole="button"
-              accessibilityLabel="Add individual files"
+              accessibilityLabel="Add folder location"
             >
-              <Ionicons name="document-attach-outline" size={18} color={colors.accent} />
-              <Text style={[styles.headerBtnText, { color: colors.accent }]}>Add Files</Text>
+              <Ionicons name="folder-outline" size={18} color={colors.accent} />
+              <Text style={[styles.headerBtnText, { color: colors.accent }]}>Add Folder</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1331,28 +1436,73 @@ export default function FoldersScreen() {
           contentContainerStyle={styles.locationsList}
           ListHeaderComponent={
             <>
+              {/* AllFiles Access Banner — shown when not granted */}
+              {allFilesAccess === false && (
+                <TouchableOpacity
+                  style={[styles.accessBanner, { backgroundColor: colors.accent + '18', borderColor: colors.accent + '55' }]}
+                  onPress={async () => {
+                    await nativeStorage.requestAllFilesAccess();
+                    // Re-check after returning from settings
+                    setTimeout(async () => {
+                      const has = await nativeStorage.hasAllFilesAccess().catch(() => false);
+                      setAllFilesAccess(has);
+                    }, 1200);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Grant all files access"
+                >
+                  <View style={[styles.accessBannerIcon, { backgroundColor: colors.accent + '22' }]}>
+                    <Ionicons name="shield-checkmark-outline" size={22} color={colors.accent} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.accessBannerTitle, { color: colors.text }]}>Enable Full Storage Access</Text>
+                    <Text style={[styles.accessBannerSub, { color: colors.textSecondary }]}>
+                      Tap to browse Downloads, Documents & SD card without folder prompts
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.accent} />
+                </TouchableOpacity>
+              )}
+
+              {/* AllFiles granted badge */}
+              {allFilesAccess === true && (
+                <View style={[styles.accessGrantedBadge, { backgroundColor: colors.success + '18', borderColor: colors.success + '40' }]}>
+                  <Ionicons name="shield-checkmark" size={14} color={colors.success} />
+                  <Text style={[styles.accessGrantedText, { color: colors.success }]}>
+                    Full storage access — tap any volume to browse
+                  </Text>
+                </View>
+              )}
+
               {/* Storage Volumes */}
               <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Storage Volumes</Text>
               <View style={styles.volumesRow}>
                 {volumes.map((v, idx) => {
                   const usedPct = v.totalBytes > 0 ? (1 - v.freeBytes / v.totalBytes) * 100 : 0;
+                  const canBrowse = allFilesAccess === true;
                   return (
-                    <View
+                    <TouchableOpacity
                       key={idx}
                       style={[
                         styles.volumeCard,
-                        { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+                        { backgroundColor: colors.surface, borderColor: canBrowse ? colors.accent + '55' : colors.borderSubtle },
                       ]}
+                      onPress={() => canBrowse ? openVolumeDirectly(v) : null}
+                      activeOpacity={canBrowse ? 0.75 : 1}
+                      disabled={!canBrowse}
+                      accessibilityRole={canBrowse ? 'button' : 'none'}
+                      accessibilityLabel={canBrowse ? `Browse ${v.label}` : v.label}
                     >
                       <View style={styles.volumeHeader}>
                         <Ionicons
                           name={v.isRemovable ? 'card-outline' : 'phone-portrait-outline'}
                           size={20}
-                          color={colors.accent}
+                          color={canBrowse ? colors.accent : colors.textMuted}
                         />
                         <Text style={[styles.volumeLabel, { color: colors.text }]} numberOfLines={1}>
                           {v.label}
                         </Text>
+                        {canBrowse && <Ionicons name="chevron-forward" size={14} color={colors.accent} style={{ marginLeft: 'auto' as any }} />}
                       </View>
                       <View style={[styles.storageBarBg, { backgroundColor: colors.surfaceElevated }]}>
                         <View
@@ -1369,7 +1519,7 @@ export default function FoldersScreen() {
                         {(v.freeBytes / 1024 / 1024 / 1024).toFixed(1)} GB free of{' '}
                         {(v.totalBytes / 1024 / 1024 / 1024).toFixed(1)} GB
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -1384,6 +1534,7 @@ export default function FoldersScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Add folder location"
               >
+
                 <View style={[styles.addIconCircle, { backgroundColor: colors.accent + '22' }]}>
                   <Ionicons name="folder-open-outline" size={24} color={colors.accent} />
                 </View>
@@ -1486,7 +1637,7 @@ export default function FoldersScreen() {
           <TouchableOpacity onPress={goUpOneLevel} style={styles.backBtn} accessibilityLabel="Back">
             <Ionicons name="arrow-back" size={22} color={colors.text} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
+          <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1} ellipsizeMode="tail">
             {breadcrumbs[breadcrumbs.length - 1]?.name || activeSource.label}
           </Text>
         </View>
@@ -1502,6 +1653,14 @@ export default function FoldersScreen() {
             </TouchableOpacity>
           ) : (
             <>
+              {/* Pin this folder to Folders pane */}
+              <TouchableOpacity
+                onPress={handlePinCurrentFolder}
+                style={styles.iconBtn}
+                accessibilityLabel="Pin this folder to Folders pane"
+              >
+                <Ionicons name="bookmark-outline" size={18} color={colors.accent} />
+              </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => {
                   const cycle: SortCriterion[] = ['name', 'mtime', 'size', 'type'];
@@ -1639,7 +1798,7 @@ export default function FoldersScreen() {
                     if (isMultiSelect) toggleSelect(item.docId);
                     else if (isZip) openArchiveContainer(item.uri, item.name);
                     else if (item.isDirectory) navigateToChild(item);
-                    else setSelectedBook(item);
+                    else handleOpenBook(item);
                   }}
                   onLongPress={() => {
                     if (!isMultiSelect) {
@@ -1696,7 +1855,7 @@ export default function FoldersScreen() {
                   if (isMultiSelect) toggleSelect(item.docId);
                   else if (isZip) openArchiveContainer(item.uri, item.name);
                   else if (item.isDirectory) navigateToChild(item);
-                  else setSelectedBook(item);
+                  else handleOpenBook(item);
                 }}
                 onLongPress={() => {
                   if (!isMultiSelect) {
@@ -1795,6 +1954,27 @@ export default function FoldersScreen() {
             </TouchableOpacity>
           </View>
           <View style={styles.actionButtonsRow}>
+            {selectedIds.size === 1 && (
+              <TouchableOpacity
+                style={[styles.importBtn, { backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.borderSubtle }]}
+                onPress={async () => {
+                  const singleDocId = Array.from(selectedIds)[0];
+                  const item = entries.find((e) => e.docId === singleDocId);
+                  if (item && !item.isDirectory) {
+                    setIsMultiSelect(false);
+                    setSelectedIds(new Set());
+                    handleOpenBook(item);
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Open selected file"
+              >
+                <Ionicons name="book-outline" size={18} color={colors.accent} />
+                <Text style={[styles.importBtnText, { color: colors.accent }]}>
+                  Open
+                </Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.importBtn, { backgroundColor: colors.accent }]}
               onPress={handleImportSelected}
@@ -1884,17 +2064,23 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
     flex: 1,
+    flexShrink: 1,
+    marginRight: 6,
+    overflow: 'hidden',
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
+    flexShrink: 0,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
+    flex: 1,
+    flexShrink: 1,
   },
   backBtn: {
     padding: 6,
@@ -1917,9 +2103,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   iconBtn: {
-    padding: 8,
-    minWidth: 44,
-    minHeight: 44,
+    padding: 6,
+    minWidth: 36,
+    minHeight: 36,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2218,5 +2404,49 @@ const styles = StyleSheet.create({
   },
   breadcrumbText: {
     fontSize: 13,
+  },
+  // AllFiles access UI
+  accessBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  accessBannerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  accessBannerTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  accessBannerSub: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  accessGrantedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  accessGrantedText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

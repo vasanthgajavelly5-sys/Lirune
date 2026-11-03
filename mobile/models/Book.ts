@@ -21,6 +21,8 @@ export type BookFormat =
   | 'rtf'
   | 'odt'
   | 'chm'
+  | 'md'
+  | 'fbz'
   | 'zip'
   | 'rar';
 
@@ -153,6 +155,20 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
     mime: 'application/vnd.ms-htmlhelp',
     supported: true,
   },
+  md: {
+    id: 'md',
+    label: 'Markdown Document',
+    extensions: ['md', 'markdown'],
+    mime: 'text/markdown',
+    supported: true,
+  },
+  fbz: {
+    id: 'fbz',
+    label: 'FictionBook 2 Archive (FBZ)',
+    extensions: ['fbz'],
+    mime: 'application/x-zip-compressed-fb2',
+    supported: true,
+  },
   zip: {
     id: 'zip',
     label: 'ZIP Container Archive',
@@ -195,6 +211,9 @@ export const SUPPORTED_DOCUMENT_MIMES: string[] = [
   'application/vnd.oasis.opendocument.text',
   'application/vnd.ms-htmlhelp',
   'application/x-chm',
+  'text/markdown',
+  'text/x-markdown',
+  'application/x-zip-compressed-fb2',
   'application/zip',
   'application/x-zip-compressed',
   'application/x-zip',
@@ -226,7 +245,7 @@ export function getFormatFromExtension(filenameOrExt: string): FormatInfo {
     extensions: [ext],
     mime: 'application/octet-stream',
     supported: false,
-    reason: `File format ".${ext}" is not recognized. Lirune Reader supports EPUB, PDF, TXT, HTML, FB2, CBZ, MOBI, AZW, AZW3, DJVU, DOC, DOCX, RTF, ODT, CHM, CBR, ZIP, and RAR.`,
+    reason: `File format ".${ext}" is not recognized. Lirune Reader supports EPUB, PDF, TXT, HTML, FB2, FBZ, CBZ, CBR, CB7, MOBI, AZW, AZW3, DJVU, DOC, DOCX, RTF, ODT, CHM, and MD.`,
   };
 }
 

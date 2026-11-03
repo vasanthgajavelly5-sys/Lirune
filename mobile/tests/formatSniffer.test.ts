@@ -163,3 +163,25 @@ test('reports unknown format for random binary with no known signature and no ex
   assert.equal(res.id, 'unknown');
   assert.equal(res.supported, false);
 });
+
+test('detects Markdown document from heading and fallback extension', () => {
+  const md = '# Chapter 1: Introduction\n\nThis is a **markdown** guide with `code`.';
+  const bytes = new TextEncoder().encode(md);
+  const res = FormatDetector.fromMagicBytes(bytes, 'notes.md');
+  assert.equal(res.id, 'md');
+  assert.equal(res.supported, true);
+  assert.ok(res.confidence >= 0.9);
+});
+
+test('detects FBZ FictionBook archive with .fbz extension', () => {
+  const zipHeader = new Uint8Array([
+    0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x08, 0x00, 0x00, 0x00,
+    ...new TextEncoder().encode('book.fb2'),
+  ]);
+  const res = FormatDetector.fromMagicBytes(zipHeader, 'novel.fbz');
+  assert.equal(res.id, 'fbz');
+  assert.equal(res.supported, true);
+  assert.ok(res.confidence >= 0.95);
+});

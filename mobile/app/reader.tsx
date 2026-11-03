@@ -36,6 +36,7 @@ import { DocReaderView } from '@/components/reader/DocReaderView';
 import { ChmReaderView } from '@/components/reader/ChmReaderView';
 import { DjvuReaderView } from '@/components/reader/DjvuReaderView';
 import { CbrReaderView } from '@/components/reader/CbrReaderView';
+import { MdReaderView } from '@/components/reader/MdReaderView';
 import { ReaderControls } from '@/components/reader/ReaderControls';
 import { BrightnessEdgeOverlay } from '@/components/reader/BrightnessEdgeOverlay';
 import { ChapterSheet } from '@/components/reader/ChapterSheet';
@@ -670,7 +671,7 @@ export default function ReaderScreen() {
           />
         )}
 
-        {activeBook.format === 'fb2' && (
+        {(activeBook.format === 'fb2' || activeBook.format === 'fbz') && (
           <Fb2ReaderView
             book={activeBook}
             settings={effectiveSettings}
@@ -684,7 +685,7 @@ export default function ReaderScreen() {
           />
         )}
 
-        {activeBook.format === 'cbz' && (
+        {(activeBook.format === 'cbz' || activeBook.format === 'cb7') && (
           <CbzReaderView
             book={activeBook}
             settings={effectiveSettings}
@@ -780,7 +781,22 @@ export default function ReaderScreen() {
           />
         )}
 
-        {activeBook.format === 'cbr' && (
+        
+        {activeBook.format === 'md' && (
+          <MdReaderView
+            book={activeBook}
+            settings={effectiveSettings}
+            onToggleControls={toggleControls}
+            onProgressChange={updateProgress}
+            onChapterCountLoaded={handleUpdateChapterCount}
+            onTOCLoaded={setTOC}
+            targetCfi={currentCfi}
+            onSearchResults={handleSearchResults}
+            onSelectionChange={handleSelectionChange}
+            searchQuery={searchQuery}
+          />
+        )}
+{activeBook.format === 'cbr' && (
           <CbrReaderView
             book={activeBook}
             settings={effectiveSettings}

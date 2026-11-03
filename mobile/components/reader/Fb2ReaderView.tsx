@@ -14,6 +14,7 @@ import { fileStorage } from '@/services/storage/FileStorage';
 import { READER_THEMES } from '@/theme/Colors';
 import { getCssFontFamily } from '@/theme/Typography';
 import { logger } from '@/utils/logger';
+import JSZip from 'jszip';
 
 const TAG = 'Fb2ReaderView';
 
@@ -51,7 +52,39 @@ export function Fb2ReaderView({
     const bookPath = book.filePath || book.uri || '';
     async function parseFb2() {
       try {
-        const rawXml = await fileStorage.readAsString(bookPath);
+        let rawXml = '';
+        const isFbz = book.format === 'fbz' || bookPath.toLowerCase().endsWith('.fbz') || bookPath.toLowerCase().endsWith('.fb2.zip');
+        if (isFbz) {
+          const buf = await fileStorage.readAsArrayBuffer(bookPath);
+          const zip = await JSZip.loadAsync(buf);
+          const fb2Entry = Object.values(zip.files).find((f) => f.name.toLowerCase().endsWith('.fb2'));
+          if (fb2Entry) {
+            rawXml = await fb2Entry.async('string');
+          } else {
+            throw new Error('No .fb2 file found inside FBZ archive.');
+          }
+        } else {
+          try {
+            const raw = await fileStorage.readAsString(bookPath);
+            if (raw.startsWith('PK\x03\x04')) {
+              const buf = await fileStorage.readAsArrayBuffer(bookPath);
+              const zip = await JSZip.loadAsync(buf);
+              const fb2Entry = Object.values(zip.files).find((f) => f.name.toLowerCase().endsWith('.fb2'));
+              rawXml = fb2Entry ? await fb2Entry.async('string') : raw;
+            } else {
+              rawXml = raw;
+            }
+          } catch {
+            const buf = await fileStorage.readAsArrayBuffer(bookPath);
+            const zip = await JSZip.loadAsync(buf);
+            const fb2Entry = Object.values(zip.files).find((f) => f.name.toLowerCase().endsWith('.fb2'));
+            if (fb2Entry) {
+              rawXml = await fb2Entry.async('string');
+            } else {
+              throw new Error('Could not read FB2 file');
+            }
+          }
+        }
 
         // 1. Extract binary images: <binary id="..." content-type="...">base64</binary>
         const imageMap: Record<string, string> = {};
@@ -148,7 +181,7 @@ export function Fb2ReaderView({
     return () => {
       active = false;
     };
-  }, [book.filePath, book.uri, onTOCLoaded]);
+  }, [book.filePath, book.uri, book.format, onTOCLoaded]);
 
   useEffect(() => {
     webViewRef.current?.injectJavaScript(`

@@ -309,9 +309,11 @@ export class FormatDetector {
       // 4. FB2.ZIP
       const nonDir = entries.filter((e) => !e.isDirectory);
       const fb2Entries = nonDir.filter((e) => e.name.toLowerCase().endsWith('.fb2'));
-      const isFb2ZipName = Boolean(fallbackFilename?.toLowerCase().endsWith('.fb2.zip'));
+      const isFbz = Boolean(fallbackFilename?.toLowerCase().endsWith('.fbz'));
+      const isFb2ZipName = Boolean(fallbackFilename?.toLowerCase().endsWith('.fb2.zip')) || isFbz;
       if (fb2Entries.length === 1 && (nonDir.length === 1 || isFb2ZipName)) {
-        return { ...SUPPORTED_FORMATS.fb2, confidence: 0.98, kind: 'book' };
+        const target = isFbz ? SUPPORTED_FORMATS.fbz : SUPPORTED_FORMATS.fb2;
+        return { ...target, confidence: 0.98, kind: 'book' };
       }
 
       // 5. CBZ: >= 90% images
@@ -337,7 +339,7 @@ export class FormatDetector {
       // 6. ARCHIVE_CONTAINER: contains >= 1 supported book
       const bookExts = new Set([
         'epub', 'pdf', 'fb2', 'cbz', 'cbr', 'cb7', 'mobi', 'azw', 'azw3', 'kf8',
-        'djvu', 'djv', 'doc', 'docx', 'rtf', 'odt', 'chm'
+        'djvu', 'djv', 'doc', 'docx', 'rtf', 'odt', 'chm', 'md', 'markdown', 'fbz'
       ]);
       const bookEntries = nonDir.filter((e) => {
         const entryExt = e.name.split('.').pop()?.toLowerCase() || '';
@@ -397,6 +399,9 @@ export class FormatDetector {
     if (!hasNul) {
       if (ext === 'html' || ext === 'htm' || ext === 'xhtml') {
         return { ...SUPPORTED_FORMATS.html, confidence: 0.9 };
+      }
+      if (ext === 'md' || ext === 'markdown' || textHead.startsWith('# ') || textHead.startsWith('## ') || textHead.includes('\n# ') || textHead.includes('```')) {
+        return { ...SUPPORTED_FORMATS.md, confidence: 0.95 };
       }
       return { ...SUPPORTED_FORMATS.txt, confidence: 0.85 };
     }

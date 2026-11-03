@@ -129,7 +129,7 @@ export function StoragePermissionModal({ visible, onComplete }: StoragePermissio
               {'Without All Files Access you can still use Lirune, but you will need to '}
               <Text style={{ color: colors.text, fontWeight: '600' }}>pick each folder or file individually</Text>
               {' using Android\'s file picker. You\'ll have more control over exactly what Lirune can see — but you '}
-              <Text style={{ color: colors.text, fontWeight: '600' }}>won\'t be able to browse Downloads directly</Text>
+              <Text style={{ color: colors.text, fontWeight: '600' }}>{"won't be able to browse Downloads directly"}</Text>
               {' or open files without an import step.'}
             </Text>
             {([

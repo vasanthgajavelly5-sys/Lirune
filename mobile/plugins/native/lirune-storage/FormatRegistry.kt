@@ -37,7 +37,7 @@ object FormatRegistry {
 
     val SUPPORTED_FORMATS = setOf(
         "epub", "pdf", "txt", "html", "fb2", "cbz", "cbr", "cb7",
-        "mobi", "azw", "azw3", "djvu", "doc", "docx", "rtf", "odt", "chm"
+        "mobi", "azw", "azw3", "djvu", "doc", "docx", "rtf", "odt", "chm", "md", "fbz"
     )
 
     val BLOCKED_EXTENSIONS = setOf(
@@ -46,7 +46,7 @@ object FormatRegistry {
 
     private val BOOK_ARCHIVE_EXTENSIONS = setOf(
         "epub", "pdf", "fb2", "cbz", "cbr", "cb7", "mobi", "azw", "azw3", "kf8",
-        "djvu", "djv", "doc", "docx", "rtf", "odt", "chm"
+        "djvu", "djv", "doc", "docx", "rtf", "odt", "chm", "md", "markdown", "fbz"
     )
 
     fun isSupported(format: String): Boolean = SUPPORTED_FORMATS.contains(format.lowercase(Locale.ROOT))
@@ -285,8 +285,8 @@ object FormatRegistry {
             if (ext == "html" || ext == "htm" || ext == "xhtml") {
                 return SniffResult("html", 0.9f, "HTML extension with text content", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
             }
-            if (textHead.startsWith("#") || textHead.contains("```") || ext == "md") {
-                return SniffResult("txt", 0.9f, "Markdown text content", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            if (textHead.startsWith("#") || textHead.contains("```") || ext == "md" || ext == "markdown") {
+                return SniffResult("md", 0.95f, "Markdown text content", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
             }
             return SniffResult("txt", 0.85f, "Valid plain text content without null bytes", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
         }
@@ -586,9 +586,11 @@ object FormatRegistry {
         // 4. FB2: .fb2 XML inside single-entry zip (or filename .fb2.zip)
         val nonDirEntries = entries.filter { !it.isDirectory }
         val fb2Entries = nonDirEntries.filter { it.name.lowercase(Locale.ROOT).endsWith(".fb2") }
-        val isFb2ZipName = fallbackFilename?.lowercase(Locale.ROOT)?.endsWith(".fb2.zip") == true
+        val isFbz = fallbackFilename?.lowercase(Locale.ROOT)?.endsWith(".fbz") == true
+        val isFb2ZipName = fallbackFilename?.lowercase(Locale.ROOT)?.endsWith(".fb2.zip") == true || isFbz
         if (fb2Entries.size == 1 && (nonDirEntries.size == 1 || isFb2ZipName)) {
-            return SniffResult("fb2", 0.98f, "Single FictionBook FB2 inside archive", quickFp = quickFp, kind = "book")
+            val formatId = if (isFbz) "fbz" else "fb2"
+            return SniffResult(formatId, 0.98f, "Single FictionBook FB2 inside archive", quickFp = quickFp, kind = "book")
         }
 
         // 5. CBZ: All (or >= 90%) of entries are images after ignoring ComicInfo.xml, Thumbs.db, .DS_Store, __MACOSX/, *.txt|nfo

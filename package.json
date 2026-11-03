@@ -101,7 +101,7 @@
     }
   },
   "dependencies": {
-    "epubjs": "^0.3.93",
+    "epubjs": "^0.4.2",
     "jszip": "^3.10.1"
   }
 }

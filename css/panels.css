@@ -4,7 +4,7 @@
 
 /* ── TOC Sidebar ─────────────────────────────────────────── */
 #toc-panel {
-  width: var(--sidebar-w);
+  width: min(var(--sidebar-w), 90vw);
   box-shadow: var(--shadow-lg);
 }
 
@@ -17,6 +17,17 @@
   overflow-y: auto;
   flex: 1;
   padding: var(--sp-2);
+}
+
+.toc-entry[hidden] {
+  display: none !important;
+}
+
+.toc-filter-empty {
+  padding: var(--sp-4) var(--sp-3);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
 }
 
 .toc-entry {

@@ -46,8 +46,9 @@ const DocumentAdapter = (() => {
 
     async loadBytes() {
       if (this.record.fileData) return new Uint8Array(this.record.fileData);
-      if (this.record.storageId && window.noveraDesktop?.readManagedBook) {
-        const buffer = await window.noveraDesktop.readManagedBook(this.record.storageId, this.record.fingerprint, this.record.fileSize);
+      const desktopApi = window.noveraDesktop || window.liruneDesktop;
+      if (this.record.storageId && desktopApi?.readManagedBook) {
+        const buffer = await desktopApi.readManagedBook(this.record.storageId, this.record.fingerprint, this.record.fileSize);
         return new Uint8Array(buffer);
       }
       throw new Error(`This ${this.formatLabel || this.format || 'document'} file is unavailable.`);
@@ -320,10 +321,23 @@ const DocumentAdapter = (() => {
       if (!section) return false;
       if (this.flow === 'paginated' && this.capabilities.paginate) {
         const { step } = this._pageMetrics();
-        this._pageIndex = Math.max(0, Math.round(section.left / step));
+        const node = this.element?.querySelector('[data-section-id="' + CSS.escape(section.id) + '"]');
+        let pageIdx = 0;
+        if (node && step > 0) {
+          const rect = node.getBoundingClientRect();
+          const elemRect = this.element.getBoundingClientRect();
+          const currentTransformX = (this._pageIndex || 0) * step;
+          const leftWithinDoc = (rect.left - elemRect.left) + currentTransformX;
+          pageIdx = Math.max(0, Math.floor(leftWithinDoc / step));
+        } else if (step > 0) {
+          pageIdx = Math.max(0, Math.round(section.left / step));
+        }
+        this._pageIndex = pageIdx;
         this._applyPageOffset();
       } else {
-        this.viewport.scrollTo({ top: Math.max(0, section.top - SECTION_SCROLL_GAP), behavior: 'auto' });
+        const node = this.element?.querySelector('[data-section-id="' + CSS.escape(section.id) + '"]');
+        const top = node ? node.offsetTop : section.top;
+        this.viewport.scrollTo({ top: Math.max(0, top - SECTION_SCROLL_GAP), behavior: 'auto' });
       }
       this.currentSectionId = section.id;
       this._afterMove();
@@ -385,6 +399,10 @@ const DocumentAdapter = (() => {
       else this._applyTypography();
       if (flowChanged) this._measureNow();
       return true;
+    }
+
+    setFlow(flow) {
+      return this.applySettings({ flow });
     }
 
     setZoom(zoom) {

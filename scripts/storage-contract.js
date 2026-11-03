@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf'];
+const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf', 'md', 'markdown', 'fbz', 'mobi', 'azw', 'azw3', 'cbr', 'doc', 'chm', 'djvu', 'djv'];
 const EXTENSION_PATTERN = SUPPORTED_EXTENSIONS.join('|');
 
 function fingerprintBuffer(buffer) {

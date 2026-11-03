@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "lint": "node scripts/lint.js",
-    "test": "node --test test/audit-fixes.test.js test/currently-reading.test.js test/hardening.test.js test/storage-contract.test.js test/remediation-suite.test.js test/typography-themes.test.js",
+    "test": "node --test test/audit-fixes.test.js test/currently-reading.test.js test/hardening.test.js test/storage-contract.test.js test/remediation-suite.test.js test/typography-themes.test.js test/toc-fixes.test.js",
     "audit": "npm audit --omit=dev",
     "pack": "electron-builder --dir",
     "validate:corpus": "node scripts/validate-corpus.js",
@@ -63,6 +63,7 @@
       "assets/**/*",
       "node_modules/epubjs/**/*",
       "node_modules/jszip/**/*",
+      "node_modules/node-unrar-js/**/*",
       "node_modules/pdfjs-dist/build/pdf.min.mjs",
       "node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
       "node_modules/pdfjs-dist/LICENSE",
@@ -122,6 +123,7 @@
   "dependencies": {
     "epubjs": "^0.3.93",
     "jszip": "^3.10.2",
+    "node-unrar-js": "^2.0.2",
     "pdfjs-dist": "^4.10.38"
   },
   "overrides": {

@@ -72,7 +72,7 @@ const EpubReaderAdapter = (() => {
     applySettings(settings) { return EpubLoader.applySettings(settings); }
     async next() { EpubLoader.next(); return true; }
     async prev() { EpubLoader.prev(); return true; }
-    goTo(target) { EpubLoader.goTo(target); return true; }
+    async goTo(target) { return EpubLoader.goTo(target); }
     scrollBy(dx, dy) { EpubLoader.scrollBy(dx, dy); return true; }
     async scroll(delta) { EpubLoader.scrollBy(0, delta); return true; }
     async search(query) { return EpubLoader.searchBook(query); }

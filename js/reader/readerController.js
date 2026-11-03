@@ -19,9 +19,16 @@ const Reader = (() => {
     html: () => HtmlAdapter,
     fb2: () => Fb2Adapter,
     cbz: () => CbzAdapter,
+    cbr: () => CbrAdapter,
     docx: () => DocxAdapter,
     odt: () => OdtAdapter,
-    rtf: () => RtfAdapter
+    rtf: () => RtfAdapter,
+    md: () => MarkdownAdapter,
+    fbz: () => Fb2Adapter,
+    mobi: () => MobiAdapter,
+    doc: () => DocAdapter,
+    chm: () => ChmAdapter,
+    djvu: () => DjvuAdapter
   };
 
   let adapter = null;
@@ -287,12 +294,12 @@ const Reader = (() => {
 
   async function persistProgress() {
     if (!currentRecord?.id || !adapter) return;
-    const progress = getProgress();
-    const location = getLocation();
-    const currentPercent = Number.isFinite(progress.percent) ? progress.percent : 0;
-    const shouldUpdateLastRead = Boolean(userInteracted);
-
     try {
+      const progress = getProgress();
+      const location = getLocation();
+      const currentPercent = Number.isFinite(progress.percent) ? progress.percent : 0;
+      const shouldUpdateLastRead = Boolean(userInteracted);
+
       await NoveraDB.updateProgress(currentRecord.id, {
         currentCfi: location || '',
         progressPercent: currentPercent,
@@ -404,11 +411,28 @@ const Reader = (() => {
     listEl.appendChild(fragment);
 
     if (filterInput) {
+      filterInput.value = '';
       filterInput.oninput = event => {
         const query = event.target.value.toLowerCase().trim();
+        let matchCount = 0;
         listEl.querySelectorAll('.toc-entry').forEach(entry => {
-          entry.hidden = !(entry.textContent || '').toLowerCase().includes(query);
+          const match = !query || (entry.textContent || '').toLowerCase().includes(query);
+          entry.hidden = !match;
+          entry.style.display = match ? '' : 'none';
+          if (match) matchCount++;
         });
+        let emptyNotice = listEl.querySelector('.toc-filter-empty');
+        if (matchCount === 0 && query) {
+          if (!emptyNotice) {
+            emptyNotice = document.createElement('div');
+            emptyNotice.className = 'toc-filter-empty';
+            emptyNotice.textContent = 'No matching chapters found';
+            listEl.appendChild(emptyNotice);
+          }
+          emptyNotice.style.display = 'block';
+        } else if (emptyNotice) {
+          emptyNotice.style.display = 'none';
+        }
       };
     }
   }

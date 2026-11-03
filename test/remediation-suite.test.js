@@ -292,8 +292,8 @@ test('P1: Format Validation Matrix validates genuine formats and rejects mismatc
     'Non-FictionBook XML must be rejected'
   );
 
-  // 8. Unbundled formats (MOBI, AZW, CBR, DOC)
-  for (const ext of ['mobi', 'azw', 'azw3', 'cbr', 'doc']) {
+  // 8. Unsupported legacy formats (DOC)
+  for (const ext of ['exe', 'bin']) {
     await assert.rejects(
       async () => mainModule.validateBookBuffer(Buffer.from('dummy data'), ext),
       /Unsupported file type/,
@@ -301,7 +301,78 @@ test('P1: Format Validation Matrix validates genuine formats and rejects mismatc
     );
   }
 
-  // 9. OPENABLE_EXTENSIONS must equal SUPPORTED_EXTENSIONS
+  // 9. Markdown validation (.md, .markdown)
+  assert.equal(await mainModule.validateBookBuffer(Buffer.from('# Title\n\nBody content'), 'md'), true);
+  assert.equal(await mainModule.validateBookBuffer(Buffer.from('# Title\n\nBody content'), 'markdown'), true);
+
+  // 10. Kindle/MOBI validation (.mobi, .azw, .azw3)
+  const validMobiBuffer = Buffer.alloc(100);
+  validMobiBuffer.write('BOOKMOBI', 60, 8, 'latin1');
+  assert.equal(await mainModule.validateBookBuffer(validMobiBuffer, 'mobi'), true, 'Valid Palm MOBI must pass');
+  assert.equal(await mainModule.validateBookBuffer(validMobiBuffer, 'azw'), true, 'Valid Palm AZW must pass');
+  assert.equal(await mainModule.validateBookBuffer(validMobiBuffer, 'azw3'), true, 'Valid Palm AZW3 must pass');
+  await assert.rejects(
+    async () => mainModule.validateBookBuffer(Buffer.from('short'), 'mobi'),
+    /header too short/,
+    'Short MOBI must be rejected'
+  );
+
+  // 11. CBR validation
+  const validCbrBuffer = Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00, 0x00]);
+  assert.equal(await mainModule.validateBookBuffer(validCbrBuffer, 'cbr'), true, 'Valid CBR signature must pass');
+  await assert.rejects(
+    async () => mainModule.validateBookBuffer(Buffer.from('notrar123'), 'cbr'),
+    /Not a valid RAR archive/,
+    'Invalid CBR signature must be rejected'
+  );
+
+  // 12. FBZ validation
+  const validFbzZip = new JSZip();
+  validFbzZip.file('book.fb2', validFb2);
+  const validFbzBuffer = await validFbzZip.generateAsync({ type: 'nodebuffer' });
+  assert.equal(await mainModule.validateBookBuffer(validFbzBuffer, 'fbz'), true, 'Valid FBZ must pass');
+
+  const invalidFbzZip = new JSZip();
+  invalidFbzZip.file('book.txt', 'no fb2');
+  const invalidFbzBuffer = await invalidFbzZip.generateAsync({ type: 'nodebuffer' });
+  await assert.rejects(
+    async () => mainModule.validateBookBuffer(invalidFbzBuffer, 'fbz'),
+    /no \.fb2 file found inside/,
+    'FBZ without .fb2 must be rejected'
+  );
+
+  // 13. DOC validation (OLE2)
+  const validDocBuffer = Buffer.alloc(600);
+  validDocBuffer.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+  assert.equal(await mainModule.validateBookBuffer(validDocBuffer, 'doc'), true, 'Valid OLE2 DOC must pass');
+  await assert.rejects(
+    async () => mainModule.validateBookBuffer(Buffer.from('short'), 'doc'),
+    /file too small/,
+    'Short DOC must be rejected'
+  );
+
+  // 14. CHM validation (ITSF)
+  const validChmBuffer = Buffer.alloc(150);
+  validChmBuffer.set([0x49, 0x54, 0x53, 0x46]);
+  assert.equal(await mainModule.validateBookBuffer(validChmBuffer, 'chm'), true, 'Valid CHM ITSF must pass');
+  await assert.rejects(
+    async () => mainModule.validateBookBuffer(Buffer.from('short'), 'chm'),
+    /buffer too small/,
+    'Short CHM must be rejected'
+  );
+
+  // 15. DjVu validation (AT&T)
+  const validDjvuBuffer = Buffer.alloc(50);
+  validDjvuBuffer.set([0x41, 0x54, 0x26, 0x54]);
+  assert.equal(await mainModule.validateBookBuffer(validDjvuBuffer, 'djvu'), true, 'Valid DjVu AT&T must pass');
+  assert.equal(await mainModule.validateBookBuffer(validDjvuBuffer, 'djv'), true, 'Valid DjV AT&T must pass');
+  await assert.rejects(
+    async () => mainModule.validateBookBuffer(Buffer.from('short'), 'djvu'),
+    /buffer too small/,
+    'Short DjVu must be rejected'
+  );
+
+  // 16. OPENABLE_EXTENSIONS must equal SUPPORTED_EXTENSIONS
   assert.deepEqual(mainModule.OPENABLE_EXTENSIONS, mainModule.SUPPORTED_EXTENSIONS, 'OPENABLE_EXTENSIONS must only contain genuinely supported extensions');
 });
 

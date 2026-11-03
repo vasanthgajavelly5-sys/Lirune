@@ -25,6 +25,8 @@ const EpubLoader = (() => {
   let currentSessionToken = 0;
   let userInteracted = false;
   let initialCfi = null;
+  let isNavigating = false;
+  let pendingNavigation = null;
 
   // Prevent epub.js dangling promises on destroyed books from leaking unhandled rejections
   window.addEventListener('unhandledrejection', (event) => {
@@ -62,10 +64,19 @@ const EpubLoader = (() => {
   }
 
   function getLocation() {
-    if (!rendition) return '';
-    const location = rendition.currentLocation();
-    if (!location?.start) return currentBookData?.currentCfi || '';
-    return location.start.cfi;
+    if (!rendition) return currentBookData?.currentCfi || '';
+    try {
+      if (rendition.location?.start?.cfi) {
+        return rendition.location.start.cfi;
+      }
+      const location = rendition.currentLocation?.();
+      if (location && !(location instanceof Promise) && location.start?.cfi) {
+        return location.start.cfi;
+      }
+    } catch {
+      // Ignore transient errors during layout transitions
+    }
+    return currentBookData?.currentCfi || '';
   }
 
   function getNavigation() {
@@ -113,11 +124,15 @@ const EpubLoader = (() => {
    * reflowed documents simply get taller.
    */
   function readingAxis(doc) {
-    if (!doc) return null;
-    const container = doc.querySelector('.epub-container') || doc.body;
-    if (!container) return null;
-    const columns = getComputedStyle(container).columnWidth;
-    return columns && columns !== 'auto' ? 'x' : 'y';
+    const settings = (typeof ReaderSettings !== 'undefined') ? ReaderSettings.getSettings?.() : null;
+    if (settings?.flow === 'scrolled') return 'y';
+    if (!doc) return 'x';
+    const de = doc.documentElement;
+    const body = doc.body;
+    const colDe = de ? getComputedStyle(de).columnWidth : null;
+    const colBody = body ? getComputedStyle(body).columnWidth : null;
+    if ((colDe && colDe !== 'auto') || (colBody && colBody !== 'auto')) return 'x';
+    return 'x';
   }
 
   /**
@@ -678,7 +693,18 @@ const EpubLoader = (() => {
 
   function updateProgress(location) {
     if (!location && rendition) {
-      location = rendition.currentLocation();
+      try {
+        if (rendition.location?.start) {
+          location = rendition.location;
+        } else {
+          const loc = rendition.currentLocation?.();
+          if (loc && !(loc instanceof Promise) && loc.start) {
+            location = loc;
+          }
+        }
+      } catch {
+        // Ignore during transitions
+      }
     }
     if (!location || !location.start) return;
 
@@ -830,9 +856,16 @@ const EpubLoader = (() => {
   /** The index of that document in the spine. */
   function getCurrentSpineIndex() {
     if (!rendition) return null;
-    const location = rendition.currentLocation();
-    const index = location?.start?.index;
-    return Number.isFinite(index) ? index : null;
+    try {
+      if (Number.isFinite(rendition.location?.start?.index)) {
+        return rendition.location.start.index;
+      }
+      const location = rendition.currentLocation?.();
+      const index = (location && !(location instanceof Promise)) ? location.start?.index : null;
+      return Number.isFinite(index) ? index : null;
+    } catch {
+      return null;
+    }
   }
 
   function applyStylesToAllContents() {
@@ -900,7 +933,10 @@ const EpubLoader = (() => {
   }
 
   function applySettings(settings) {
-    if (!rendition) return;
+    if (!settings) {
+      settings = (typeof ReaderSettings !== 'undefined') ? ReaderSettings.getSettings?.() : {};
+    }
+    if (!settings || !rendition) return;
 
     if (settings.fontSize) {
       const effectiveFontSize = Math.round(settings.fontSize * currentZoom / 100);
@@ -920,8 +956,19 @@ const EpubLoader = (() => {
 
   function reRender() {
     if (!currentBookData) return;
-    const currentLocation = rendition ? rendition.currentLocation() : null;
-    const cfi = currentLocation ? currentLocation.start.cfi : currentBookData.currentCfi;
+    let cfi = currentBookData.currentCfi;
+    try {
+      if (rendition?.location?.start?.cfi) {
+        cfi = rendition.location.start.cfi;
+      } else {
+        const currentLocation = rendition?.currentLocation?.();
+        if (currentLocation && !(currentLocation instanceof Promise) && currentLocation.start?.cfi) {
+          cfi = currentLocation.start.cfi;
+        }
+      }
+    } catch {
+      // Use currentBookData.currentCfi fallback
+    }
     openBook(currentBookData, cfi);
   }
 
@@ -949,20 +996,87 @@ const EpubLoader = (() => {
    * is what makes a table of contents land on the exact chapter rather than
    * the one that happens to share its file.
    */
-  function goTo(target, isProgrammatic = false) {
+  function resetToChapterStart(targetFile) {
+    const settings = (typeof ReaderSettings !== 'undefined') ? ReaderSettings.getSettings?.() : null;
+    const isScrolled = settings?.flow === 'scrolled';
+    const scroller = rendition?.manager?.container || document.querySelector('#epub-container .epub-container') || document.getElementById('epub-container');
+
+    if (isScrolled) {
+      if (!targetFile) {
+        if (scroller) scroller.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        return;
+      }
+      const normTarget = normalizeHref(targetFile).split('#')[0].replace(/^.*[\\/]/, '');
+      const views = rendition?.manager?.views?.all?.() || [];
+      const targetView = views.find(v => {
+        const h = normalizeHref(v.section?.href || '').split('#')[0].replace(/^.*[\\/]/, '');
+        return h === normTarget;
+      });
+
+      if (targetView?.element && scroller) {
+        scroller.scrollTo({ top: Math.max(0, targetView.element.offsetTop), left: 0, behavior: 'auto' });
+        return;
+      }
+
+      const doc = getCurrentDocument(targetFile);
+      const frame = doc?.defaultView?.frameElement;
+      if (frame && scroller) {
+        scroller.scrollTo({ top: Math.max(0, frame.offsetTop), left: 0, behavior: 'auto' });
+        return;
+      }
+      if (scroller) scroller.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    } else {
+      if (rendition?.manager?.scrollTo) {
+        rendition.manager.scrollTo(0, 0, true);
+      }
+      if (scroller) scroller.scrollLeft = 0;
+      const view = getViewContainer();
+      if (view) view.scrollLeft = 0;
+    }
+  }
+
+  async function goTo(target, isProgrammatic = false) {
     if (!rendition || !target) return;
     if (!isProgrammatic) userInteracted = true;
+
+    if (isNavigating) {
+      pendingNavigation = { target, isProgrammatic };
+      return;
+    }
+
+    isNavigating = true;
+    try {
+      await performGoTo(target, isProgrammatic);
+    } catch (err) {
+      console.warn('Navigation error in goTo:', err);
+    } finally {
+      isNavigating = false;
+      if (pendingNavigation) {
+        const nextNav = pendingNavigation;
+        pendingNavigation = null;
+        goTo(nextNav.target, nextNav.isProgrammatic);
+      }
+    }
+  }
+
+  async function performGoTo(target, isProgrammatic = false) {
     const text = String(target);
     const at = text.indexOf('#');
     if (at < 0) {
-      rendition.display(text);
+      await rendition.display(text);
+      resetToChapterStart(text);
+      requestAnimationFrame(() => resetToChapterStart(text));
+      setTimeout(() => resetToChapterStart(text), 150);
       return;
     }
 
     const file = text.slice(0, at);
     const fragment = text.slice(at + 1);
     if (!fragment) {
-      rendition.display(file);
+      await rendition.display(file);
+      resetToChapterStart(file);
+      requestAnimationFrame(() => resetToChapterStart(file));
+      setTimeout(() => resetToChapterStart(file), 150);
       return;
     }
 
@@ -973,12 +1087,15 @@ const EpubLoader = (() => {
     // has settled on the new section.
     const onRendered = () => {
       rendition.off('rendered', onRendered);
-      if (!scrollToFragment(fragment, file)) return;
+      if (!scrollToFragment(fragment, file)) {
+        resetToChapterStart(file);
+        return;
+      }
       requestAnimationFrame(() => scrollToFragment(fragment, file));
-      setTimeout(() => scrollToFragment(fragment, file), 300);
+      setTimeout(() => scrollToFragment(fragment, file), 150);
     };
     rendition.on('rendered', onRendered);
-    rendition.display(file);
+    await rendition.display(file);
   }
 
   function getCurrentDocument(targetHref) {
@@ -996,14 +1113,19 @@ const EpubLoader = (() => {
       if (match?.document) return match.document;
     }
 
-    const loc = rendition.currentLocation?.();
-    if (loc?.start?.href) {
-      const locHref = normalizeHref(loc.start.href);
-      const match = contents.find(c => {
-        const h = normalizeHref(c.section?.href);
-        return h && (h === locHref || locHref.endsWith(h) || h.endsWith(locHref));
-      });
-      if (match?.document) return match.document;
+    try {
+      const loc = rendition.location?.start ? rendition.location : null;
+      const safeLoc = loc || (rendition.currentLocation && !(rendition.currentLocation() instanceof Promise) ? rendition.currentLocation() : null);
+      if (safeLoc?.start?.href) {
+        const locHref = normalizeHref(safeLoc.start.href);
+        const match = contents.find(c => {
+          const h = normalizeHref(c.section?.href);
+          return h && (h === locHref || locHref.endsWith(h) || h.endsWith(locHref));
+        });
+        if (match?.document) return match.document;
+      }
+    } catch {
+      // Ignore during transitions
     }
 
     const container = document.getElementById('epub-container');
@@ -1046,16 +1168,34 @@ const EpubLoader = (() => {
     const element = findFragmentElement(doc, fragment);
     if (!element) return false;
 
-    if (readingAxis(doc) === 'x') {
-      // A paginated document is one wide view scrolled by its container, so an
-      // element's own offset is exactly the scroll position that shows it.
-      const view = getViewContainer();
+    const axis = readingAxis(doc);
+    if (axis === 'x') {
+      const view = rendition?.manager?.container || getViewContainer();
       if (!view) return false;
-      view.scrollLeft = Math.max(0, Math.round(element.getBoundingClientRect().left));
+      const pageWidth = view.clientWidth || window.innerWidth || 800;
+      const containerRect = view.getBoundingClientRect();
+      const currentScroll = view.scrollLeft || 0;
+      const elementRect = element.getBoundingClientRect();
+      const absoluteLeft = currentScroll + (elementRect.left - containerRect.left);
+      const targetPage = Math.max(0, Math.floor(absoluteLeft / pageWidth) * pageWidth);
+      if (rendition?.manager?.scrollTo) {
+        rendition.manager.scrollTo(targetPage, 0, true);
+      }
+      view.scrollLeft = targetPage;
     } else {
+      const scroller = rendition?.manager?.container || document.querySelector('#epub-container .epub-container') || document.getElementById('epub-container');
+      const frame = element.ownerDocument?.defaultView?.frameElement || doc?.defaultView?.frameElement;
+      const frameTop = frame ? frame.offsetTop : 0;
       const win = element.ownerDocument?.defaultView || doc?.defaultView;
-      if (!win) return false;
-      win.scrollTo({ top: Math.max(0, Math.round(element.getBoundingClientRect().top)), left: 0 });
+      const pageY = win?.pageYOffset || 0;
+      const clientTop = element.ownerDocument?.documentElement?.clientTop || 0;
+      const elementTop = element.getBoundingClientRect().top + pageY - clientTop;
+      const targetTop = Math.max(0, frameTop + elementTop - 20);
+      if (scroller) {
+        scroller.scrollTo({ top: targetTop, left: 0, behavior: 'auto' });
+      } else if (win) {
+        win.scrollTo({ top: targetTop, left: 0, behavior: 'auto' });
+      }
     }
     return true;
   }
@@ -1166,7 +1306,16 @@ const EpubLoader = (() => {
 
   async function toggleBookmark() {
     if (!rendition || !currentBookData) return;
-    const loc = rendition.currentLocation();
+    let loc = null;
+    try {
+      loc = rendition.location?.start ? rendition.location : null;
+      if (!loc) {
+        const cl = rendition.currentLocation?.();
+        if (cl && !(cl instanceof Promise)) loc = cl;
+      }
+    } catch {
+      // Ignore during transitions
+    }
     if (!loc || !loc.start) return;
 
     const cfi = loc.start.cfi;
@@ -1268,7 +1417,17 @@ const EpubLoader = (() => {
           annotationCache = annotationCache.filter(annotation => annotation.id !== item.id);
           refreshAnnotationsPanel();
           if (currentBookData) {
-            checkBookmarkStatus(rendition?.currentLocation()?.start?.cfi);
+            let bookmarkCfi = null;
+            try {
+              bookmarkCfi = rendition?.location?.start?.cfi;
+              if (!bookmarkCfi) {
+                const cl = rendition?.currentLocation?.();
+                if (cl && !(cl instanceof Promise)) bookmarkCfi = cl?.start?.cfi;
+              }
+            } catch {
+              // Ignore
+            }
+            checkBookmarkStatus(bookmarkCfi);
           }
         });
       }

@@ -12,7 +12,13 @@ const BookFormat = (() => {
     { id: 'pdf', mime: 'application/pdf', test: b => b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46 && b[4] === 0x2d },
     // RAR 1.5–5.x archive marker: "Rar!\x1a\x07"
     { id: 'cbr', mime: 'application/vnd.comicbook-rar', test: b => b[0] === 0x52 && b[1] === 0x61 && b[2] === 0x72 && b[3] === 0x21 && b[4] === 0x1a && b[5] === 0x07 },
-    { id: 'zip', mime: 'application/zip', test: b => (b[0] === 0x50 && b[1] === 0x4b && (b[2] === 0x03 || b[2] === 0x05 || b[2] === 0x07)) }
+    { id: 'zip', mime: 'application/zip', test: b => (b[0] === 0x50 && b[1] === 0x4b && (b[2] === 0x03 || b[2] === 0x05 || b[2] === 0x07)) },
+    // OLE2 Compound Document (DOC): 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1
+    { id: 'doc', mime: 'application/msword', test: b => b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0 && b[4] === 0xa1 && b[5] === 0xb1 && b[6] === 0x1a && b[7] === 0xe1 },
+    // CHM / ITSF: 0x49, 0x54, 0x53, 0x46 ("ITSF")
+    { id: 'chm', mime: 'application/vnd.ms-htmlhelp', test: b => b[0] === 0x49 && b[1] === 0x54 && b[2] === 0x53 && b[3] === 0x46 },
+    // DjVu: AT&T / FORM / DJVU: 0x41, 0x54, 0x26, 0x54 ("AT&T")
+    { id: 'djvu', mime: 'image/vnd.djvu', test: b => b[0] === 0x41 && b[1] === 0x54 && b[2] === 0x26 && b[3] === 0x54 }
   ];
 
   const FORMATS = {
@@ -25,9 +31,13 @@ const BookFormat = (() => {
     docx: { id: 'docx', label: 'Word document', extensions: ['docx'], mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', layout: 'reflowable', supported: true },
     odt: { id: 'odt', label: 'OpenDocument text', extensions: ['odt'], mime: 'application/vnd.oasis.opendocument.text', layout: 'reflowable', supported: true },
     rtf: { id: 'rtf', label: 'Rich text', extensions: ['rtf'], mime: 'application/rtf', layout: 'reflowable', supported: true },
-    mobi: { id: 'mobi', label: 'Kindle / MOBI', extensions: ['mobi', 'azw', 'azw3', 'kfx'], mime: 'application/x-mobipocket-ebook', layout: 'reflowable', supported: false, reason: 'MOBI/KF8 need a native conversion step that is not bundled in this build.' },
-    cbr: { id: 'cbr', label: 'Comic archive (RAR)', extensions: ['cbr'], mime: 'application/vnd.comicbook-rar', layout: 'image', supported: false, reason: 'CBR needs a native RAR decoder. Support is deferred rather than shipping a fragile decoder.' },
-    doc: { id: 'doc', label: 'Legacy Word document', extensions: ['doc'], mime: 'application/msword', layout: 'reflowable', supported: false, reason: 'Legacy .doc (OLE) format requires a native parser. Import as .docx, .rtf or plain text instead.' }
+    md: { id: 'md', label: 'Markdown', extensions: ['md', 'markdown'], mime: 'text/markdown', layout: 'reflowable', supported: true },
+    fbz: { id: 'fbz', label: 'FictionBook archive', extensions: ['fbz'], mime: 'application/x-zip-compressed-fb2', layout: 'reflowable', supported: true },
+    mobi: { id: 'mobi', label: 'Kindle / MOBI', extensions: ['mobi', 'azw', 'azw3'], mime: 'application/x-mobipocket-ebook', layout: 'reflowable', supported: true },
+    cbr: { id: 'cbr', label: 'Comic archive (RAR)', extensions: ['cbr'], mime: 'application/vnd.comicbook-rar', layout: 'image', supported: true },
+    doc: { id: 'doc', label: 'Legacy Word document', extensions: ['doc'], mime: 'application/msword', layout: 'reflowable', supported: true },
+    chm: { id: 'chm', label: 'Compiled HTML Help', extensions: ['chm'], mime: 'application/vnd.ms-htmlhelp', layout: 'reflowable', supported: true },
+    djvu: { id: 'djvu', label: 'DjVu document', extensions: ['djvu', 'djv'], mime: 'image/vnd.djvu', layout: 'reflowable', supported: true }
   };
 
   const UNKNOWN = { id: 'unknown', label: 'Unknown', extensions: [], mime: 'application/octet-stream', layout: 'unknown', supported: false, reason: 'Unrecognised file type.' };
@@ -38,7 +48,7 @@ const BookFormat = (() => {
   // the ZIP signature is an archive, so if it cannot be opened as one it must
   // not quietly fall back to a plain-text reader just because it was named
   // .txt, which would render the raw bytes as a wall of nonsense.
-  const ZIP_CONTAINER_IDS = new Set(['epub', 'cbz', 'docx', 'odt']);
+  const ZIP_CONTAINER_IDS = new Set(['epub', 'cbz', 'docx', 'odt', 'fbz']);
 
   function extensionOf(fileName) {
     const match = /\.([A-Za-z0-9]+)$/.exec(String(fileName || ''));
@@ -89,6 +99,9 @@ const BookFormat = (() => {
         if (signature.id === 'zip') return detectZip(fileName, arrayBuffer, ext);
         if (signature.id === 'pdf') return finish('pdf', 'signature');
         if (signature.id === 'cbr') return finish('cbr', 'signature');
+        if (signature.id === 'doc') return finish('doc', 'signature');
+        if (signature.id === 'chm') return finish('chm', 'signature');
+        if (signature.id === 'djvu') return finish('djvu', 'signature');
       }
     }
 
@@ -106,6 +119,7 @@ const BookFormat = (() => {
         // otherwise. Neither guess is allowed to hide an unreadable file, so
         // the extension is consulted when the header is ambiguous.
         const looksMarkup = /<(p|div|body|head|title|span|table|section|article|h[1-6])\b/i.test(text);
+        if (['md', 'markdown'].includes(ext)) return finish('md', 'extension');
         if (looksMarkup && ext !== 'txt') return finish('html', 'signature');
         if (looksMarkup && ext === 'txt') return finish('html', 'signature', 'txt');
         return finish('txt', 'signature');
@@ -142,6 +156,11 @@ const BookFormat = (() => {
       }
       if (zip.file('content.xml') && (zip.file('META-INF/manifest.xml') || zip.file('styles.xml'))) {
         return { ...FORMATS.odt, source: 'signature' };
+      }
+
+      const hasFb2 = names.some(name => !zip.files[name].dir && extensionOf(name) === 'fb2');
+      if (hasFb2) {
+        return { ...FORMATS.fbz, source: 'signature' };
       }
 
       const images = names.filter(name => !zip.files[name].dir && IMAGE_EXT.includes(extensionOf(name)));

@@ -1021,6 +1021,7 @@
   flex-direction: column;
   overflow: hidden;
   transition: transform var(--dur-normal) var(--ease-out);
+  -webkit-app-region: no-drag;
 }
 .panel-left {
   left: 0;
@@ -1044,6 +1045,7 @@
   padding: var(--sp-4) var(--sp-5);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  -webkit-app-region: no-drag;
 }
 .panel-header h3 {
   font-size: 0.9375rem;
@@ -1055,8 +1057,14 @@
   min-width: 0;
 }
 .panel-header .btn-glass,
-.panel-header .icon-btn:last-child {
+.panel-header .icon-btn {
   flex-shrink: 0;
+  -webkit-app-region: no-drag !important;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.panel-header .icon-btn svg {
+  pointer-events: none;
 }
 .panel-body {
   flex: 1;

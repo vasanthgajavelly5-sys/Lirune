@@ -331,7 +331,11 @@ const App = (() => {
       });
     });
     if (closeTocBtn) {
-      closeTocBtn.addEventListener('click', () => closeDrawer(tocPanel));
+      closeTocBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeDrawer(tocPanel);
+      });
     }
 
     // Settings drawer

@@ -177,7 +177,10 @@ function mimeFor(filePath) {
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.cbr': 'application/vnd.comicbook-rar',
     '.azw3': 'application/vnd.amazon.ebook',
-    '.mobi': 'application/x-mobipocket-ebook'
+    '.mobi': 'application/x-mobipocket-ebook',
+    '.md': 'text/markdown',
+    '.markdown': 'text/markdown',
+    '.fbz': 'application/x-zip-compressed-fb2'
   }[ext] || 'application/octet-stream';
 }
 

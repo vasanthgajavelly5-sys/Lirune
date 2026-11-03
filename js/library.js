@@ -1014,11 +1014,18 @@ const RENDER_BATCH_SIZE = 50;
         case 'pdf': return await parsePdfMetadata(arrayBuffer, record);
         case 'html': return parseHtmlMetadata(arrayBuffer, record);
         case 'fb2': return parseFb2Metadata(arrayBuffer, record);
+        case 'fbz': return await parseFbzMetadata(arrayBuffer, record);
         case 'cbz': return await parseCbzMetadata(arrayBuffer, record);
+        case 'cbr': return await parseCbrMetadata(arrayBuffer, record);
         case 'txt': return parseTextMetadata(arrayBuffer, record);
+        case 'md': return parseMarkdownMetadata(arrayBuffer, record);
+        case 'mobi': return parseMobiMetadata(arrayBuffer, record);
         case 'docx': return await parseDocxMetadata(arrayBuffer, record);
         case 'odt': return await parseOdtMetadata(arrayBuffer, record);
         case 'rtf': return parseRtfMetadata(arrayBuffer, record);
+        case 'doc': return parseDocMetadata(arrayBuffer, record);
+        case 'chm': return parseChmMetadata(arrayBuffer, record);
+        case 'djvu': return parseDjvuMetadata(arrayBuffer, record);
         default: return record;
       }
     } catch (error) {
@@ -1165,6 +1172,63 @@ const RENDER_BATCH_SIZE = 50;
       } catch (error) {
         console.warn('Comic cover render failed:', error);
       }
+    }
+    return record;
+  }
+
+  async function parseFbzMetadata(arrayBuffer, record) {
+    if (typeof JSZip === 'undefined') return record;
+    try {
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const fb2Entry = Object.values(zip.files).find(entry => !entry.dir && entry.name.toLowerCase().endsWith('.fb2'));
+      if (fb2Entry) {
+        const fb2Buffer = await fb2Entry.async('arraybuffer');
+        return parseFb2Metadata(fb2Buffer, record);
+      }
+    } catch (e) {
+      console.warn('FBZ metadata extraction failed:', e);
+    }
+    return record;
+  }
+
+  async function parseCbrMetadata(arrayBuffer, record) {
+    if (typeof CbrAdapter !== 'undefined' && CbrAdapter.parseMetadata) {
+      return await CbrAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return record;
+  }
+
+  function parseMarkdownMetadata(arrayBuffer, record) {
+    if (typeof MarkdownAdapter !== 'undefined' && MarkdownAdapter.parseMetadata) {
+      return MarkdownAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return parseTextMetadata(arrayBuffer, record);
+  }
+
+  function parseMobiMetadata(arrayBuffer, record) {
+    if (typeof MobiAdapter !== 'undefined' && MobiAdapter.parseMetadata) {
+      return MobiAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return record;
+  }
+
+  function parseDocMetadata(arrayBuffer, record) {
+    if (typeof DocAdapter !== 'undefined' && DocAdapter.parseMetadata) {
+      return DocAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return record;
+  }
+
+  function parseChmMetadata(arrayBuffer, record) {
+    if (typeof ChmAdapter !== 'undefined' && ChmAdapter.parseMetadata) {
+      return ChmAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return record;
+  }
+
+  function parseDjvuMetadata(arrayBuffer, record) {
+    if (typeof DjvuAdapter !== 'undefined' && DjvuAdapter.parseMetadata) {
+      return DjvuAdapter.parseMetadata(arrayBuffer, record);
     }
     return record;
   }

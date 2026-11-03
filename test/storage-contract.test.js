@@ -31,13 +31,20 @@ test('managed storage keeps the real format extension', () => {
   assert.equal(isStorageId(`${fingerprint}.fb2`), true);
   assert.equal(isStorageId(`${fingerprint}.odt`), true);
   assert.equal(isStorageId(`${fingerprint}.rtf`), true);
+  assert.equal(isStorageId(`${fingerprint}.md`), true);
+  assert.equal(isStorageId(`${fingerprint}.mobi`), true);
+  assert.equal(isStorageId(`${fingerprint}.cbr`), true);
+  assert.equal(isStorageId(`${fingerprint}.fbz`), true);
+  assert.equal(isStorageId(`${fingerprint}.doc`), true);
+  assert.equal(isStorageId(`${fingerprint}.chm`), true);
+  assert.equal(isStorageId(`${fingerprint}.djvu`), true);
 });
 
 test('unsupported or unsafe storage extensions are refused', () => {
   const fingerprint = fingerprintBuffer(Buffer.from('a rar comic'));
-  assert.throws(() => storageIdForFingerprint(fingerprint, 'cbr'), /Unsupported/);
+  assert.throws(() => storageIdForFingerprint(fingerprint, 'bin'), /Unsupported/);
   assert.throws(() => storageIdForFingerprint(fingerprint, '../evil'), /Unsupported/);
-  assert.equal(isStorageId(`${fingerprint}.cbr`), false);
+  assert.equal(isStorageId(`${fingerprint}.bin`), false);
   assert.equal(isStorageId(`${fingerprint}.exe`), false);
   assert.equal(isStorageId(`${fingerprint}.epub.exe`), false);
 });

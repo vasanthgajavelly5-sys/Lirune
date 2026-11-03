@@ -37,10 +37,11 @@ if exist "%ProgramFiles%\Lirune Reader\Lirune Reader.exe" (
     goto :done
 )
 
-if exist "%ProgramFiles(x86)%\Lirune Reader\Lirune Reader.exe" (
-    echo [INFO] Found installed Lirune Reader in %ProgramFiles(x86)%\Lirune Reader
+set "PF86=%ProgramFiles(x86)%"
+if defined PF86 if exist "%PF86%\Lirune Reader\Lirune Reader.exe" (
+    echo [INFO] Found installed Lirune Reader in %PF86%\Lirune Reader
     echo Starting Lirune Reader...
-    start "" "%ProgramFiles(x86)%\Lirune Reader\Lirune Reader.exe" %*
+    start "" "%PF86%\Lirune Reader\Lirune Reader.exe" %*
     goto :done
 )
 

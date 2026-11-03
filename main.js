@@ -13,7 +13,7 @@ if (process.platform === 'win32' && app?.setAppUserModelId) {
 
 // Formats the application can open. Kept in sync with js/formats.js; the
 // renderer performs the authoritative content-based detection.
-const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf'];
+const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf', 'md', 'markdown', 'fbz', 'mobi', 'azw', 'azw3', 'cbr', 'doc', 'chm', 'djvu', 'djv'];
 const OPENABLE_EXTENSIONS = [...SUPPORTED_EXTENSIONS];
 
 const MAX_BOOK_FILE_SIZE = 512 * 1024 * 1024; // 512MB
@@ -573,11 +573,53 @@ async function validateBookBuffer(buffer, extension = '') {
     }
     return true;
   }
-  if (['txt', 'html', 'htm'].includes(ext)) {
+  if (ext === 'fbz') {
+    if (!isZip) throw new Error('Not a readable ZIP archive');
+    const zip = await JSZip.loadAsync(buffer);
+    validateZipSafety(zip);
+    const hasFb2 = Object.keys(zip.files).some(name => name.toLowerCase().endsWith('.fb2'));
+    if (!hasFb2) {
+      throw new Error('Not a valid FictionBook archive: no .fb2 file found inside');
+    }
+    return true;
+  }
+  if (['mobi', 'azw', 'azw3'].includes(ext)) {
+    if (buffer.length < 68) throw new Error('Not a valid Kindle/MOBI file: header too short');
+    const name = buffer.slice(60, 68).toString('latin1');
+    const isPalm = name === 'BOOKMOBI' || name.startsWith('TEXt') || (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x00 && buffer[3] === 0x60);
+    if (!isPalm) throw new Error('Not a valid Kindle/MOBI document');
+    return true;
+  }
+  if (ext === 'cbr') {
+    if (buffer.length < 7) throw new Error('Not a valid RAR archive: header too short');
+    const isRar = buffer[0] === 0x52 && buffer[1] === 0x61 && buffer[2] === 0x72 && buffer[3] === 0x21 && buffer[4] === 0x1A && buffer[5] === 0x07;
+    if (!isRar) throw new Error('Not a valid RAR archive (.cbr)');
+    return true;
+  }
+  if (ext === 'doc') {
+    if (buffer.length < 512) throw new Error('Not a valid Word (.doc) document: file too small');
+    const isOle = buffer[0] === 0xd0 && buffer[1] === 0xcf && buffer[2] === 0x11 && buffer[3] === 0xe0 &&
+                  buffer[4] === 0xa1 && buffer[5] === 0xb1 && buffer[6] === 0x1a && buffer[7] === 0xe1;
+    if (!isOle) throw new Error('Not a valid Word (.doc) document');
+    return true;
+  }
+  if (ext === 'chm') {
+    if (buffer.length < 100) throw new Error('Not a valid Compiled HTML Help (.chm) file: buffer too small');
+    const isItsf = buffer[0] === 0x49 && buffer[1] === 0x54 && buffer[2] === 0x53 && buffer[3] === 0x46;
+    if (!isItsf) throw new Error('Not a valid Compiled HTML Help (.chm) file');
+    return true;
+  }
+  if (['djvu', 'djv'].includes(ext)) {
+    if (buffer.length < 12) throw new Error('Not a valid DjVu file: buffer too small');
+    const isDjvu = buffer[0] === 0x41 && buffer[1] === 0x54 && buffer[2] === 0x26 && buffer[3] === 0x54;
+    if (!isDjvu) throw new Error('Not a valid DjVu document');
+    return true;
+  }
+  if (['txt', 'html', 'htm', 'md', 'markdown'].includes(ext)) {
     return true;
   }
   if (isZip) {
-    throw new Error(`Unsupported archive format${ext ? ` (.${ext})` : ''}. Only EPUB, CBZ, DOCX, and ODT archives are supported.`);
+    throw new Error(`Unsupported archive format${ext ? ` (.${ext})` : ''}. Only EPUB, CBZ, DOCX, ODT, and FBZ archives are supported.`);
   }
   throw new Error(`Unsupported file type${ext ? ` (.${ext})` : ''}`);
 }
@@ -648,6 +690,50 @@ ipcMain.handle('fs:delete-book', (event, storageId) => {
     console.error('Error deleting book file:', e);
   }
   return false;
+});
+
+// Extract image files from RAR (.cbr) archive
+ipcMain.handle('archive:extract-rar', async (event, arrayBuffer) => {
+  requireTrustedSender(event);
+  try {
+    const unrar = require('node-unrar-js');
+    const buf = Buffer.from(arrayBuffer);
+    if (buf.length > MAX_BOOK_FILE_SIZE) throw new Error('CBR exceeds maximum file size');
+    const cleanData = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    const extractor = await unrar.createExtractorFromData({ data: cleanData });
+    const extracted = extractor.extract();
+    const files = [...extracted.files];
+    const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.jxl'];
+    const entries = [];
+    let totalBytes = 0;
+
+    for (const file of files) {
+      if (file.fileHeader?.flags?.directory) continue;
+      const rawName = file.fileHeader?.name || '';
+      // Validate against path traversal
+      if (rawName.includes('..') || path.isAbsolute(rawName) || /^[a-zA-Z]:/.test(rawName)) continue;
+      const isImg = IMAGE_EXTS.some(ext => rawName.toLowerCase().endsWith(ext));
+      if (!isImg || !file.extraction) continue;
+
+      if (file.extraction.length > MAX_ZIP_SINGLE_ENTRY_SIZE) {
+        throw new Error('CBR contains an oversized image file');
+      }
+      totalBytes += file.extraction.length;
+      if (totalBytes > MAX_ZIP_AGGREGATE_BYTES) {
+        throw new Error('CBR archive expansion limit exceeded');
+      }
+
+      entries.push({
+        name: rawName,
+        buffer: file.extraction.buffer.slice(file.extraction.byteOffset, file.extraction.byteOffset + file.extraction.byteLength)
+      });
+    }
+
+    return { success: true, entries };
+  } catch (err) {
+    console.error('Failed to extract RAR archive:', err);
+    return { success: false, error: err.message || 'Failed to read RAR archive' };
+  }
 });
 
 ipcMain.handle('fs:get-storage-path', (event) => {

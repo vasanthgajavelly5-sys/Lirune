@@ -46,6 +46,7 @@ const desktopApi = {
   getPendingOpenFile: () => ipcRenderer.invoke('app:get-pending-file'),
   hasPendingOpenFile: () => ipcRenderer.invoke('app:has-pending-file'),
   revokePendingBookFile: (filePath) => ipcRenderer.invoke('fs:revoke-pending-book', filePath),
+  extractRarArchive: (buffer) => ipcRenderer.invoke('archive:extract-rar', buffer),
   onNativeFullscreenChanged: (callback) => {
     ipcRenderer.on('native-fullscreen-changed', (_event, isFullscreen) => callback(Boolean(isFullscreen)));
   }

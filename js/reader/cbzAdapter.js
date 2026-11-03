@@ -111,7 +111,7 @@ const CbzAdapter = (() => {
       if (!this.pages.length || this.destroyed) return false;
       const target = Math.min(this.pages.length - 1, Math.max(0, Number(index) || 0));
       const page = this.pages[target];
-      const blob = await page.entry.async('blob');
+      const blob = page.blob || (page.entry ? await page.entry.async('blob') : new Blob([page.buffer]));
       if (this.destroyed) return false;
       const url = URL.createObjectURL(blob);
       const previous = this.image.dataset.objectUrl;
@@ -244,5 +244,71 @@ const CbzAdapter = (() => {
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   }
 
-  return { Adapter };
+  return { Adapter, naturalCompare };
+})();
+
+const CbrAdapter = (() => {
+  class Adapter extends CbzAdapter.Adapter {
+    constructor(host, record) {
+      super(host, record);
+      this.format = 'cbr';
+      this.formatLabel = 'Comic archive (RAR)';
+    }
+
+    async open(hooks) {
+      this.hooks = hooks || {};
+      const bytes = await this.loadBytes();
+      const desktopApi = window.noveraDesktop || window.liruneDesktop;
+      if (!desktopApi?.extractRarArchive) {
+        throw new Error('RAR archive support is unavailable in this environment.');
+      }
+      const res = await desktopApi.extractRarArchive(bytes.buffer ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) : bytes);
+      if (!res || !res.success || !res.entries) {
+        throw new Error(res?.error || 'Failed to extract images from RAR archive.');
+      }
+      this.pages = res.entries
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+        .map(e => ({
+          name: e.name,
+          blob: new Blob([e.buffer])
+        }));
+      if (!this.pages.length) throw new Error('This comic archive contains no readable images.');
+      this._mount();
+      this._attachResize();
+      await this.renderPage(this._savedPage());
+      return true;
+    }
+  }
+
+  async function parseMetadata(arrayBuffer, record) {
+    const desktopApi = window.noveraDesktop || window.liruneDesktop;
+    if (!desktopApi?.extractRarArchive) return record;
+    try {
+      const res = await desktopApi.extractRarArchive(arrayBuffer);
+      if (!res?.success || !Array.isArray(res.entries)) return record;
+      const images = res.entries.sort((a, b) => naturalCompare(a.name, b.name));
+      record.pageCount = images.length;
+      record.chapterCount = images.length || null;
+      if (images.length > 0 && typeof createImageBitmap !== 'undefined') {
+        try {
+          const blob = new Blob([images[0].buffer]);
+          const bitmap = await createImageBitmap(blob);
+          const scale = Math.min(1, 420 / Math.max(bitmap.width, 1));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.floor(bitmap.width * scale));
+          canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
+          canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          bitmap.close?.();
+          record.coverDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        } catch (e) {
+          console.warn('CBR cover render failed:', e);
+        }
+      }
+    } catch (e) {
+      console.warn('CBR metadata extraction failed:', e);
+    }
+    return record;
+  }
+
+  return { Adapter, parseMetadata };
 })();

@@ -1,40 +1,50 @@
 # Lirune Reader
 
-> A calm, private home for your EPUB library on Windows.
+> A calm, private home for your library on Windows & Android.
 
-Lirune Reader is a free and open-source Windows desktop reader for EPUB books. It keeps your library, reading progress, highlights, notes, themes, and preferences on your computer without an account or cloud library.
+Lirune Reader is a free, private, and open-source reading application available for **Windows (Desktop & Microsoft Store)** and **Android (Direct Release APK)**. It keeps your library, reading progress, highlights, notes, typography themes, and preferences strictly on your device without requiring an account, cloud sync, or internet connection.
 
-## Features
+## Supported Document & E-Book Formats
 
-- Local library with cover art, search, sorting, grid/list views, progress, favorites, collections, and continue reading.
-- EPUB 2 and EPUB 3 reading in paginated or scrolling layouts.
-- Table of contents, in-book search, bookmarks, highlights, notes, and Markdown annotation export.
-- Single-file, folder, recursive, drag-and-drop, and Explorer imports.
-- Collision-safe managed EPUB storage outside normal IndexedDB metadata reads.
-- Local metadata backup and restore.
-- Offline-first operation with no account, cloud library, telemetry, or remote font dependency.
+Lirune Reader supports **19 universal document, e-book, and comic book formats** across both Windows and Android:
 
-## Install On Windows
+| Category | Format Extensions | Reader Engine & Security |
+|:---|:---|:---|
+| **Standard E-Books** | `.epub` (EPUB 2 / 3) | Full spine pagination & continuous virtualized scroll, custom styling, TOC. |
+| **PDF Documents** | `.pdf` | Integrated offline PDF.js engine with page jumping and zoom controls. |
+| **Kindle Formats** | `.mobi`, `.azw`, `.azw3` | PalmDOC & KF8 record unpacking with text extraction. |
+| **FictionBook2** | `.fb2`, `.fbz` (Zipped FB2) | Clean XML parser, base64 cover extraction, and strict XSS sanitization. |
+| **Office Documents** | `.docx`, `.doc`, `.odt`, `.rtf` | Word & OpenDocument XML unpacker, RTF control-word tokenizer (no macros). |
+| **Text & Markup** | `.txt`, `.md`, `.html`, `.htm` | Clean CommonMark markdown, encoded plaintext, and script-stripped HTML. |
+| **Comic Books** | `.cbz`, `.cbr`, `.cb7` | High-resolution image archive extraction with zip-bomb protection. |
+| **Reference & Scanned**| `.chm`, `.djvu` | ITSF compiled help HTML extraction and DjVu layered document viewer. |
 
-Download the latest `Lirune Reader-<version>-Setup.exe` from the repository's Releases page. The installer adds Start Menu and desktop shortcuts and associates `.epub` files with Lirune Reader.
+*Note: DRM-protected files and encrypted proprietary containers are rejected. Lirune Reader respects copyright and does not circumvent copy protection.*
 
-Unsigned development releases may trigger Windows reputation or Application Control warnings. Verify that installers came from the official project release before running them.
+## Key Features
 
-## EPUB Compatibility
+- **Universal Multi-Format Library**: Grid and list views, cover art caching, reading progress, favorites, collections, and continue reading.
+- **Reading Comfort**: Paginated or continuous vertical scroll modes, responsive font sizing, line height, margins, and custom themes (including Nord, Gruvbox, Solarized, Dracula, OLED, and Sepia).
+- **Study & Annotations**: Interactive table of contents, in-book search, bookmarks, highlights, notes, and Markdown annotation export.
+- **Privacy & Zero Telemetry**: 100% offline operation. No accounts, no analytics, no external tracking, and zero remote font dependencies.
+- **Security Hardened**: DOMPurify HTML sanitization, context isolation, strict CSP, path traversal (Zip-Slip) guards, and 512 MB file bounds.
 
-Lirune Reader accepts standard EPUB 2 and EPUB 3 ZIP packages with `META-INF/container.xml` and an OPF package document. It supports nested OPF paths, Unicode filenames, incomplete metadata, and cover resources when epub.js can resolve them.
+## Available Platforms
 
-DRM-protected books and EPUBs with encrypted resources are detected and rejected. Lirune Reader does not bypass DRM. Malformed archives and invalid package documents are reported without stopping a folder import.
+### 1. Windows (Desktop & Microsoft Store)
+- **Direct Installer**: Download `Lirune Reader-5.6.2-Setup.exe` from [GitHub Releases](https://github.com/vasanthgajavelly5-sys/Lirune/releases).
+- **Microsoft Store**: Packaged as AppX (`Lirune.LiruneReader`, Product ID `9PDNFZ146HDX`).
+- **Portable / Batch Launcher**: Run `Launch-Lirune.bat` to launch the local build directly.
 
-## Privacy
-
-Books and reading data stay on the computer. Managed EPUB binaries are stored in local application storage. IndexedDB stores metadata, reading state, annotations, preferences, favorites, and collections; it does not serve as the library's binary store after migration.
-
-Lirune Reader does not require an account and does not upload book content, annotations, or library metadata. See [PRIVACY.md](docs/PRIVACY.md) and [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+### 2. Android (Mobile & Tablet)
+- **Edition**: Lirune Reader for Android (v4.9.3+), powered by React Native and Expo Router.
+- **Direct APK**: Download `Lirune-Reader-v4.9.3-release.apk` directly from [GitHub Releases](https://github.com/vasanthgajavelly5-sys/Lirune/releases/tag/v4.9.3).
+- **Mobile Engine**: Features exclusive virtualized **Scroll Engine v2**, native SQLite storage, Android Storage Access Framework (SAF) folder browsing, and zero network permissions (`android.permission.INTERNET` stripped from production release builds).
+- **Source Code**: Maintained in the `android` branch under the `mobile/` directory.
 
 ## Development
 
-Requirements: Windows 10 or later, Node.js 20 or newer, and npm.
+Requirements: Windows 10/11, Node.js 20 or newer, and npm.
 
 ```powershell
 git clone https://github.com/vasanthgajavelly5-sys/Lirune.git
@@ -43,33 +53,37 @@ npm ci
 npm start
 ```
 
-> The repository was renamed from **Novera** to **Lirune** on GitHub. GitHub redirects the old URL, so existing clone links, issue links, and release links continue to work.
-
 Useful commands:
 
 ```powershell
-npm run lint
-npm test
-npm run audit
-npm run validate:corpus
-npm run pack
-npm run dist:win
-npm run validate:release
-npm run dist:store
+npm test                  # Run Windows desktop test suite
+npm run lint              # Static analysis and linting
+npm run dist:win          # Build Windows NSIS installer
+npm run dist:store        # Build Microsoft Store AppX package
+npm run validate:release  # Validate release configuration and artifacts
 ```
 
-`Master_EPUB_Library_All/` is an optional local regression corpus and is intentionally ignored by Git. Do not add books, private libraries, credentials, or generated user storage to commits.
+To build Android:
+```powershell
+git checkout android
+cd mobile
+npm install
+npm test
+cd android
+./gradlew :app:assembleRelease
+```
 
-## Mobile App
+## Privacy & Security
 
-The `android` branch contains the Lirune Reader mobile foundation in [mobile](mobile). It uses Expo and React Native and remains a separate mobile integration layer.
+Books and reading data stay on your computer or phone. Managed book binaries are stored in private local storage. IndexedDB / SQLite store metadata, reading state, annotations, and preferences.
+
+Lirune Reader does not collect telemetry, make remote API requests, or send reading data over the network. See [PRIVACY.md](docs/PRIVACY.md) and [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Troubleshooting
 
 - **A book will not import:** Check the displayed error. Lirune Reader rejects invalid archives, missing package files, encrypted resources, and DRM-protected books.
-- **An EPUB does not open from Explorer:** Re-run the installer and try again. The installer registers the `.epub` association.
-- **The app will not start from source:** Run `npm ci`, confirm Node.js with `node --version`, and retry `npm start`.
-- **I need to reset my library:** Back up application data first. Resetting application data removes books, annotations, and preferences.
+- **Windows SmartScreen warning:** Lirune is an independent open-source project. If SmartScreen shows an unrecognized app warning on unsigned releases, click "More info" -> "Run anyway".
+- **Android installation:** Enable "Install unknown apps" in Android settings for your browser or file manager to install the standalone APK.
 
 ## License
 

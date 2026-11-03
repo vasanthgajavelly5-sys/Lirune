@@ -2,7 +2,12 @@
 
 > A calm, private home for your library on Windows & Android.
 
-Lirune Reader is a free, private, and open-source reading application available for **Windows (Desktop & Microsoft Store)** and **Android (Direct Release APK)**. It keeps your library, reading progress, highlights, notes, typography themes, and preferences strictly on your device without requiring an account, cloud sync, or internet connection.
+[![Download on Microsoft Store](https://img.shields.io/badge/Microsoft_Store-Get_the_App-0078D7?logo=microsoft&logoColor=white)](https://apps.microsoft.com/detail/9PDNFZ146HDX?hl=en-us&gl=IN&ocid=pdpshare)
+[![GitHub Windows Release](https://img.shields.io/github/v/release/vasanthgajavelly5-sys/Lirune?label=Windows%20Release)](https://github.com/vasanthgajavelly5-sys/Lirune/releases/tag/v5.6.2)
+[![Android APK Release](https://img.shields.io/badge/Android%20APK-v4.9.3-3DDC84?logo=android&logoColor=white)](https://github.com/vasanthgajavelly5-sys/Lirune/releases/tag/v4.9.3)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
+Lirune Reader is a free, private, and open-source reading application available on the **[Microsoft Store](https://apps.microsoft.com/detail/9PDNFZ146HDX?hl=en-us&gl=IN&ocid=pdpshare)**, as a **Windows Desktop Installer / Portable Executable**, and for **Android (Direct Release APK)**. It keeps your library, reading progress, highlights, notes, typography themes, and preferences strictly on your device without requiring an account, cloud sync, or internet connection.
 
 ## Supported Document & E-Book Formats
 
@@ -29,11 +34,11 @@ Lirune Reader supports **19 universal document, e-book, and comic book formats**
 - **Privacy & Zero Telemetry**: 100% offline operation. No accounts, no analytics, no external tracking, and zero remote font dependencies.
 - **Security Hardened**: DOMPurify HTML sanitization, context isolation, strict CSP, path traversal (Zip-Slip) guards, and 512 MB file bounds.
 
-## Available Platforms
+## Available Platforms & Installation
 
 ### 1. Windows (Desktop & Microsoft Store)
-- **Direct Installer**: Download `Lirune Reader-5.6.2-Setup.exe` from [GitHub Releases](https://github.com/vasanthgajavelly5-sys/Lirune/releases).
-- **Microsoft Store**: Packaged as AppX (`Lirune.LiruneReader`, Product ID `9PDNFZ146HDX`).
+- **Microsoft Store (Official)**: [Install from the Microsoft Store](https://apps.microsoft.com/detail/9PDNFZ146HDX?hl=en-us&gl=IN&ocid=pdpshare) (Product ID: `9PDNFZ146HDX`).
+- **Direct Installer**: Download `Lirune Reader-5.6.2-Setup.exe` from [GitHub Releases](https://github.com/vasanthgajavelly5-sys/Lirune/releases/tag/v5.6.2).
 - **Portable / Batch Launcher**: Run `Launch-Lirune.bat` to launch the local build directly.
 
 ### 2. Android (Mobile & Tablet)
@@ -82,7 +87,7 @@ Lirune Reader does not collect telemetry, make remote API requests, or send read
 ## Troubleshooting
 
 - **A book will not import:** Check the displayed error. Lirune Reader rejects invalid archives, missing package files, encrypted resources, and DRM-protected books.
-- **Windows SmartScreen warning:** Lirune is an independent open-source project. If SmartScreen shows an unrecognized app warning on unsigned releases, click "More info" -> "Run anyway".
+- **Windows SmartScreen warning:** Lirune is an independent open-source project. If SmartScreen shows an unrecognized app warning on unsigned releases, click "More info" -> "Run anyway", or install directly via the [Microsoft Store](https://apps.microsoft.com/detail/9PDNFZ146HDX?hl=en-us&gl=IN&ocid=pdpshare).
 - **Android installation:** Enable "Install unknown apps" in Android settings for your browser or file manager to install the standalone APK.
 
 ## License

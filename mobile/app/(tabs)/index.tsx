@@ -42,6 +42,7 @@ import {
   EmptyCollectionsFilterState,
 } from '@/components/EmptyState';
 import { perf } from '@/utils/perf';
+import { ImportQueuePill } from '@/components/ImportQueuePill';
 
 export default function LibraryScreen() {
   const router = useRouter();
@@ -659,6 +660,9 @@ export default function LibraryScreen() {
         message={toastMessage || ''}
         onDismiss={() => setToastMessage(null)}
       />
+
+      {/* Import Queue Floating Pill */}
+      <ImportQueuePill />
     </SafeAreaView>
   );
 }

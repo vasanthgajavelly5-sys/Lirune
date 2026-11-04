@@ -44,6 +44,7 @@ import { LiruneToast } from '@/components/LiruneToast';
 import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
 import { ImportService } from '@/services/import/ImportService';
 import { logger } from '@/utils/logger';
+import { ImportQueuePill } from '@/components/ImportQueuePill';
 
 const TAG = 'FoldersScreen';
 
@@ -2044,6 +2045,9 @@ export default function FoldersScreen() {
       {toastMessage && (
         <LiruneToast visible={!!toastMessage} message={toastMessage} onDismiss={() => setToastMessage(null)} />
       )}
+
+      {/* Import Queue Floating Pill */}
+      <ImportQueuePill />
     </SafeAreaView>
   );
 }

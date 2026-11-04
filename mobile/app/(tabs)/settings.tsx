@@ -34,7 +34,6 @@ import { LiruneNavButton } from '@/components/navigation/LiruneSideNav';
 import { LiruneDialog } from '@/components/LiruneDialog';
 import { LiruneToast } from '@/components/LiruneToast';
 import { WelcomeGuideModal } from '@/components/WelcomeGuideModal';
-import { StorageDiagnosticsModal } from '@/components/diagnostics/StorageDiagnosticsModal';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -62,7 +61,6 @@ export default function SettingsScreen() {
   // Modal & Dialog States
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showWelcomeGuide, setShowWelcomeGuide] = useState(false);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [dialogInfo, setDialogInfo] = useState<{
     visible: boolean;
     title: string;
@@ -759,22 +757,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 7. DEVELOPER & DIAGNOSTICS */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Developer</Text>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          <TouchableOpacity
-            style={styles.actionRow}
-            onPress={() => setShowDiagnostics(true)}
-          >
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={[styles.rowLabel, { color: colors.text }]}>Storage Diagnostics</Text>
-              <Text style={[styles.rowSubtitle, { color: colors.textSecondary }]}>
-                Inspect SAF grants, storage volumes, job journal &amp; engine logs
-              </Text>
-            </View>
-            <Ionicons name="hardware-chip-outline" size={20} color={colors.accent} />
-          </TouchableOpacity>
-        </View>
 
         {/* 8. ABOUT */}
         <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>About</Text>
@@ -820,12 +802,6 @@ export default function SettingsScreen() {
 
         <View style={{ height: 48 }} />
       </ScrollView>
-
-      {/* Storage Diagnostics Modal */}
-      <StorageDiagnosticsModal
-        visible={showDiagnostics}
-        onClose={() => setShowDiagnostics(false)}
-      />
 
       {/* Clear Library Dialog */}
       <LiruneDialog

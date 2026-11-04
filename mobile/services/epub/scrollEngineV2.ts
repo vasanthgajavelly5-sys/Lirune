@@ -398,6 +398,26 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
             }
             window.scrollTo(0, Math.max(0, top));
           }
+        },
+        scrollToChapter: function(chapterIndex, anchorId, smooth) {
+          var sec = document.getElementById('chapter-' + chapterIndex);
+          if (!sec) return false;
+          var targetEl = sec;
+          if (anchorId) {
+            var anchor = document.getElementById(anchorId) ||
+                         document.querySelector('[name="' + anchorId + '"]');
+            if (anchor && sec.contains(anchor)) {
+              targetEl = anchor;
+            }
+          }
+          var rect = targetEl.getBoundingClientRect();
+          var targetY = Math.max(0, rect.top + (window.pageYOffset || 0));
+          if (smooth !== false) {
+            window.scrollTo({ top: targetY, behavior: 'smooth' });
+          } else {
+            window.scrollTo(0, targetY);
+          }
+          return true;
         }
       };
     })();

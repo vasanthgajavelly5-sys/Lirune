@@ -1091,6 +1091,10 @@ if (!targetCfi || chapters.length === 0) return;
     void hydrateChapters([idx]).then(() => {
       webViewRef.current?.injectJavaScript(`
         (function () {
+          if (window.__liruneV2 && window.__liruneV2.scrollToChapter) {
+            window.__liruneV2.scrollToChapter(${idx}, ${JSON.stringify(target.anchor || null)}, true);
+            return;
+          }
           var section = document.getElementById('chapter-${idx}');
           if (!section) return;
           ${

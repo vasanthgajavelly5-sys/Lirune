@@ -377,7 +377,7 @@ async function backfillMissingCovers(booksToHeal: Book[]): Promise<void> {
           coverUrl: meta.coverUrl || book.coverUrl,
           thumbnailUrl: thumb || meta.coverUrl || book.thumbnailUrl,
           coverColor: meta.coverColor || book.coverColor,
-          chapterCount: book.chapterCount > 1 ? book.chapterCount : (meta.chapterCount || book.chapterCount),
+          chapterCount: (book.chapterCount ?? 1) > 1 ? (book.chapterCount ?? 1) : (meta.chapterCount || book.chapterCount || 1),
         };
 
         if (meta.coverUrl || thumb || meta.title !== book.title) {
@@ -404,3 +404,4 @@ async function backfillMissingCovers(booksToHeal: Book[]): Promise<void> {
     isBackfillingCovers = false;
   }
 }
+

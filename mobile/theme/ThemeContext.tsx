@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Colors, type ColorScheme, READER_THEMES, type ReaderThemePalette } from './Colors';
 import { useSettingsStore, type AppThemeOption } from '@/state/settingsStore';
 
-type ThemeColors = { [K in keyof typeof Colors.dark]: string };
+export type ThemeColors = { [K in keyof typeof Colors.dark]: string };
 
 export interface ThemeContextValue {
   scheme: ColorScheme;

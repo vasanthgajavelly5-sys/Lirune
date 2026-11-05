@@ -12,7 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { ThemeColors } from '@/theme/Colors';
+import { ThemeColors } from '@/theme/ThemeContext';
 
 interface AppThemeSwitchProps {
   isDark: boolean;

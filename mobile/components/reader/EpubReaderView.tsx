@@ -814,8 +814,7 @@ export function EpubReaderView({
                   /^(?:cover|jacket|titlepage)$/i.test(c.title.trim()) ||
                   Boolean(
                     epubPackage.coverPath &&
-                      c.body &&
-                      c.body.includes(epubPackage.coverPath.split('/').pop() || '____no_match____')
+                      (c as any).body && (c as any).body.includes(epubPackage.coverPath.split('/').pop() || '____no_match____')
                   ))
             );
             if (epubPackage.coverPath && !hasCoverInSpine) {
@@ -1064,10 +1063,6 @@ function resolveSpineTarget(
   }
 
   if (targetCfi.startsWith('scroll-anchor:')) {
-    const anchor = parseScrollAnchor(targetCfi);
-    if (anchor && Number.isFinite(anchor.chapterIndex)) {
-      return { spineIndex: anchor.chapterIndex, fraction: anchor.fraction };
-    }
     const match = targetCfi.match(/chapter-(\d+)/);
     if (match) {
       return { spineIndex: Number(match[1]) };
@@ -1847,3 +1842,5 @@ const styles = StyleSheet.create({
   },
   pageFooterText: { fontSize: 11, letterSpacing: 0.3, fontWeight: '500', opacity: 0.7 },
 });
+
+

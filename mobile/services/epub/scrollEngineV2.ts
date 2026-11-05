@@ -35,6 +35,9 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
       var scrollRafId = null;
       var lastProgressTime = 0;
       var idleEvictTimer = null;
+      var isNavigating = false;
+      var navTimer = null;
+      var pendingScrollTarget = null;
       var loadedChapters = new Set([activeIndex]);
       var pendingRequests = new Set();
       var MAX_DOM_CHAPTERS = 12; // Memory budget guard for low-RAM devices
@@ -229,6 +232,7 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
       }
 
       function sendProgress() {
+        if (isNavigating) return;
         var loc = captureLocator();
         activeIndex = loc.chapterIndex;
 
@@ -244,6 +248,7 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
       }
 
       function onScrollTick() {
+        if (isNavigating) return;
         updateVelocity();
         scanAndRequestChapters();
 
@@ -345,6 +350,19 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
         supplyChapters: function(payload) {
           if (!Array.isArray(payload)) return;
 
+          // Scroll anchoring: track an anchor element in current view to prevent content jump
+          var anchorEl = null;
+          var anchorTopBefore = 0;
+          if (activeIndex !== null && activeIndex !== undefined) {
+            var activeSec = document.getElementById('chapter-' + activeIndex);
+            if (activeSec) {
+              anchorEl = activeSec.querySelector('h1, h2, h3, h4, [role="heading"], .chapter-title, .title, [class*="title"]') || activeSec;
+              if (anchorEl) {
+                anchorTopBefore = anchorEl.getBoundingClientRect().top;
+              }
+            }
+          }
+
           for (var i = 0; i < payload.length; i++) {
             var item = payload[i];
             var sec = document.getElementById('chapter-' + item.index);
@@ -353,6 +371,9 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
 
             body.innerHTML = item.body;
             sec.setAttribute('data-loaded', 'true');
+            if (item.hasHeading !== undefined) {
+              sec.setAttribute('data-has-heading', item.hasHeading ? 'true' : 'false');
+            }
             loadedChapters.add(item.index);
             pendingRequests.delete(item.index);
             observeLazyImages(body);
@@ -365,9 +386,27 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
             }
           }
 
+          // If content above changed height and we're not jumping to a new target, compensate scroll
+          if (anchorEl && !pendingScrollTarget) {
+            var anchorTopAfter = anchorEl.getBoundingClientRect().top;
+            var delta = anchorTopAfter - anchorTopBefore;
+            if (Math.abs(delta) > 0.5) {
+              window.scrollBy(0, delta);
+            }
+          }
+
           // If current scroll window needs more after injection, re-scan
           window.requestAnimationFrame(function() {
-            scanAndRequestChapters();
+            if (pendingScrollTarget && payload.some(function(it) { return it.index === pendingScrollTarget.chapterIndex; })) {
+              var targetToScroll = pendingScrollTarget;
+              pendingScrollTarget = null;
+              window.__liruneV2.scrollToChapter(targetToScroll.chapterIndex, targetToScroll.anchorId, false);
+            } else if (pendingScrollTarget && isNavigating) {
+              // Chapters above the pending target arrived and changed page height — keep scanning
+              scanAndRequestChapters();
+            } else if (!isNavigating) {
+              scanAndRequestChapters();
+            }
           });
         },
         supplyImage: function(path, dataUri) {
@@ -402,21 +441,104 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
         scrollToChapter: function(chapterIndex, anchorId, smooth) {
           var sec = document.getElementById('chapter-' + chapterIndex);
           if (!sec) return false;
-          var targetEl = sec;
-          if (anchorId) {
-            var anchor = document.getElementById(anchorId) ||
-                         document.querySelector('[name="' + anchorId + '"]');
-            if (anchor && sec.contains(anchor)) {
-              targetEl = anchor;
-            }
+
+          activeIndex = chapterIndex;
+          var isLoaded = sec.getAttribute('data-loaded') === 'true';
+          if (!isLoaded) {
+            // Chapter not yet in DOM — park the target and let supplyChapters trigger the scroll
+            pendingScrollTarget = { chapterIndex: chapterIndex, anchorId: anchorId };
+            isNavigating = true;
+            return true;
           }
-          var rect = targetEl.getBoundingClientRect();
-          var targetY = Math.max(0, rect.top + (window.pageYOffset || 0));
-          if (smooth !== false) {
-            window.scrollTo({ top: targetY, behavior: 'smooth' });
-          } else {
+
+          isNavigating = true;
+          if (navTimer) clearTimeout(navTimer);
+
+          function resolveTarget() {
+            var targetEl = null;
+            if (anchorId) {
+              targetEl = document.getElementById(anchorId) ||
+                           document.querySelector('[name="' + anchorId + '"]');
+              if (!targetEl) {
+                try {
+                  targetEl = document.querySelector('#' + CSS.escape(anchorId));
+                } catch (e) {}
+              }
+            }
+            if (targetEl && sec.contains(targetEl) && targetEl.offsetHeight > 0) {
+              return targetEl;
+            }
+
+            // Look for visible chapter header (the TOC-generated title above the body)
+            var header = sec.querySelector('.chapter-header');
+            if (header && window.getComputedStyle(header).display !== 'none' && header.offsetHeight > 0) {
+              return header;
+            }
+
+            // Look for visible heading inside chapter body (skip .chapter-marker which is in .chapter-header)
+            var body = document.getElementById('chapter-body-' + chapterIndex);
+            if (body) {
+              var headings = body.querySelectorAll('h1, h2, h3, h4, [role="heading"], .chapter-title, .title, [class*="chapter_title"], [class*="chapter-title"], [class*="chapter_header"], [class*="chapter-header"], [class*="title"], [class*="heading"]');
+              for (var i = 0; i < headings.length; i++) {
+                var h = headings[i];
+                if (h.offsetHeight > 0 && window.getComputedStyle(h).display !== 'none') {
+                  return h;
+                }
+              }
+              var firstVisible = body.firstElementChild;
+              while (firstVisible && (firstVisible.offsetHeight === 0 || window.getComputedStyle(firstVisible).display === 'none')) {
+                firstVisible = firstVisible.nextElementSibling;
+              }
+              if (firstVisible && firstVisible.offsetHeight > 0) {
+                return firstVisible;
+              }
+            }
+
+            return sec;
+          }
+
+          function doScroll() {
+            var targetEl = resolveTarget();
+            if (!targetEl) return;
+            var rect = targetEl.getBoundingClientRect();
+            var targetY = Math.max(0, rect.top + (window.pageYOffset || 0) - 16);
             window.scrollTo(0, targetY);
           }
+
+          // Immediate jump to target
+          doScroll();
+
+          // Multi-pass rAF + settle retries so that as chapters above the target
+          // finish loading and change the page height, we re-snap to the correct position.
+          var retryCount = 0;
+          var MAX_RETRIES = 6;
+          var retryDelays = [0, 0, 100, 200, 400, 600];
+
+          function retryScroll() {
+            if (retryCount >= MAX_RETRIES) {
+              isNavigating = false;
+              activeIndex = chapterIndex;
+              scanAndRequestChapters();
+              sendProgress();
+              return;
+            }
+            var delay = retryDelays[retryCount] || 0;
+            retryCount++;
+            if (delay === 0) {
+              window.requestAnimationFrame(function() {
+                doScroll();
+                retryScroll();
+              });
+            } else {
+              navTimer = setTimeout(function() {
+                doScroll();
+                retryScroll();
+              }, delay);
+            }
+          }
+
+          retryScroll();
+
           return true;
         }
       };

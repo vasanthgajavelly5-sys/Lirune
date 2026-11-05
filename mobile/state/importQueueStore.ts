@@ -110,6 +110,10 @@ export const useImportQueueStore = create<ImportQueueState>((set, get) => ({
     set((state) => ({
       items: state.items.filter((item) => item.state !== 'ready'),
     }));
+    try {
+      const { useLibraryStore } = require('@/state/libraryStore');
+      void useLibraryStore.getState().loadLibrary({ force: true, silent: true });
+    } catch {}
   },
 
   recoverJournalOnLaunch: async () => {
@@ -202,35 +206,87 @@ async function processQueue(): Promise<void> {
         if (ingestResult.isDuplicate) {
           logger.info(TAG, `Book already exists with SHA-256 ${ingestResult.sha256}`);
         } else {
+          const bookFormat = ((ingestResult.format as any) || nextItem.format);
+          let extractedMeta: any = null;
+          try {
+            const { MetadataExtractor } = await import('@/services/metadata/MetadataExtractor');
+            extractedMeta = await MetadataExtractor.extract(
+              ingestResult.pathOrUri,
+              bookFormat,
+              nextItem.name,
+              ingestResult.bookId
+            );
+          } catch (mErr) {
+            logger.warn(TAG, `Metadata extraction failed during queued ingest for ${nextItem.name}`, mErr);
+          }
+
+          let thumbnailUrl: string | undefined;
+          if (extractedMeta?.coverUrl) {
+            try {
+              const { ThumbnailService } = await import('@/services/storage/ThumbnailService');
+              const thumb = await ThumbnailService.generateThumbnail(extractedMeta.coverUrl);
+              if (thumb) thumbnailUrl = thumb;
+            } catch (tErr) {
+              logger.warn(TAG, `Thumbnail generation failed during queued ingest for ${nextItem.name}`, tErr);
+            }
+          }
+
+          const bookTitle = extractedMeta?.title || ingestResult.title || nextItem.name;
+          const bookAuthor =
+            extractedMeta?.author && extractedMeta.author !== 'Unknown Author'
+              ? extractedMeta.author
+              : (ingestResult.author || 'Unknown');
+          const bookCoverColor = extractedMeta?.coverColor || '#3A3050';
+
           // Add to repository
           await repo.addBook({
             id: ingestResult.bookId,
-            title: ingestResult.title || nextItem.name,
-            author: ingestResult.author || 'Unknown',
-            format: (ingestResult.format as any) || nextItem.format,
+            title: bookTitle,
+            author: bookAuthor,
+            description: extractedMeta?.description,
+            format: bookFormat,
             uri: ingestResult.pathOrUri,
             filePath: ingestResult.pathOrUri,
             fileSize: ingestResult.size,
-            coverColor: '#4f46e5',
+            coverUrl: extractedMeta?.coverUrl,
+            thumbnailUrl: thumbnailUrl || extractedMeta?.coverUrl,
+            coverColor: bookCoverColor,
+            chapterCount: extractedMeta?.chapterCount || 1,
             progress: 0,
             isFavorite: false,
             collectionIds: [],
             dateAdded: Date.now(),
             availability: 'available',
-            metadata: { sha256: ingestResult.sha256 },
+            metadata: {
+              ...(extractedMeta?.metadata || {}),
+              sha256: ingestResult.sha256,
+              sourceFileName: nextItem.name,
+            },
           });
 
           // Link in book_files and books sha256
           if (db) {
             await db.runAsync(
-              `UPDATE books SET sha256 = ?, authors = ?, added_at = ? WHERE id = ?;`,
-              [ingestResult.sha256, ingestResult.author || 'Unknown', Date.now(), ingestResult.bookId]
+              `UPDATE books SET sha256 = ?, authors = ?, added_at = ?, cover_path = ? WHERE id = ?;`,
+              [
+                ingestResult.sha256,
+                bookAuthor,
+                Date.now(),
+                extractedMeta?.coverUrl || null,
+                ingestResult.bookId,
+              ]
             );
             await db.runAsync(
               `INSERT OR REPLACE INTO book_files (book_id, mode, path_or_uri, size, seekable) VALUES (?, ?, ?, ?, 1);`,
               [ingestResult.bookId, ingestResult.mode, ingestResult.pathOrUri, ingestResult.size]
             );
           }
+
+          // Live update library store as each book is added
+          try {
+            const { useLibraryStore } = await import('@/state/libraryStore');
+            void useLibraryStore.getState().loadLibrary({ force: true, silent: true });
+          } catch {}
         }
 
         if (db) {
@@ -264,5 +320,11 @@ async function processQueue(): Promise<void> {
     }
   } finally {
     isProcessingQueue = false;
+    try {
+      const { useLibraryStore } = await import('@/state/libraryStore');
+      await useLibraryStore.getState().loadLibrary({ force: true });
+    } catch (e) {
+      logger.warn(TAG, 'Failed to reload library store after queue processing', e);
+    }
   }
 }

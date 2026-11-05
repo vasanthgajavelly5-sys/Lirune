@@ -22,6 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useThemeContext } from '@/theme/ThemeContext';
 
 import { LiruneBottomTabBar } from '@/components/navigation/LiruneBottomTabBar';
+import { AppThemeSwitch } from '@/components/navigation/AppThemeSwitch';
 
 interface NavigationContextType {
   isDrawerOpen: boolean;
@@ -358,26 +359,13 @@ function LiruneSlideDrawer({
         <View style={styles.footerArea}>
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
-          {/* Theme Mode Toggle Button */}
-          <TouchableOpacity
-            style={[styles.footerActionBtn, { backgroundColor: colors.surfaceElevated }]}
-            onPress={toggleScheme}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={isDark ? 'sunny-outline' : 'moon-outline'}
-              size={18}
-              color={colors.text}
-            />
-            <Text style={[styles.footerActionText, { color: colors.text }]}>
-              {isDark ? 'Light Theme' : 'Dark Theme'}
+          {/* Windows-style Sliding Theme Switch */}
+          <View style={[styles.themeSwitchRow, { backgroundColor: colors.surfaceElevated }]}>
+            <Text style={[styles.themeRowLabel, { color: colors.textSecondary }]}>
+              {isDark ? 'Dark Theme' : 'Light Theme'}
             </Text>
-          </TouchableOpacity>
-
-
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>
-            Lirune Reader · v{Constants.expoConfig?.version ?? 'Unknown'}
-          </Text>
+            <AppThemeSwitch isDark={isDark} onToggle={toggleScheme} colors={colors} />
+          </View>
         </View>
       </Animated.View>
     </View>
@@ -465,17 +453,7 @@ function LiruneSideRail() {
 
       {/* Bottom Rail Actions */}
       <View style={styles.railBottom}>
-        <TouchableOpacity
-          style={[styles.railIconBtn, { backgroundColor: colors.surfaceElevated }]}
-          onPress={toggleScheme}
-          accessibilityLabel="Toggle light/dark theme"
-        >
-          <Ionicons
-            name={isDark ? 'sunny-outline' : 'moon-outline'}
-            size={18}
-            color={colors.text}
-          />
-        </TouchableOpacity>
+        <AppThemeSwitch isDark={isDark} onToggle={toggleScheme} colors={colors} compact />
       </View>
     </View>
   );
@@ -582,6 +560,18 @@ const styles = StyleSheet.create({
   footerArea: {
     gap: 10,
     paddingHorizontal: 4,
+  },
+  themeSwitchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+  },
+  themeRowLabel: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   footerActionBtn: {
     flexDirection: 'row',

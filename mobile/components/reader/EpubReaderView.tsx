@@ -35,7 +35,7 @@ import { EpubArchive } from '@/services/epub/archive';
 import { readEpubPackage, type EpubPackage } from '@/services/epub/package';
 import { extractChapterDocument, type ChapterDocument } from '@/services/epub/chapter';
 import { buildContinuousShell, buildReaderDocument, readerCss } from '@/services/epub/readerDocument';
-import { createSpineTarget, parseSpineTarget, type EpubNavigationTarget } from '@/services/epub/navigation';
+import { createSpineTarget, parseSpineTarget, classifyReadingUnitType, type EpubNavigationTarget } from '@/services/epub/navigation';
 import {
   computeSizeAwareProgress,
   formatBlockLocator,
@@ -805,7 +805,20 @@ export function EpubReaderView({
           if (liveGeometryRef.current && isMeasured) setAppliedGeometry(liveGeometryRef.current);
           if (settings.flow === 'scrolled') {
             let resolvedCoverHtml: string | undefined = undefined;
-            if (epubPackage.coverPath) {
+            const hasCoverInSpine = loadedChapters.some(
+              (c, idx) =>
+                idx <= 1 &&
+                (classifyReadingUnitType(c.title, c.itemPath) === 'cover' ||
+                  c.itemPath.toLowerCase().includes('cover') ||
+                  c.id.toLowerCase().includes('cover') ||
+                  /^(?:cover|jacket|titlepage)$/i.test(c.title.trim()) ||
+                  Boolean(
+                    epubPackage.coverPath &&
+                      c.body &&
+                      c.body.includes(epubPackage.coverPath.split('/').pop() || '____no_match____')
+                  ))
+            );
+            if (epubPackage.coverPath && !hasCoverInSpine) {
               const coverUri = await archive.dataUri(epubPackage.coverPath);
               if (coverUri) {
                 resolvedCoverHtml = `<div class="epub-cover-container"><img src="${coverUri}" alt="Cover" style="max-width:100%;max-height:85vh;object-fit:contain;margin:auto;display:block;" /></div>`;
@@ -1035,12 +1048,80 @@ export function EpubReaderView({
     };
   }, [currentChapterIndex, chapters, hydrateChapters, loadChapter]);
 
+
+function resolveSpineTarget(
+  targetCfi: string,
+  chapters: ChapterItem[]
+): EpubNavigationTarget | null {
+  const directTarget = parseSpineTarget(targetCfi);
+  if (directTarget) return directTarget;
+
+  if (targetCfi.startsWith('block:')) {
+    const locator = parseBlockLocator(targetCfi);
+    if (locator && Number.isFinite(locator.chapterIndex)) {
+      return { spineIndex: locator.chapterIndex };
+    }
+  }
+
+  if (targetCfi.startsWith('scroll-anchor:')) {
+    const anchor = parseScrollAnchor(targetCfi);
+    if (anchor && Number.isFinite(anchor.chapterIndex)) {
+      return { spineIndex: anchor.chapterIndex, fraction: anchor.fraction };
+    }
+    const match = targetCfi.match(/chapter-(\d+)/);
+    if (match) {
+      return { spineIndex: Number(match[1]) };
+    }
+  }
+
+  const cfiMatch = targetCfi.match(/epubcfi\(\/6\/(\d+)/);
+  if (cfiMatch) {
+    const spineIdx = Math.max(0, Math.floor(Number(cfiMatch[1]) / 2) - 1);
+    return { spineIndex: spineIdx };
+  }
+
+  const [hrefPart, anchorPart] = targetCfi.split('#');
+  const cleanHrefRaw = hrefPart ? hrefPart.replace(/[?&]t=\d+/, '') : '';
+  const cleanHref = cleanHrefRaw ? decodeURIComponent(cleanHrefRaw.trim()) : '';
+  const cleanAnchorRaw = anchorPart ? anchorPart.replace(/[?&]t=\d+/, '') : undefined;
+  const cleanAnchor = cleanAnchorRaw ? decodeURIComponent(cleanAnchorRaw.trim()) : undefined;
+
+  if (chapters && chapters.length > 0) {
+    const foundIdx = chapters.findIndex((ch) => {
+      if (!ch) return false;
+      const chPath = ch.itemPath || ch.href || '';
+      if (!chPath && !cleanHref) return false;
+      if (chPath === cleanHref || ch.href === cleanHref || ch.id === cleanHref) return true;
+      if (cleanHref && (chPath.endsWith(cleanHref) || cleanHref.endsWith(chPath))) return true;
+      const b1 = cleanHref.split('/').pop();
+      const b2 = chPath.split('/').pop();
+      return Boolean(b1 && b2 && b1 === b2);
+    });
+
+    if (foundIdx !== -1) {
+      return { spineIndex: foundIdx, anchor: cleanAnchor };
+    }
+  }
+
+  return null;
+}
+
   // Jump to the requested target chapter.
   useEffect(() => {
-if (!targetCfi || chapters.length === 0) return;
+    if (!targetCfi || chapters.length === 0) return;
 
-    const target = parseSpineTarget(targetCfi);
+    const target = resolveSpineTarget(targetCfi, chapters);
     if (!target) return;
+
+    // Detect if this target is simply an echo of recent scroll progress
+    const isProgressEcho =
+      targetCfi === lastPublishedCfiRef.current ||
+      (publishedCfisRef.current && publishedCfisRef.current.has(targetCfi));
+
+    if (isProgressEcho) {
+      return;
+    }
+
     const decision = decideNavigation({
       targetCfi,
       lastPublishedCfi: lastPublishedCfiRef.current,
@@ -1052,64 +1133,74 @@ if (!targetCfi || chapters.length === 0) return;
       anchor: target.anchor,
     });
 
-    if (decision === 'anchor-only' && !continuousDocumentRef.current && target.anchor) {
-      // Same chapter, but the host asked for a specific element.
+    if (decision === 'ignore-unparseable' || decision === 'ignore-out-of-range') {
+      return;
+    }
+
+    // Continuous scroll mode navigation
+    if (continuousDocumentRef.current) {
+      lastAppliedCfiRef.current = targetCfi;
+      setCurrentChapterIndex(target.spineIndex);
+      pendingChapterNavigationRef.current = target.spineIndex;
+
+      // Hydrate a window of chapters around the target so placeholder heights
+      // above the target are resolved before we scroll, giving an accurate position.
+      const spineIdx = target.spineIndex;
+      const totalCh = chapters.length;
+      const windowIndices = Array.from(
+        { length: Math.min(totalCh, spineIdx + 3) },
+        (_, i) => i
+      ).filter((i) => i <= spineIdx + 2);
+
+      void hydrateChapters(windowIndices).then(() => {
+        webViewRef.current?.injectJavaScript(`
+          (function () {
+            if (window.__liruneV2 && window.__liruneV2.scrollToChapter) {
+              window.__liruneV2.scrollToChapter(${spineIdx}, ${JSON.stringify(target.anchor || null)}, false);
+              return;
+            }
+            var section = document.getElementById('chapter-${spineIdx}');
+            if (!section) return;
+            var header = section.querySelector('.chapter-header');
+            var targetEl = (header && window.getComputedStyle(header).display !== 'none') ? header : section;
+            targetEl.scrollIntoView();
+          })(); true;
+        `);
+      });
+      return;
+    }
+
+    // Paginated mode navigation
+    if (decision === 'anchor-only' && target.anchor) {
+      lastAppliedCfiRef.current = targetCfi;
       webViewRef.current?.injectJavaScript(
         restorePositionScript('paginated', { anchorId: target.anchor, page: currentPageRef.current }, 0)
       );
       return;
     }
-    if (decision !== 'navigate') return;
+
+    if (decision !== 'navigate' && decision !== 'ignore-same-chapter') return;
 
     lastAppliedCfiRef.current = targetCfi;
     const idx = target.spineIndex;
-
     setCurrentChapterIndex(idx);
-    if (!continuousDocumentRef.current) {
-      if (target.anchor) {
-        setTimeout(() => {
-          webViewRef.current?.injectJavaScript(`
-            (function () {
-              var anchor = document.getElementById(${JSON.stringify(target.anchor)}) ||
-                           document.querySelector('[name=' + JSON.stringify(${JSON.stringify(target.anchor)}) + ']');
-              if (anchor && window.__lirunePager && typeof window.__lirunePager.goToElement === 'function') {
-                window.__lirunePager.goToElement(anchor);
-              }
-            })(); true;
-          `);
-        }, 120);
-      } else {
-        setCurrentPage(0);
-        setInitialScrollY(target.scrollY || 0);
-      }
-      return;
-    }
 
-    pendingChapterNavigationRef.current = idx;
-    // Fill the target before scrolling to it: scrolling first would land the
-    // reader on the placeholder for the length of one archive read.
-    void hydrateChapters([idx]).then(() => {
-      webViewRef.current?.injectJavaScript(`
-        (function () {
-          if (window.__liruneV2 && window.__liruneV2.scrollToChapter) {
-            window.__liruneV2.scrollToChapter(${idx}, ${JSON.stringify(target.anchor || null)}, true);
-            return;
-          }
-          var section = document.getElementById('chapter-${idx}');
-          if (!section) return;
-          ${
-            target.anchor
-              ? `var anchor = document.getElementById(${JSON.stringify(target.anchor)}) ||
-                           document.querySelector('[name=' + JSON.stringify(${JSON.stringify(target.anchor)}) + ']');
-               var targetEl = (anchor && section.contains(anchor)) ? anchor : section;
-               targetEl.scrollIntoView({ behavior: 'smooth' });`
-              : typeof target.scrollY === 'number'
-                ? `window.scrollTo(0, ${target.scrollY});`
-                : `section.scrollIntoView({ behavior: 'smooth' });`
-          }
-        })(); true;
-      `);
-    });
+    if (target.anchor) {
+      setTimeout(() => {
+        webViewRef.current?.injectJavaScript(`
+          (function () {
+            var anchor = document.getElementById(${JSON.stringify(target.anchor)}) ||
+                         document.querySelector('[name=' + JSON.stringify(${JSON.stringify(target.anchor)}) + ']');
+            if (anchor && window.__lirunePager && typeof window.__lirunePager.goToElement === 'function') {
+              window.__lirunePager.goToElement(anchor);
+            }
+          })(); true;
+        `);
+      }, 120);
+    } else {
+      setCurrentPage(0);
+      setInitialScrollY(target.scrollY || 0);
+    }
   }, [targetCfi, chapters, currentChapterIndex, hydrateChapters]);
 
   /* ---------------------------------------------------------------------- */

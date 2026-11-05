@@ -89,8 +89,8 @@ export function ImportQueuePill() {
 
   // Pill background color
   let pillBg = colors.accent;
-  if (hasFailed) pillBg = '#DC2626';
-  else if (allSucceeded) pillBg = '#16A34A';
+  if (hasFailed) pillBg = colors.error;
+  else if (allSucceeded) pillBg = colors.success;
 
   return (
     <>
@@ -205,9 +205,9 @@ function ImportQueueRow({ item, colors }: RowProps) {
       case 'importing':
         return <ActivityIndicator size="small" color={colors.accent} />;
       case 'ready':
-        return <Ionicons name="checkmark-circle" size={18} color="#16A34A" />;
+        return <Ionicons name="checkmark-circle" size={18} color={colors.success} />;
       case 'failed':
-        return <Ionicons name="close-circle" size={18} color="#DC2626" />;
+        return <Ionicons name="close-circle" size={18} color={colors.error} />;
     }
   };
 
@@ -222,8 +222,8 @@ function ImportQueueRow({ item, colors }: RowProps) {
 
   const stateColor = (): string => {
     switch (item.state) {
-      case 'ready': return '#16A34A';
-      case 'failed': return '#DC2626';
+      case 'ready': return colors.success;
+      case 'failed': return colors.error;
       default: return colors.textSecondary;
     }
   };

@@ -28,6 +28,7 @@ interface ChapterSheetProps {
   onClose: () => void;
   toc: TOCItem[];
   currentCfi?: string | null;
+  currentChapter?: string | null;
   onSelectChapter: (item: TOCItem, index: number) => void;
   themeName?: string;
 }
@@ -44,6 +45,7 @@ export function ChapterSheet({
   onClose,
   toc,
   currentCfi,
+  currentChapter,
   onSelectChapter,
   themeName = 'neutral',
 }: ChapterSheetProps) {
@@ -148,7 +150,48 @@ export function ChapterSheet({
   const renderItem = useCallback(
     ({ item: visibleItem }: { item: VisibleTOCItem }) => {
       const { item, originalIndex, hasChildren, isCollapsed } = visibleItem;
-      const isCurrent = Boolean(currentCfi && item.href && currentCfi.includes(item.href));
+      let activeSpineIdx: number | null = null;
+      if (currentCfi) {
+        const spineMatch = currentCfi.match(/^spine:(\d+)/) ||
+                           currentCfi.match(/^block:(\d+)/) ||
+                           currentCfi.match(/chapter-(\d+)/);
+        if (spineMatch) {
+          activeSpineIdx = Number(spineMatch[1]);
+        } else {
+          const cfiMatch = currentCfi.match(/epubcfi\(\/6\/(\d+)/);
+          if (cfiMatch) {
+            activeSpineIdx = Math.max(0, Math.floor(Number(cfiMatch[1]) / 2) - 1);
+          }
+        }
+      }
+
+      const normLabel = item.label ? item.label.trim().toLowerCase() : '';
+      const normChapter = currentChapter ? currentChapter.trim().toLowerCase() : '';
+      const labelMatches = Boolean(
+        normChapter &&
+        normLabel &&
+        (normLabel === normChapter ||
+         normChapter.includes(normLabel) ||
+         normLabel.includes(normChapter))
+      );
+
+      const spineMatches = Boolean(
+        activeSpineIdx !== null &&
+        (item.href === 'spine:' + activeSpineIdx ||
+         item.href?.startsWith('spine:' + activeSpineIdx + ':') ||
+         originalIndex === activeSpineIdx)
+      );
+
+      const hrefMatches = Boolean(
+        currentCfi &&
+        item.href &&
+        (currentCfi.includes(item.href) ||
+         item.href.includes(currentCfi) ||
+         (item.href.split('#')[0] && currentCfi.split('#')[0].endsWith(item.href.split('#')[0])) ||
+         (item.href.split('#')[0] && item.href.split('#')[0].endsWith(currentCfi.split('#')[0])))
+      );
+
+      const isCurrent = labelMatches || spineMatches || hrefMatches;
       const depth = item.depth || 0;
       const id = item.id || `toc_${originalIndex}`;
 
@@ -212,7 +255,7 @@ export function ChapterSheet({
         </View>
       );
     },
-    [currentCfi, isThemeDark, borderColor, mutedColor, activeAccent, textColor, toggleCollapse, onSelectChapter, onClose]
+    [currentCfi, currentChapter, isThemeDark, borderColor, mutedColor, activeAccent, textColor, toggleCollapse, onSelectChapter, onClose]
   );
 
   return (

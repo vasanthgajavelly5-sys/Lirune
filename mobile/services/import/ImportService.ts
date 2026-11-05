@@ -221,8 +221,16 @@ export class ImportService {
           bookId
         );
 
+        let thumbnailUrl: string | undefined;
         if (metadata.coverUrl) {
-          void ThumbnailService.generateThumbnail(metadata.coverUrl);
+          try {
+            const thumb = await ThumbnailService.generateThumbnail(metadata.coverUrl);
+            if (thumb) {
+              thumbnailUrl = thumb;
+            }
+          } catch (thumbErr) {
+            logger.warn(TAG, 'Failed generating cover thumbnail on import', thumbErr);
+          }
         }
 
         // 5. Construct domain Book record
@@ -237,6 +245,7 @@ export class ImportService {
           filePath: destPath,
           fileSize: fileSize || fileSizeHint || 0,
           coverUrl: metadata.coverUrl,
+          thumbnailUrl,
           coverColor: metadata.coverColor,
           progress: 0,
           currentCfi: undefined,

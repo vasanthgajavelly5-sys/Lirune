@@ -59,13 +59,30 @@ function BookCardComponent({
 
   const badgeText = formatLabels[book.format] || book.format.toUpperCase();
 
+  const [triedFallback, setTriedFallback] = React.useState(false);
   const [imageError, setImageError] = React.useState(false);
 
   React.useEffect(() => {
     setImageError(false);
-  }, [book.coverUrl, book.id]);
+    setTriedFallback(false);
+  }, [book.coverUrl, book.thumbnailUrl, book.id]);
 
-  const coverUri = getListCoverUri(book);
+  const primaryUri = getListCoverUri(book);
+  const fallbackUri = book.coverUrl
+    ? (book.coverUrl.startsWith('file://') || book.coverUrl.startsWith('http') || book.coverUrl.startsWith('data:')
+        ? book.coverUrl
+        : `file://${book.coverUrl}`)
+    : undefined;
+
+  const activeCoverUri = triedFallback ? fallbackUri : (primaryUri || fallbackUri);
+
+  const handleImageError = React.useCallback(() => {
+    if (!triedFallback && fallbackUri && primaryUri !== fallbackUri) {
+      setTriedFallback(true);
+    } else {
+      setImageError(true);
+    }
+  }, [triedFallback, fallbackUri, primaryUri]);
 
   // ================= GRID MODE =================
   if (viewMode === 'grid') {
@@ -91,12 +108,12 @@ function BookCardComponent({
             { backgroundColor: book.coverColor || colors.surfaceElevated },
           ]}
         >
-          {coverUri && !imageError ? (
+          {activeCoverUri && !imageError ? (
             <Image
-              source={{ uri: coverUri }}
+              source={{ uri: activeCoverUri }}
               style={styles.gridCoverImage}
               resizeMode="cover"
-              onError={() => setImageError(true)}
+              onError={handleImageError}
             />
           ) : (
             <View style={styles.fallbackCoverContent}>
@@ -200,12 +217,12 @@ function BookCardComponent({
             { backgroundColor: book.coverColor || colors.surfaceElevated },
           ]}
         >
-          {coverUri && !imageError ? (
+          {activeCoverUri && !imageError ? (
             <Image
-              source={{ uri: coverUri }}
+              source={{ uri: activeCoverUri }}
               style={styles.compactCoverImage}
               resizeMode="cover"
-              onError={() => setImageError(true)}
+              onError={handleImageError}
             />
           ) : (
             <Ionicons name="book" size={13} color="rgba(255,255,255,0.7)" />
@@ -272,12 +289,12 @@ function BookCardComponent({
           { backgroundColor: book.coverColor || colors.surfaceElevated },
         ]}
       >
-        {coverUri && !imageError ? (
+        {activeCoverUri && !imageError ? (
           <Image
-            source={{ uri: coverUri }}
+            source={{ uri: activeCoverUri }}
             style={styles.listCoverImage}
             resizeMode="cover"
-            onError={() => setImageError(true)}
+            onError={handleImageError}
           />
         ) : (
           <Ionicons name="book" size={20} color="rgba(255,255,255,0.7)" />

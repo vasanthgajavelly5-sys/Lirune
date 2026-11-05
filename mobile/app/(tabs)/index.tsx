@@ -19,7 +19,7 @@ import {
   InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useReaderStore } from '@/state/readerStore';
@@ -178,6 +178,13 @@ export default function LibraryScreen() {
       return () => task.cancel();
     }
   }, [isLibraryLoaded, books]);
+
+  // Live refresh whenever library tab comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      void loadLibrary({ force: true, silent: true });
+    }, [loadLibrary])
+  );
 
   // Actions
   const handleOpenBook = useCallback((book: Book) => {

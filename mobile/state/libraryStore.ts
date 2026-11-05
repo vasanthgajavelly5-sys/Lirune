@@ -118,6 +118,14 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         updates.filter = get().filter;
 
         set(updates);
+
+        // Self-healing backfill for existing books missing covers or thumbnails
+        const booksNeedingCovers = books.filter(
+          (b) => (!b.coverUrl || !b.thumbnailUrl || b.coverColor === '#4f46e5') && (b.filePath || b.uri)
+        );
+        if (booksNeedingCovers.length > 0) {
+          void backfillMissingCovers(booksNeedingCovers);
+        }
       } catch (err) {
         if (currentReq === libraryLoadSeq) {
           logger.error(TAG, 'Failed to load library', err);
@@ -331,3 +339,68 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   clearError: () => set({ error: null }),
 }));
+
+let isBackfillingCovers = false;
+async function backfillMissingCovers(booksToHeal: Book[]): Promise<void> {
+  if (isBackfillingCovers || booksToHeal.length === 0) return;
+  isBackfillingCovers = true;
+  try {
+    const { MetadataExtractor, cleanTitleFromFilename } = await import('@/services/metadata/MetadataExtractor');
+    const { ThumbnailService } = await import('@/services/storage/ThumbnailService');
+    const repo = getBookRepository();
+
+    for (const book of booksToHeal) {
+      const sourcePath = book.filePath || book.uri;
+      if (!sourcePath) continue;
+
+      try {
+        const meta = await MetadataExtractor.extract(
+          sourcePath,
+          book.format,
+          book.title,
+          book.id
+        );
+
+        let thumb: string | null = null;
+        if (meta.coverUrl) {
+          try {
+            thumb = await ThumbnailService.generateThumbnail(meta.coverUrl);
+          } catch {}
+        }
+
+        const fallbackName = cleanTitleFromFilename(book.title);
+        const updatedBook: Book = {
+          ...book,
+          title: (book.title === fallbackName && meta.title) ? meta.title : (meta.title || book.title),
+          author: ((book.author === 'Unknown' || book.author === 'Unknown Author') && meta.author) ? meta.author : book.author,
+          description: book.description || meta.description,
+          coverUrl: meta.coverUrl || book.coverUrl,
+          thumbnailUrl: thumb || meta.coverUrl || book.thumbnailUrl,
+          coverColor: meta.coverColor || book.coverColor,
+          chapterCount: book.chapterCount > 1 ? book.chapterCount : (meta.chapterCount || book.chapterCount),
+        };
+
+        if (meta.coverUrl || thumb || meta.title !== book.title) {
+          await repo.addBook(updatedBook);
+          try {
+            const { getDatabase } = await import('@/services/database/Database');
+            const db = await getDatabase();
+            if (db) {
+              await db.runAsync('UPDATE books SET cover_path = ? WHERE id = ?;', [meta.coverUrl || null, book.id]);
+            }
+          } catch {}
+
+          useLibraryStore.setState((state) => ({
+            books: state.books.map((b) => (b.id === book.id ? updatedBook : b)),
+          }));
+        }
+      } catch (err) {
+        logger.warn(TAG, `Failed backfilling cover for book ${book.id} (${book.title})`, err);
+      }
+    }
+  } catch (err) {
+    logger.warn(TAG, 'Error in backfillMissingCovers', err);
+  } finally {
+    isBackfillingCovers = false;
+  }
+}

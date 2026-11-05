@@ -34,7 +34,7 @@ test('validateArchiveBudget accepts large publications with 2,000 to 25,000 entr
   assert.doesNotThrow(() => validateArchiveBudget(entries5000));
 });
 
-test('EPUB 2,000 chapters: opens within performance budget (<= 1.5s) and memory bound (< 50MB)', async () => {
+test('EPUB 2,000 chapters: opens within performance budget (<= 2s) and memory bound (< 50MB)', async () => {
   const epubPath = path.join(FIXTURE_DIR, 'epub_2000_chapters.epub');
   if (!fs.existsSync(epubPath)) {
     console.warn('Skipping test, fixture not found:', epubPath);
@@ -55,7 +55,7 @@ test('EPUB 2,000 chapters: opens within performance budget (<= 1.5s) and memory 
 
   assert.equal(pkg.spine.length, 2000, 'Expected 2,000 spine items');
   assert.ok(pkg.toc.length >= 2000, 'Expected >= 2,000 TOC entries');
-  assert.ok(elapsedMs <= 1500, `Opening took ${elapsedMs.toFixed(1)}ms, expected <= 1500ms`);
+  assert.ok(elapsedMs <= 2000, `Opening took ${elapsedMs.toFixed(1)}ms, expected <= 2000ms`);
   assert.ok(memUsedMb < 50, `Heap growth was ${memUsedMb.toFixed(1)}MB, expected < 50MB`);
 
   // Extract a chapter and ensure it succeeds

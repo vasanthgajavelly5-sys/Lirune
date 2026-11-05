@@ -395,11 +395,13 @@ export default function ReaderScreen() {
 
   // Jump handlers
   const handleSelectChapter = (item: TOCItem, index: number) => {
-    if (item.href) {
-      updateProgress(progressPercent, item.href, item.label);
-    } else {
-      updateProgress(progressPercent, `spine:${index}`, item.label);
+    const totalChapters = currentBook?.chapterCount || toc.length || 1;
+    const estimatedPercent = Math.min(100, Math.max(0, Math.round((index / totalChapters) * 100)));
+    let targetHref = item.href || ('spine:' + index);
+    if (currentCfi === targetHref) {
+      targetHref += (targetHref.includes('?') ? '&' : '?') + 't=' + Date.now();
     }
+    updateProgress(estimatedPercent, targetHref, item.label);
   };
 
   const handleSelectBookmark = (bookmark: Bookmark) => {
@@ -892,6 +894,7 @@ export default function ReaderScreen() {
         onClose={() => setTOCVisible(false)}
         toc={toc}
         currentCfi={currentCfi}
+        currentChapter={currentChapter}
         onSelectChapter={handleSelectChapter}
         themeName={readerSettings.theme}
       />

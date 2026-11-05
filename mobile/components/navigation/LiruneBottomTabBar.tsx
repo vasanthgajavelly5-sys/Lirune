@@ -111,16 +111,7 @@ export function LiruneBottomTabBar() {
               accessibilityState={{ selected: isActive }}
               accessibilityLabel={`${item.label} tab`}
             >
-              <View
-                style={[
-                  styles.iconContainer,
-                  isActive && {
-                    backgroundColor: isDark
-                      ? 'rgba(201, 184, 255, 0.12)'
-                      : 'rgba(76, 70, 102, 0.08)',
-                  },
-                ]}
-              >
+              <View style={styles.iconContainer}>
                 <Ionicons
                   name={isActive ? item.activeIcon : item.icon}
                   size={20}

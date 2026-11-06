@@ -7,7 +7,7 @@ echo ========================================================
 echo Launching Lirune Reader (Desktop)...
 echo ========================================================
 
-REM 1. Check local packaged release build (v5.6.2+) in dist\win-unpacked
+REM 1. Check local packaged release build (v5.6.3+) in dist\win-unpacked
 if exist "%~dp0dist\win-unpacked\Lirune Reader.exe" (
     echo [INFO] Found latest packaged release: dist\win-unpacked\Lirune Reader.exe
     echo Starting Lirune Reader...

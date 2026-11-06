@@ -934,31 +934,44 @@
   color: var(--status-error);
   font-size: 0.78rem;
 }
-.import-modal-box { max-width: 620px; }
+.import-modal-box {
+  width: min(680px, 94vw);
+  max-width: 680px;
+}
 .import-options {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--sp-4);
-  padding: var(--sp-6);
+  padding: var(--sp-5) var(--sp-6) var(--sp-6);
+}
+@media (max-width: 620px) {
+  .import-options {
+    grid-template-columns: 1fr;
+    gap: var(--sp-3);
+  }
 }
 .import-option {
   display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  min-height: 126px;
-  padding: var(--sp-5);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  min-height: 140px;
+  padding: var(--sp-4);
   border: 1px solid var(--border-default);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-xl);
   background: var(--bg-surface);
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
-  transition: border-color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast);
+  position: relative;
+  overflow: hidden;
+  transition: border-color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast), box-shadow var(--dur-fast);
 }
 .import-option:hover {
   border-color: var(--border-accent);
-  background: var(--accent-subtle);
-  transform: translateY(-2px);
+  background: var(--bg-hover);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(109, 84, 181, 0.08);
 }
 .import-option-icon {
   display: grid;
@@ -966,16 +979,39 @@
   width: 44px;
   height: 44px;
   flex: 0 0 44px;
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   background: var(--accent-subtle);
   color: var(--accent-text);
-  font-size: 1.6rem;
-  font-weight: 300;
+  border: 1px solid var(--border-subtle);
+  transition: transform var(--dur-fast), background var(--dur-fast);
 }
-.import-option strong,
-.import-option small { display: block; }
-.import-option strong { font-size: 1rem; }
-.import-option small { margin-top: 5px; color: var(--text-tertiary); line-height: 1.4; }
+.import-option:hover .import-option-icon {
+  transform: scale(1.05);
+  background: rgba(109, 84, 181, 0.16);
+}
+.import-svg-icon {
+  display: block;
+}
+.import-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.import-option strong {
+  display: block;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.import-option small {
+  display: block;
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
 .import-status { display: none; }
 .import-progress {
   padding: 0 var(--sp-6) var(--sp-5);

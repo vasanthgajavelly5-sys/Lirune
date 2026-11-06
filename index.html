@@ -877,16 +877,42 @@
       </div>
       <div class="import-options">
         <button class="import-option" id="import-file-btn">
-          <span class="import-option-icon" aria-hidden="true">+</span>
-          <span><strong>Files</strong><small>Choose books from your computer</small></span>
+          <div class="import-option-icon" aria-hidden="true">
+            <svg class="import-svg-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="12" y1="18" x2="12" y2="12"/>
+              <line x1="9" y1="15" x2="15" y2="15"/>
+            </svg>
+          </div>
+          <div class="import-option-text">
+            <strong>Files</strong>
+            <small>Choose individual books from your PC</small>
+          </div>
         </button>
         <button class="import-option" id="import-folder-btn">
-          <span class="import-option-icon" aria-hidden="true">&#9776;</span>
-          <span><strong>Folder</strong><small>Recursively import book files inside</small></span>
+          <div class="import-option-icon" aria-hidden="true">
+            <svg class="import-svg-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <div class="import-option-text">
+            <strong>Folder</strong>
+            <small>Recursively scan and import a directory</small>
+          </div>
         </button>
         <button class="import-option" id="import-archive-btn">
-          <span class="import-option-icon" aria-hidden="true">&#128230;</span>
-          <span><strong>Archive</strong><small>Select books from inside .zip or .7z</small></span>
+          <div class="import-option-icon" aria-hidden="true">
+            <svg class="import-svg-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="21 8 21 21 3 21 3 8"/>
+              <rect x="1" y="3" width="22" height="5"/>
+              <line x1="10" y1="12" x2="14" y2="12"/>
+            </svg>
+          </div>
+          <div class="import-option-text">
+            <strong>Archive</strong>
+            <small>Inspect and select books inside .zip, .7z</small>
+          </div>
         </button>
       </div>
       <div id="import-status" class="import-status" aria-live="polite"></div>

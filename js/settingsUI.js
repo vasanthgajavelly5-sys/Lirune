@@ -1112,9 +1112,14 @@ const SettingsUI = (() => {
         return;
       }
 
-      const deleteAll = event.target.closest('#delete-all-data-btn');
+      const deleteAll = event.target.closest('#delete-all-data-btn, #general-reset-library-btn');
       if (deleteAll) {
         requestDeleteAll();
+        return;
+      }
+
+      if (event.target.closest('#general-export-backup-btn, #modal-export-backup-btn')) {
+        Library.backupMetadata();
         return;
       }
 
@@ -1276,10 +1281,11 @@ const SettingsUI = (() => {
   async function requestDeleteAll() {
     if (!await confirmDeleteAll()) return;
     const result = await Library.deleteAllBooks();
+    Library.resetView?.();
     Utils.toast(
       result.failed
-        ? `Removed ${result.removed} books, ${result.failed} could not be removed`
-        : `Removed ${result.removed} ${result.removed === 1 ? 'book' : 'books'}`,
+        ? `Library reset: ${result.removed} books removed, ${result.failed} failed`
+        : `✓ Entire library reset to clean state (${result.removed} books removed)`,
       result.failed ? 'error' : 'success'
     );
     renderStorageStats();
@@ -1298,17 +1304,21 @@ const SettingsUI = (() => {
         modal.classList.add('hidden');
         cancelButton?.removeEventListener('click', onCancel);
         confirmButton?.removeEventListener('click', onConfirm);
+        exportButton?.removeEventListener('click', onExport);
         modal.removeEventListener('click', onBackdrop);
         resolve(confirmed);
       };
       const onCancel = () => finish(false);
       const onConfirm = () => finish(true);
+      const onExport = () => { Library.backupMetadata?.(); };
       const onBackdrop = event => { if (event.target === modal) finish(false); };
 
       const cancelButton = document.getElementById('cancel-delete-all-btn');
       const confirmButton = document.getElementById('confirm-delete-all-btn');
+      const exportButton = document.getElementById('modal-export-backup-btn');
       cancelButton?.addEventListener('click', onCancel);
       confirmButton?.addEventListener('click', onConfirm);
+      exportButton?.addEventListener('click', onExport);
       modal.addEventListener('click', onBackdrop);
       modal.classList.remove('hidden');
     });

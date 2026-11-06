@@ -510,6 +510,20 @@
               <p>Application behaviour that applies everywhere.</p>
             </div>
             <div class="settings-group" id="general-controls"></div>
+
+            <div class="settings-group danger-group" style="margin-top:var(--sp-5);">
+              <div class="setting-section-title">Reset entire library</div>
+              <p class="setting-hint">Clean the application to a brand-new state. Before resetting, you can export a complete backup of your books, annotations, and reading progress.</p>
+              <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:var(--sp-3);">
+                <button class="btn btn-ghost" id="general-export-backup-btn" type="button">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export Library Backup
+                </button>
+                <button class="btn btn-danger delete-book-confirm-btn" id="general-reset-library-btn" type="button">
+                  Reset Library (Clean State)
+                </button>
+              </div>
+            </div>
           </section>
 
           <section class="full-settings-pane" data-section="appearance" hidden>
@@ -1078,14 +1092,20 @@
     <div class="modal-box delete-book-modal-box">
       <div class="modal-header">
         <div>
-          <h2 id="delete-all-title">Delete all books and data?</h2>
-          <p class="modal-subtitle">This permanently removes everything Lirune Reader stores on this computer.</p>
+          <h2 id="delete-all-title">Reset entire library to clean state?</h2>
+          <p class="modal-subtitle">This permanently removes books, reading progress, and annotations from Lirune Reader.</p>
         </div>
       </div>
-      <p id="delete-all-message" class="delete-book-message">Every book, its file, all reading positions, highlights, notes and bookmarks will be deleted. Your original files elsewhere on this computer are not touched. This cannot be undone.</p>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" id="cancel-delete-all-btn" type="button">Cancel</button>
-        <button class="btn btn-danger delete-book-confirm-btn" id="confirm-delete-all-btn" type="button">Delete Everything</button>
+      <p id="delete-all-message" class="delete-book-message">Every book, its local copy, all reading positions, highlights, notes, and bookmarks will be cleared. Your original files on your computer will not be touched. We recommend exporting a backup first.</p>
+      <div class="modal-footer" style="justify-content:space-between; flex-wrap:wrap; gap:8px;">
+        <button class="btn btn-ghost" id="modal-export-backup-btn" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export Backup First
+        </button>
+        <div style="display:flex; gap:8px; margin-left:auto;">
+          <button class="btn btn-ghost" id="cancel-delete-all-btn" type="button">Cancel</button>
+          <button class="btn btn-danger delete-book-confirm-btn" id="confirm-delete-all-btn" type="button">Reset Library</button>
+        </div>
       </div>
     </div>
   </div>

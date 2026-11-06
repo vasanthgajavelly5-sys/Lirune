@@ -523,8 +523,26 @@
   border-radius: 18px;
   padding: var(--sp-3) var(--sp-4);
 }
-.danger-group .reset-settings-btn { color: #F87171; }
-.danger-group .reset-settings-btn:hover { background: rgba(248, 113, 113, 0.12); }
+.danger-group .reset-settings-btn {
+  color: #C53030;
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+}
+.danger-group .reset-settings-btn:hover {
+  background: rgba(220, 38, 38, 0.14);
+  border-color: rgba(220, 38, 38, 0.38);
+  color: #B91C1C;
+}
+[data-theme="dark"] .danger-group .reset-settings-btn {
+  color: #F87171;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+[data-theme="dark"] .danger-group .reset-settings-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #FCA5A5;
+}
 
 /* About panel cards and rows */
 .about-list {
@@ -1289,7 +1307,34 @@
 /* ── Book removal confirmation ──────────────────────────── */
 #delete-book-modal .modal-box { max-width: 460px; }
 .delete-book-message { padding: 0 var(--sp-6) var(--sp-2); color: var(--text-secondary); font-size: 0.875rem; line-height: 1.55; }
-.delete-book-confirm-btn { background: var(--status-error); border-color: var(--status-error); }
+.delete-book-confirm-btn {
+  background: rgba(220, 38, 38, 0.08) !important;
+  border: 1px solid rgba(220, 38, 38, 0.24) !important;
+  color: #C53030 !important;
+  box-shadow: none !important;
+  font-weight: 550;
+}
+.delete-book-confirm-btn:hover {
+  background: rgba(220, 38, 38, 0.16) !important;
+  border-color: rgba(220, 38, 38, 0.44) !important;
+  color: #B91C1C !important;
+  transform: translateY(-1px);
+  filter: none !important;
+}
+.delete-book-confirm-btn:active {
+  background: rgba(220, 38, 38, 0.24) !important;
+  transform: translateY(0);
+}
+[data-theme="dark"] .delete-book-confirm-btn {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.32) !important;
+  color: #F87171 !important;
+}
+[data-theme="dark"] .delete-book-confirm-btn:hover {
+  background: rgba(239, 68, 68, 0.22) !important;
+  border-color: rgba(239, 68, 68, 0.52) !important;
+  color: #FCA5A5 !important;
+}
 
 /* ── Keyboard shortcut panel (? key) ────────────────────── */
 #shortcuts-modal .modal-box { max-width: 560px; }

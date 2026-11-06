@@ -430,6 +430,41 @@
 }
 .btn-accent:active { transform: scale(0.97); filter: brightness(0.96); }
 
+/* Danger / Destructive button — soft tinted glass pill */
+.btn-danger {
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  color: #C53030;
+  box-shadow: none;
+  font-weight: 550;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast), transform var(--dur-fast);
+}
+
+.btn-danger:hover {
+  background: rgba(220, 38, 38, 0.16);
+  border-color: rgba(220, 38, 38, 0.44);
+  color: #B91C1C;
+  transform: translateY(-1px);
+  filter: none;
+}
+
+.btn-danger:active {
+  background: rgba(220, 38, 38, 0.24);
+  transform: translateY(0);
+}
+
+[data-theme="dark"] .btn-danger {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.32);
+  color: #F87171;
+}
+
+[data-theme="dark"] .btn-danger:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.52);
+  color: #FCA5A5;
+}
+
 /* Glow button (CTA) */
 .btn-glow {
   background: var(--gradient-accent);

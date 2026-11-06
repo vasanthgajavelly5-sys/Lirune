@@ -285,7 +285,7 @@ const Reader = (() => {
     const statusPage = document.getElementById('status-page');
 
     if (chapterEl) chapterEl.textContent = chapter || 'Reading';
-    if (pageInfoEl) pageInfoEl.textContent = locationLabel ? `${locationLabel} · ${percent}%` : `${percent}%`;
+    if (pageInfoEl) pageInfoEl.textContent = locationLabel || '';
     if (fillEl) fillEl.style.width = `${percent}%`;
     if (stripe) stripe.setAttribute('aria-valuenow', String(percent));
     if (statusChapter) statusChapter.textContent = chapter || 'Reading';

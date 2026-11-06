@@ -1029,22 +1029,33 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: transform var(--dur-normal) var(--ease-out);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.36s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.36s cubic-bezier(0.16, 1, 0.3, 1);
   -webkit-app-region: no-drag;
+  will-change: transform, opacity;
 }
 .panel-left {
   left: 0;
   border-radius: 0 var(--r-xl) var(--r-xl) 0;
   border-left: none;
-  transform: translateX(-100%);
+  transform: translate3d(-35%, 0, 0);
 }
 .panel-right {
   right: 0;
   border-radius: var(--r-xl) 0 0 var(--r-xl);
   border-right: none;
-  transform: translateX(100%);
+  transform: translate3d(35%, 0, 0);
 }
-.panel.open { transform: translateX(0); }
+.panel.open {
+  opacity: 1;
+  pointer-events: all;
+  transform: translate3d(0, 0, 0);
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--border-subtle);
+}
 
 .panel-header {
   display: flex;
@@ -1087,12 +1098,17 @@
   inset: 0;
   z-index: calc(var(--z-panel) - 1);
   background: var(--bg-scrim);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  animation: fadeIn var(--dur-normal) var(--ease-io);
-  display: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: block !important;
 }
-#panel-overlay.visible { display: block; }
+#panel-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
 
 /* ── Progress bar ────────────────────────────────────────── */
 .progress-bar {

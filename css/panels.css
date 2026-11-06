@@ -86,6 +86,7 @@
 #settings-panel {
   width: var(--panel-w);
   box-shadow: var(--shadow-lg);
+  transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.36s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* The expanded settings view is the only place the panel is allowed to be

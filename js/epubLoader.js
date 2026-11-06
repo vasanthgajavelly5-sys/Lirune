@@ -767,7 +767,7 @@ const EpubLoader = (() => {
     const statusPage = document.getElementById('status-page');
 
     if (chapterEl) chapterEl.textContent = currentChapter;
-    if (pageInfoEl) pageInfoEl.textContent = pageLabel ? `${pageLabel} · ${percent}%` : `${percent}%`;
+    if (pageInfoEl) pageInfoEl.textContent = pageLabel || '';
     if (fillEl) fillEl.style.width = `${percent}%`;
     document.getElementById('reading-stripe')?.setAttribute('aria-valuenow', String(percent));
     if (statusChapter) statusChapter.textContent = currentChapter;

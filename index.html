@@ -219,7 +219,6 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></svg>
           </span>
           <span class="home-drop-copy"><strong>Prefer drag and drop?</strong><small>Drop book files anywhere in this window.</small></span>
-          <span class="home-drop-format">BOOKS</span>
         </div>
       </div>
 
@@ -288,6 +287,11 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </button>
 
+          <!-- Read Aloud (TTS) -->
+          <button class="btn btn-glass icon-btn" id="read-aloud-btn" title="Read Aloud (A)" aria-label="Read aloud">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+          </button>
+
           <!-- Settings Drawer -->
           <button class="btn btn-glass icon-btn" id="settings-btn" title="Reading Settings (S)" aria-label="Open reading settings">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -333,6 +337,29 @@
       <button class="zoom-btn" data-zoom-decrease type="button" aria-label="Zoom out" title="Zoom out (Ctrl+-)">−</button>
       <span data-zoom-value aria-live="polite">100%</span>
       <button class="zoom-btn" data-zoom-increase type="button" aria-label="Zoom in" title="Zoom in (Ctrl++)">+</button>
+    </div>
+
+    <!-- Floating Read Aloud Controller -->
+    <div id="read-aloud-bar" class="read-aloud-bar hidden" role="region" aria-label="Read aloud controller">
+      <button class="tts-bar-btn" id="tts-prev-btn" title="Previous sentence" aria-label="Previous sentence">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <button class="tts-bar-btn tts-play-btn" id="tts-play-btn" title="Play / Pause" aria-label="Play or pause">
+        <svg id="tts-play-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg id="tts-pause-icon" class="hidden" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+      </button>
+      <button class="tts-bar-btn" id="tts-next-btn" title="Next sentence" aria-label="Next sentence">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+      <div class="tts-bar-divider" aria-hidden="true"></div>
+      <button class="tts-bar-pill" id="tts-speed-btn" title="Cycle playback speed" aria-label="Playback speed">1.0x</button>
+      <div class="tts-bar-voice-wrap">
+        <select id="tts-voice-select" class="tts-voice-select" aria-label="Select voice"></select>
+      </div>
+      <div class="tts-bar-divider" aria-hidden="true"></div>
+      <button class="tts-bar-btn tts-close-btn" id="tts-close-btn" title="Close Read Aloud" aria-label="Close read aloud">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </div>
 
     <!-- Format capability note (e.g. fixed-layout PDF) -->
@@ -688,6 +715,14 @@
       <section class="settings-group" id="reading-advanced-controls" aria-label="Reading comfort controls"></section>
       <div class="full-settings-spacer"></div>
       <button class="btn btn-ghost reset-settings-btn" id="reset-reader-settings-btn" type="button">Reset reading preferences</button>
+          </section>
+
+          <section class="full-settings-pane" data-section="tts" hidden>
+            <div class="settings-section-heading">
+              <div class="setting-section-title">Read Aloud (Text to Speech)</div>
+              <p>Listen to your books using high-quality, copyright-free system voices.</p>
+            </div>
+            <div class="settings-group" id="tts-settings-controls"></div>
           </section>
 
           <section class="full-settings-pane" data-section="library" hidden>
@@ -1169,6 +1204,7 @@
   <script src="js/reader/docAdapters.js"></script>
   <script src="js/reader/zoomControl.js"></script>
   <script src="js/reader/readerController.js"></script>
+  <script src="js/readAloud.js"></script>
 <script src="js/library.js"></script>
 <script src="js/settingsUI.js"></script>
 <script src="js/app.js"></script>

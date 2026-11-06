@@ -23,6 +23,7 @@ const App = (() => {
         ThemeManager.init(),
         ReaderSettings.init(),
         AppPrefs.init(),
+        ReadAloud.init(),
         Library.init()
       ]);
     } catch (err) {
@@ -110,6 +111,7 @@ const App = (() => {
   async function openLibrary() {
     activeView = 'library';
     closeAllPanels();
+    if (typeof ReadAloud !== 'undefined') ReadAloud.stop();
 
     try {
       await Reader.close();

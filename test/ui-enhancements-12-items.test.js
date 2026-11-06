@@ -122,4 +122,29 @@ test('Item 14: resetView() comprehensively resets filters, search, view prefs an
   assert.match(libJs, /Utils\.toast\('Library view reset to defaults', 'success'\)/, 'resetView must provide success toast confirmation');
 });
 
+test('Item 15: Read Aloud TTS module, tray button, controller, and settings section', () => {
+  const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  assert.match(indexHtml, /id="read-aloud-btn"/, 'Toolbar actions must contain #read-aloud-btn');
+  assert.match(indexHtml, /id="read-aloud-bar"/, 'Reader view must contain #read-aloud-bar floating controller');
+  assert.match(indexHtml, /data-section="tts"/, 'Full settings must contain Read Aloud tts pane');
+  assert.match(indexHtml, /src="js\/readAloud\.js"/, 'index.html must load js/readAloud.js');
+  const readAloudJs = fs.readFileSync(path.join(root, 'js/readAloud.js'), 'utf8');
+  assert.match(readAloudJs, /window\.speechSynthesis/, 'ReadAloud must use window.speechSynthesis');
+});
+
+test('Item 16: Centered chapter name, expanded max-width, and removed percentage', () => {
+  const readerCss = fs.readFileSync(path.join(root, 'css/reader.css'), 'utf8');
+  assert.match(readerCss, /\.toolbar-center\s*\{[^}]*position:\s*absolute/i, '.toolbar-center must be absolutely centered');
+  assert.match(readerCss, /#progress-chapter\s*\{[^}]*max-width:\s*min\(520px/i, '#progress-chapter must have expanded max-width');
+  const epubLoader = fs.readFileSync(path.join(root, 'js/epubLoader.js'), 'utf8');
+  assert.ok(!epubLoader.includes('pageInfoEl.textContent = pageLabel ?'), 'epubLoader must not append percentage to pageInfoEl');
+});
+
+test('Item 17: Smooth side pane transitions with cubic-bezier easing and opacity', () => {
+  const componentsCss = fs.readFileSync(path.join(root, 'css/components.css'), 'utf8');
+  assert.match(componentsCss, /\.panel\s*\{[^}]*cubic-bezier\(0\.16,\s*1,\s*0\.3,\s*1\)/i, '.panel must use cubic-bezier easing');
+  assert.match(componentsCss, /\.panel\.open\s*\{[^}]*opacity:\s*1/i, '.panel.open must animate opacity');
+});
+
+
 

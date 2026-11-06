@@ -27,6 +27,7 @@ const SettingsUI = (() => {
     { id: 'general', label: 'General' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'reading', label: 'Reading' },
+    { id: 'tts', label: 'Read Aloud' },
     { id: 'library', label: 'Library' },
     { id: 'accessibility', label: 'Accessibility' },
     { id: 'shortcuts', label: 'Shortcuts' },
@@ -115,6 +116,9 @@ const SettingsUI = (() => {
     'fs-reading-bar': () => AppPrefs.set({ readingFooterBar: !AppPrefs.getAll().readingFooterBar }),
     'fs-smooth-scroll': () => AppPrefs.set({ smoothScroll: !AppPrefs.getAll().smoothScroll }),
     'fs-auto-hyphenation': () => AppPrefs.set({ autoHyphenation: !AppPrefs.getAll().autoHyphenation }),
+    // Read Aloud (TTS)
+    'fs-tts-highlight': () => typeof ReadAloud !== 'undefined' && ReadAloud.updatePrefs({ highlight: !ReadAloud.getPrefs().highlight }),
+    'fs-tts-autoadvance': () => typeof ReadAloud !== 'undefined' && ReadAloud.updatePrefs({ autoAdvance: !ReadAloud.getPrefs().autoAdvance }),
     // Library
     'fs-progress-badges': () => AppPrefs.set({ showProgressBadge: !AppPrefs.getAll().showProgressBadge }),
     'fs-format-badges': () => AppPrefs.set({ showFormatBadge: !AppPrefs.getAll().showFormatBadge }),
@@ -368,9 +372,48 @@ const SettingsUI = (() => {
     buildAppThemeControls();
     buildAppearanceAdvancedControls();
     buildReadingAdvancedControls();
+    buildTtsControls();
     buildLibraryControls();
     buildAccessibilityControls();
     renderShortcuts();
+  }
+
+  function buildTtsControls() {
+    const host = document.getElementById('tts-settings-controls');
+    if (!host) return;
+    const ttsPrefs = typeof ReadAloud !== 'undefined' ? ReadAloud.getPrefs() : {
+      rate: 1.0, pitch: 1.0, volume: 1.0, highlight: true, autoAdvance: true, voiceURI: ''
+    };
+    const voices = typeof ReadAloud !== 'undefined' ? ReadAloud.getVoices() : [];
+    const voiceOptions = voices.length > 0
+      ? voices.map(v => {
+          const cleanName = v.name.replace(/Microsoft\s+|Google\s+/g, '');
+          const lang = v.lang ? ` (${v.lang})` : '';
+          return { value: v.voiceURI, label: `${cleanName}${lang}` };
+        })
+      : [{ value: '', label: 'Default system voice' }];
+
+    host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Voice &amp; speech synthesis</div>
+        <p class="setting-hint">Choose your preferred voice, speed, and pitch. All voices run locally on your device with no data sent online.</p>
+      </div>
+      ${selectRow('fs-tts-voice', 'Voice', voiceOptions, ttsPrefs.voiceURI)}
+      ${sliderRow('fs-tts-rate', 'Speed', ttsPrefs.rate, 0.5, 2.5, 0.1, `${ttsPrefs.rate}x`, 'x')}
+      ${sliderRow('fs-tts-pitch', 'Pitch', ttsPrefs.pitch, 0.5, 1.5, 0.1, `${ttsPrefs.pitch}`, '')}
+      ${sliderRow('fs-tts-volume', 'Volume', Math.round(ttsPrefs.volume * 100), 0, 100, 5, `${Math.round(ttsPrefs.volume * 100)}%`, '%')}
+      ${switchRow('fs-tts-highlight', 'Highlight spoken text', 'Visually highlight sentences as they are being read aloud', ttsPrefs.highlight)}
+      ${switchRow('fs-tts-autoadvance', 'Auto-advance pages', 'Automatically turn to the next page or chapter when speech reaches the end', ttsPrefs.autoAdvance)}
+      <div style="margin-top:var(--sp-3); display:flex; gap:var(--sp-2);">
+        <button class="btn btn-glass" id="fs-tts-preview-btn" type="button" style="padding:var(--sp-2) var(--sp-4);">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          Listen to sample
+        </button>
+      </div>
+    `;
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
+      Utils.enhanceAllSelects(host);
+    }
   }
 
   function buildAppThemeControls() {
@@ -900,6 +943,10 @@ const SettingsUI = (() => {
     setSwitch('fs-smooth-scroll', prefs.smoothScroll);
     setSwitch('fs-auto-hyphenation', prefs.autoHyphenation);
 
+    const tts = typeof ReadAloud !== 'undefined' ? ReadAloud.getPrefs() : {};
+    setSwitch('fs-tts-highlight', tts.highlight !== false);
+    setSwitch('fs-tts-autoadvance', tts.autoAdvance !== false);
+
     setSwitch('fs-progress-badges', prefs.showProgressBadge);
     setSwitch('fs-format-badges', prefs.showFormatBadge);
     setSwitch('fs-continue-reading', prefs.showContinueReading);
@@ -1104,6 +1151,11 @@ const SettingsUI = (() => {
         Library.exportAnnotations();
         return;
       }
+      if (event.target.closest('#fs-tts-preview-btn')) {
+        const p = typeof ReadAloud !== 'undefined' ? ReadAloud.getPrefs() : {};
+        ReadAloud?.previewVoice?.(p.voiceURI, p.rate, p.pitch, p.volume);
+        return;
+      }
     });
 
     // The restore control is a file input, so it is handled on change rather
@@ -1135,6 +1187,11 @@ const SettingsUI = (() => {
       if (id === 'qs-font') {
         ReaderSettings.setSetting('fontFamily', select.value);
         refresh();
+        return;
+      }
+      if (id === 'fs-tts-voice') {
+        if (typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ voiceURI: select.value });
+        return;
       }
     });
 
@@ -1152,6 +1209,9 @@ const SettingsUI = (() => {
       if (id === 'qs-line-height') ReaderSettings.setSetting('lineHeight', value);
       if (id === 'qs-para-spacing') ReaderSettings.setSetting('paragraphSpacing', value);
       if (id === 'qs-margin') ReaderSettings.setSetting('margin', value);
+      if (id === 'fs-tts-rate' && typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ rate: value });
+      if (id === 'fs-tts-pitch' && typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ pitch: value });
+      if (id === 'fs-tts-volume' && typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ volume: value / 100 });
     });
 
     const appThemeSwitch = document.getElementById('app-theme-switch');

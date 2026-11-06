@@ -233,6 +233,7 @@ const Reader = (() => {
   function adjustZoom(delta) { zoomControl?.adjust(delta); }
   function setZoom(value) { zoomControl?.set(value); }
   function showZoomControl() { zoomControl?.show(); }
+  function clampZoomControl() { zoomControl?.clampToViewport(); }
 
   // ---------------------------------------------------------------- progress
   function getProgress() {
@@ -613,6 +614,7 @@ const Reader = (() => {
     setZoom,
     adjustZoom,
     showZoomControl,
+    clampZoomControl,
     getProgress,
     getLocation,
     getNavigation,

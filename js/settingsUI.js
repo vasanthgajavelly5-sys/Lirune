@@ -194,6 +194,7 @@ const SettingsUI = (() => {
         { value: 'compact', label: 'Compact' }
       ], view.density)}
       ${switchRow('qs-metadata', 'Show book metadata', 'Author and file format on every cover', view.showMetadata)}
+      <button class="btn btn-ghost reset-settings-btn quick-reset-btn" id="qs-reset-library-btn" type="button" style="margin-top:var(--sp-2);">Reset library view</button>
       ${expandButton()}
     `;
   }
@@ -235,6 +236,7 @@ const SettingsUI = (() => {
       ${selectRow('qs-font', 'Font', FONT_OPTIONS.map(f => ({ value: f.value, label: f.label })), reader.fontFamily)}
       ${sliderRow('qs-font-size', 'Size', reader.fontSize, 12, 36, 1, `${reader.fontSize}px`, 'px')}
       ${sliderRow('qs-line-height', 'Line height', reader.lineHeight, 1.2, 2.4, 0.1, reader.lineHeight.toFixed(1), '')}
+      ${sliderRow('qs-para-spacing', 'Paragraph spacing', reader.paragraphSpacing ?? 1.0, 0, 3.0, 0.2, `${(reader.paragraphSpacing ?? 1.0).toFixed(1)}em`, 'em')}
       ${sliderRow('qs-margin', 'Margins', reader.margin, 2, 24, 2, `${reader.margin}%`, '%')}
       ${segmentRow('qs-alignment', 'Alignment', [
         { value: 'left', label: 'Left' },
@@ -1038,7 +1040,7 @@ const SettingsUI = (() => {
         resetReader();
         return;
       }
-      if (event.target.closest('#reset-library-view-btn')) {
+      if (event.target.closest('#reset-library-view-btn') || event.target.closest('#qs-reset-library-btn')) {
         Library.resetView();
         refresh();
         return;
@@ -1145,10 +1147,11 @@ const SettingsUI = (() => {
       const unit = slider.dataset.unit || '';
 
       const readout = document.getElementById(`${id}-value`);
-      if (readout) readout.textContent = `${id === 'qs-line-height' ? value.toFixed(1) : value}${unit}`;
+      if (readout) readout.textContent = `${(id === 'qs-line-height' || id === 'qs-para-spacing') ? value.toFixed(1) : value}${unit}`;
 
       if (id === 'qs-font-size') ReaderSettings.setSetting('fontSize', value);
       if (id === 'qs-line-height') ReaderSettings.setSetting('lineHeight', value);
+      if (id === 'qs-para-spacing') ReaderSettings.setSetting('paragraphSpacing', value);
       if (id === 'qs-margin') ReaderSettings.setSetting('margin', value);
     });
 
@@ -1158,6 +1161,14 @@ const SettingsUI = (() => {
         if (expanded) syncFullControls();
       });
     }
+
+    window.addEventListener('novera:readerThemeChange', (e) => {
+      const sel = document.getElementById('qs-theme-select');
+      if (sel && e.detail?.theme) {
+        sel.value = e.detail.theme;
+        sel._customDropdownSync?.();
+      }
+    });
   }
 
   function applySegment(id, value) {

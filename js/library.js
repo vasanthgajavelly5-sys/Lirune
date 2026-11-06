@@ -684,6 +684,8 @@ const RENDER_BATCH_SIZE = 50;
       });
     }
 
+    BackgroundQueue.init();
+
     // File input change (browser/fallback)
     if (fileInput) {
       fileInput.addEventListener('change', async (e) => {
@@ -695,13 +697,38 @@ const RENDER_BATCH_SIZE = 50;
       });
     }
 
+    function showStorageOpenOverlay(filename, percent, status) {
+      const overlay = document.getElementById('storage-open-overlay');
+      if (!overlay) return;
+      const fnEl = document.getElementById('storage-open-filename');
+      const barEl = document.getElementById('storage-open-progress-bar');
+      const statusEl = document.getElementById('storage-open-status');
+      const pctEl = document.getElementById('storage-open-percent');
+      if (fnEl) fnEl.textContent = filename || '';
+      if (barEl) barEl.style.width = `${percent}%`;
+      if (statusEl) statusEl.textContent = status || '';
+      if (pctEl) pctEl.textContent = `${percent}%`;
+      overlay.removeAttribute('hidden');
+      overlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function hideStorageOpenOverlay() {
+      const overlay = document.getElementById('storage-open-overlay');
+      if (!overlay) return;
+      overlay.setAttribute('hidden', '');
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+
     async function openBookFromFilePath(filePath) {
       if (!filePath) return;
       window.__externalFileOpening = true;
+      const fileName = filePath.replace(/^[\\/]/, '').split(/[\\/]/).pop() || 'Book';
+      showStorageOpenOverlay(fileName, 15, 'Starting book loader…');
+
       if (!libraryInitialized && libraryInitPromise) {
+        showStorageOpenOverlay(fileName, 25, 'Initializing storage…');
         await libraryInitPromise;
       }
-      Utils.toast('Opening book...', 'info');
 
       const normalizedTarget = String(filePath).toLowerCase();
       // 1. Check if book already matches by path
@@ -711,17 +738,22 @@ const RENDER_BATCH_SIZE = 50;
       );
 
       if (existing) {
+        showStorageOpenOverlay(fileName, 90, 'Opening in reader…');
         App.openReader(existing.id);
+        setTimeout(hideStorageOpenOverlay, 500);
         return;
       }
 
-        // 2. Read file to check fingerprint / import
+      // 2. Read file to check fingerprint / import
       try {
+        showStorageOpenOverlay(fileName, 35, 'Reading file from disk…');
         const file = await window.noveraDesktop.readBookFile(filePath);
         if (!file?.data) throw new Error('Could not read file data');
 
+        showStorageOpenOverlay(fileName, 65, 'Validating and importing…');
         const imported = await importOneFile(file.data, file.name, file.size || file.data.byteLength, filePath);
         if (imported === 'duplicate') {
+          showStorageOpenOverlay(fileName, 80, 'Matching existing library book…');
           const fingerprint = await getFingerprint(file.data, file.size || file.data.byteLength, file.name);
           const existingByFp = allBooks.find(b => b.fingerprint && b.fingerprint === fingerprint);
           if (existingByFp) {
@@ -729,20 +761,26 @@ const RENDER_BATCH_SIZE = 50;
               existingByFp.sourcePath = filePath;
               await NoveraDB.updateBook(existingByFp.id, { sourcePath: filePath });
             }
+            showStorageOpenOverlay(fileName, 95, 'Opening in reader…');
             App.openReader(existingByFp.id);
+            setTimeout(hideStorageOpenOverlay, 500);
             return;
           }
         }
 
         if (imported && imported.id) {
+          showStorageOpenOverlay(fileName, 90, 'Saving to library…');
           allBooks.unshift(imported);
           renderLibraryUI();
+          showStorageOpenOverlay(fileName, 100, 'Opening in reader…');
           App.openReader(imported.id);
+          setTimeout(hideStorageOpenOverlay, 500);
         } else {
           throw new Error('Could not persist book record');
         }
       } catch (err) {
         console.error('Failed to open book from OS:', err);
+        hideStorageOpenOverlay();
         window.noveraDesktop?.revokePendingBookFile?.(filePath);
         Utils.toast(err?.message || 'Could not open the selected file', 'error');
       }
@@ -836,12 +874,128 @@ const RENDER_BATCH_SIZE = 50;
     return `${fingerprint}.${extension || 'epub'}`;
   }
 
+  const BackgroundQueue = (() => {
+    let queue = [];
+    let autoHideTimer = null;
+
+    function renderQueueModal() {
+      const listEl = document.getElementById('import-queue-list');
+      if (!listEl) return;
+      if (queue.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-tertiary);">No files in import queue.</div>';
+        return;
+      }
+      listEl.innerHTML = queue.map(item => {
+        let badgeHtml = '';
+        if (item.status === 'pending') {
+          badgeHtml = '<span class="import-queue-badge pending">Pending</span>';
+        } else if (item.status === 'importing') {
+          badgeHtml = '<span class="import-queue-badge importing"><span class="import-queue-spinner" style="width:10px;height:10px;"></span> Importing</span>';
+        } else if (item.status === 'completed') {
+          badgeHtml = '<span class="import-queue-badge completed">✓ Completed</span>';
+        } else {
+          badgeHtml = `<span class="import-queue-badge error" title="${Utils.escapeHTML(item.error || 'Failed')}">✗ Error</span>`;
+        }
+        return `
+          <div class="import-queue-item">
+            <div class="import-queue-item-info">
+              <span class="import-queue-item-name" title="${Utils.escapeHTML(item.name)}">${Utils.escapeHTML(item.name)}</span>
+              <span class="import-queue-item-meta">${item.size ? Utils.formatBytes(item.size) : ''}${item.error ? ` • ${Utils.escapeHTML(item.error)}` : ''}</span>
+            </div>
+            ${badgeHtml}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updatePill() {
+      const pill = document.getElementById('import-queue-pill');
+      const textEl = document.getElementById('import-queue-text');
+      if (!pill || !textEl) return;
+      const activeOrPending = queue.filter(i => i.status === 'pending' || i.status === 'importing');
+      const completed = queue.filter(i => i.status === 'completed').length;
+      const total = queue.length;
+
+      if (activeOrPending.length > 0) {
+        clearTimeout(autoHideTimer);
+        pill.classList.remove('hidden');
+        textEl.textContent = `Importing ${completed + 1}/${total}`;
+      } else if (total > 0) {
+        textEl.textContent = `Imported ${completed}/${total}`;
+        clearTimeout(autoHideTimer);
+        autoHideTimer = setTimeout(() => {
+          pill.classList.add('hidden');
+          queue = [];
+        }, 5000);
+      } else {
+        pill.classList.add('hidden');
+      }
+      renderQueueModal();
+    }
+
+    function enqueue(files) {
+      clearTimeout(autoHideTimer);
+      const newItems = Array.from(files).map((f, i) => ({
+        id: `q_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+        name: f.name || 'Book',
+        size: f.size || 0,
+        status: 'pending'
+      }));
+      queue.push(...newItems);
+      updatePill();
+      return newItems;
+    }
+
+    function setStatus(id, status, error) {
+      const item = queue.find(i => i.id === id);
+      if (item) {
+        item.status = status;
+        if (error) item.error = error;
+      }
+      updatePill();
+    }
+
+    function openModal() {
+      const modal = document.getElementById('import-queue-modal');
+      if (!modal) return;
+      renderQueueModal();
+      modal.classList.remove('hidden');
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('import-queue-modal');
+      if (!modal) return;
+      modal.classList.add('hidden');
+    }
+
+    function clear() {
+      queue = queue.filter(i => i.status === 'pending' || i.status === 'importing');
+      updatePill();
+      closeModal();
+    }
+
+    function init() {
+      const pill = document.getElementById('import-queue-pill');
+      pill?.addEventListener('click', openModal);
+      document.getElementById('close-import-queue-btn')?.addEventListener('click', closeModal);
+      document.getElementById('dismiss-import-queue-btn')?.addEventListener('click', clear);
+      document.getElementById('import-queue-modal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'import-queue-modal') closeModal();
+      });
+    }
+
+    return { enqueue, setStatus, updatePill, openModal, closeModal, init };
+  })();
+
   async function processNativeFiles(fileList, _setStatus, updateProgress) {
+    const queueItems = BackgroundQueue.enqueue(fileList);
     Utils.toast(`Importing ${fileList.length} book${fileList.length === 1 ? '' : 's'}...`);
 
     let importedCount = 0;
     const errors = [];
     for (const [index, file] of fileList.entries()) {
+      const qItem = queueItems[index];
+      if (qItem) BackgroundQueue.setStatus(qItem.id, 'importing');
       let savedStorageId = null;
       try {
         const completed = Math.round((index / fileList.length) * 100);
@@ -852,6 +1006,7 @@ const RENDER_BATCH_SIZE = 50;
           (book.diskPath && book.diskPath.toLowerCase() === normalized)
         );
         if (existing) {
+          if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
           continue;
         }
 
@@ -862,24 +1017,31 @@ const RENDER_BATCH_SIZE = 50;
         }
         if (!fileData) {
           errors.push({ name: file.name, error: 'Could not read file' });
+          if (qItem) BackgroundQueue.setStatus(qItem.id, 'error', 'Could not read file');
           continue;
         }
 
         const imported = await importOneFile(fileData, file.name, file.size, file.path);
         fileData = null; // Release buffer immediately to free memory
-        if (imported === 'duplicate') continue;
+        if (imported === 'duplicate') {
+          if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
+          continue;
+        }
         if (imported === 'skipped') {
           errors.push({ name: file.name, error: 'Unsupported file type' });
+          if (qItem) BackgroundQueue.setStatus(qItem.id, 'error', 'Unsupported file type');
           continue;
         }
         if (savedStorageId && imported?.storageId) savedStorageId = imported.storageId;
         importedCount++;
+        if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
       } catch (err) {
         console.error('Failed to import book:', file.name, err);
         if (savedStorageId) {
           try { await window.noveraDesktop.deleteBookFromStorage(savedStorageId); } catch (_) {}
         }
         errors.push({ name: file.name, error: err.message || 'Unreadable file' });
+        if (qItem) BackgroundQueue.setStatus(qItem.id, 'error', err.message || 'Unreadable file');
       }
     }
 
@@ -892,20 +1054,28 @@ const RENDER_BATCH_SIZE = 50;
   }
 
   async function processFiles(fileList) {
+    const queueItems = BackgroundQueue.enqueue(fileList);
     Utils.toast(`Importing ${fileList.length} book${fileList.length === 1 ? '' : 's'}...`);
 
     let importedCount = 0;
     const errors = [];
-    for (const file of fileList) {
+    for (const [index, file] of fileList.entries()) {
+      const qItem = queueItems[index];
+      if (qItem) BackgroundQueue.setStatus(qItem.id, 'importing');
       try {
         const arrayBuffer = await file.arrayBuffer();
         const imported = await importOneFile(arrayBuffer, file.name, file.size, null);
-        if (imported === 'duplicate' || imported === 'skipped') continue;
+        if (imported === 'duplicate' || imported === 'skipped') {
+          if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
+          continue;
+        }
         importedCount++;
+        if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
       } catch (err) {
         console.error('Failed to import book:', file.name, err);
         Utils.toast(`Could not import "${file.name}"`, 'error');
         errors.push({ name: file.name, error: err.message });
+        if (qItem) BackgroundQueue.setStatus(qItem.id, 'error', err.message);
       }
     }
 

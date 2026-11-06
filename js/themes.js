@@ -225,8 +225,11 @@ const ThemeManager = (() => {
       preset.setAttribute('aria-pressed', preset.dataset.theme === themeName ? 'true' : 'false');
     });
     const qsThemeSelect = document.getElementById('qs-theme-select');
-    if (qsThemeSelect && qsThemeSelect.value !== themeName) {
-      qsThemeSelect.value = themeName;
+    if (qsThemeSelect) {
+      if (qsThemeSelect.value !== themeName) {
+        qsThemeSelect.value = themeName;
+      }
+      qsThemeSelect._customDropdownSync?.();
     }
     updateCustomUI();
     if (shouldPersist) persist('readerTheme', themeName);

@@ -8,6 +8,7 @@ const ReaderSettings = (() => {
     fontFamily: 'Cormorant Garamond',
     alignment: 'left',
     lineHeight: 1.6,
+    paragraphSpacing: 1.0,
     margin: 10,
     flow: 'paginated',
     spread: 'auto'
@@ -169,6 +170,7 @@ const ReaderSettings = (() => {
     merged.fontFamily = allowedFonts.includes(merged.fontFamily) ? merged.fontFamily : DEFAULT_SETTINGS.fontFamily;
     merged.alignment = ['left', 'center', 'right', 'justify'].includes(merged.alignment) ? merged.alignment : DEFAULT_SETTINGS.alignment;
     merged.lineHeight = Math.min(2.4, Math.max(1.2, Number(merged.lineHeight) || DEFAULT_SETTINGS.lineHeight));
+    merged.paragraphSpacing = Math.min(3.0, Math.max(0, Number(merged.paragraphSpacing) !== undefined && !isNaN(Number(merged.paragraphSpacing)) ? Number(merged.paragraphSpacing) : DEFAULT_SETTINGS.paragraphSpacing));
     merged.margin = Math.min(24, Math.max(2, Number(merged.margin) || DEFAULT_SETTINGS.margin));
     merged.flow = ['paginated', 'scrolled'].includes(merged.flow) ? merged.flow : DEFAULT_SETTINGS.flow;
     merged.spread = ['auto', 'none'].includes(merged.spread) ? merged.spread : DEFAULT_SETTINGS.spread;
@@ -207,6 +209,13 @@ const ReaderSettings = (() => {
     const spacingVal = document.getElementById('spacing-val');
     if (spacingSlider) spacingSlider.value = currentSettings.lineHeight;
     if (spacingVal) spacingVal.textContent = currentSettings.lineHeight.toFixed(1);
+
+    // Paragraph spacing slider & value
+    const paraSpacingSlider = document.getElementById('para-spacing-slider');
+    const paraSpacingVal = document.getElementById('para-spacing-val');
+    const curParaSpacing = currentSettings.paragraphSpacing ?? 1.0;
+    if (paraSpacingSlider) paraSpacingSlider.value = curParaSpacing;
+    if (paraSpacingVal) paraSpacingVal.textContent = `${curParaSpacing.toFixed(1)}em`;
 
     // Margin slider & value
     const marginSlider = document.getElementById('margin-slider');
@@ -295,6 +304,15 @@ const ReaderSettings = (() => {
       spacingSlider.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
         setSetting('lineHeight', val);
+      });
+    }
+
+    // Paragraph spacing slider
+    const paraSpacingSlider = document.getElementById('para-spacing-slider');
+    if (paraSpacingSlider) {
+      paraSpacingSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        setSetting('paragraphSpacing', val);
       });
     }
 

@@ -64,6 +64,12 @@
       </div>
 
       <div class="lib-nav-right">
+        <!-- Background Import Queue Pill -->
+        <button id="import-queue-pill" class="import-queue-pill hidden" type="button" aria-label="View background import queue" title="Background imports active">
+          <span class="import-queue-spinner"></span>
+          <span id="import-queue-text" class="import-queue-text">Importing 1/3</span>
+        </button>
+
         <!-- Grid/List View Toggle -->
         <button class="btn btn-glass icon-btn" id="view-toggle-btn" title="Toggle Grid / List View" aria-label="Toggle grid or list view">
           <svg id="view-grid-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -663,6 +669,15 @@
         <div class="setting-slider-row">
           <div class="setting-row">
           <div class="setting-label">
+            Paragraph spacing
+            <span id="para-spacing-val">1.0em</span>
+          </div>
+          </div>
+          <input type="range" id="para-spacing-slider" min="0" max="3" step="0.2" value="1.0" class="glass-slider" aria-label="Paragraph spacing">
+        </div>
+        <div class="setting-slider-row">
+          <div class="setting-row">
+          <div class="setting-label">
             Page margins
             <span id="margin-val">10%</span>
           </div>
@@ -1006,6 +1021,49 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" id="cancel-delete-all-btn" type="button">Cancel</button>
         <button class="btn btn-accent delete-book-confirm-btn" id="confirm-delete-all-btn" type="button">Delete Everything</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Background Import Queue Modal -->
+  <div id="import-queue-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="import-queue-title">
+    <div class="modal-box import-queue-modal">
+      <div class="modal-header">
+        <div>
+          <h2 id="import-queue-title">Import Queue</h2>
+          <p id="import-queue-subtitle" class="modal-subtitle">Files importing to your library</p>
+        </div>
+        <button class="btn btn-glass icon-btn modal-close-btn" id="close-import-queue-btn" type="button" aria-label="Close import queue">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div id="import-queue-list" class="import-queue-list">
+        <!-- populated dynamically -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="dismiss-import-queue-btn" type="button">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dedicated Loading Overlay for opening files from PC storage -->
+  <div id="storage-open-overlay" class="storage-open-overlay" aria-hidden="true" hidden>
+    <div class="storage-open-card">
+      <div class="storage-open-icon-wrap">
+        <svg class="storage-open-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        <div class="storage-open-spinner"></div>
+      </div>
+      <h3 id="storage-open-title" class="storage-open-title">Opening Book…</h3>
+      <p id="storage-open-filename" class="storage-open-filename"></p>
+      <div class="storage-open-progress-track">
+        <div id="storage-open-progress-bar" class="storage-open-progress-bar"></div>
+      </div>
+      <div class="storage-open-status-row">
+        <span id="storage-open-status" class="storage-open-status">Reading file from disk…</span>
+        <span id="storage-open-percent" class="storage-open-percent">25%</span>
       </div>
     </div>
   </div>

@@ -101,7 +101,7 @@ const App = (() => {
   function bindViewportClamping() {
     const clamp = () => {
       homeZoomControl?.clampToViewport();
-      Reader.showZoomControl?.();
+      Reader.clampZoomControl?.();
     };
     window.addEventListener('resize', clamp);
     window.addEventListener('scroll', clamp, true);

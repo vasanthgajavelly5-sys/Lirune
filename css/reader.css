@@ -87,16 +87,16 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  background: var(--reader-theme-surface, var(--bg-surface));
+  border: 1px solid var(--reader-theme-border, var(--border-subtle));
   border-radius: var(--r-full);
   padding: 2px 4px;
   box-shadow: var(--shadow-xs);
   flex-shrink: 0;
-  transition: border-color var(--dur-fast), background var(--dur-fast);
+  transition: border-color var(--dur-fast), background var(--dur-fast), color var(--dur-fast);
 }
 .toolbar-actions:hover {
-  border-color: var(--border-default);
+  border-color: var(--reader-theme-border, var(--border-default));
 }
 .toolbar-actions .icon-btn {
   width: 32px;
@@ -104,12 +104,12 @@
   border-radius: var(--r-full);
   border: 1px solid transparent;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--reader-theme-text, var(--text-secondary));
   transition: background var(--dur-fast), color var(--dur-fast), transform var(--dur-fast), border-color var(--dur-fast);
 }
 .toolbar-actions .icon-btn:hover {
   background: var(--bg-hover);
-  color: var(--text-primary);
+  color: var(--reader-theme-text, var(--text-primary));
 }
 .toolbar-actions .icon-btn:active,
 .toolbar-actions .icon-btn.active {
@@ -123,7 +123,7 @@
 .toolbar-divider {
   width: 1px;
   height: 18px;
-  background: var(--border-subtle);
+  background: var(--reader-theme-border, var(--border-subtle));
   margin: 0 4px;
   flex-shrink: 0;
 }
@@ -618,6 +618,7 @@ body.focus-mode .focus-toc-btn {
 .doc-body blockquote { margin: 1em 0; padding-left: 1em; border-left: 2px solid var(--border-default); }
 .doc-body table { border-collapse: collapse; max-width: 100%; }
 .doc-body td, .doc-body th { border: 1px solid var(--border-subtle); padding: 0.35em 0.6em; }
+.doc-body p { margin-bottom: var(--doc-para-spacing, 1em); }
 .doc-body pre { overflow-x: auto; background: var(--bg-hover); padding: 0.8em; border-radius: 6px; }
 .doc-section { scroll-margin-top: var(--sp-6); }
 .doc-search-hit { background: var(--hl-yellow); color: var(--text-primary); border-radius: 2px; }

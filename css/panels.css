@@ -360,24 +360,26 @@
   border-radius: var(--r-full);
   font-size: 0.875rem;
   font-weight: 600;
-  background: linear-gradient(135deg, #6C5CE7, #5344C8);
+  background: #6D54B5;
   color: #FFFFFF;
   border: 1px solid transparent;
-  box-shadow: 0 4px 14px rgba(108, 92, 231, 0.28);
+  box-shadow: 0 4px 14px rgba(109, 84, 181, 0.28);
   letter-spacing: 0.02em;
   transition: all var(--dur-fast) var(--ease-out);
 }
 [data-theme="dark"] .quick-expand-btn {
-  background: linear-gradient(135deg, #EEECF8, #C8C5D8);
+  background: #8B72DB;
   color: #11151B;
-  box-shadow: 0 4px 20px rgba(238, 236, 248, 0.2);
+  box-shadow: 0 4px 20px rgba(139, 114, 219, 0.25);
 }
 .quick-expand-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(108, 92, 231, 0.4);
+  filter: brightness(1.05);
+  box-shadow: 0 6px 20px rgba(109, 84, 181, 0.4);
 }
 [data-theme="dark"] .quick-expand-btn:hover {
-  box-shadow: 0 6px 24px rgba(238, 236, 248, 0.3);
+  filter: brightness(1.08);
+  box-shadow: 0 6px 24px rgba(139, 114, 219, 0.35);
 }
 .quick-expand-btn:active {
   transform: translateY(0);
@@ -1076,6 +1078,7 @@
 .layout-opt.active svg { color: var(--accent-text); }
 
 @media (max-width: 640px) {
+  #toc-panel,
   #settings-panel { width: min(var(--panel-w), 94vw); }
   .settings-body { gap: var(--sp-4); padding: var(--sp-4); }
   .theme-choice { min-height: 68px; }

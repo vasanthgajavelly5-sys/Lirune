@@ -477,6 +477,7 @@ const EpubLoader = (() => {
     const fontSize = Math.round((settings.fontSize || 18) * currentZoom / 100);
     const alignment = settings.alignment || 'left';
     const lineHeight = settings.lineHeight || 1.6;
+    const paraSpacing = Number(settings.paragraphSpacing ?? 1.0);
     const margin = settings.margin ? `${settings.margin * 3}px` : '30px';
 
     let styleEl = doc.getElementById('novera-page-custom-style');
@@ -510,6 +511,9 @@ const EpubLoader = (() => {
       }
       p, li, blockquote {
         font-size: ${fontSize}px !important;
+      }
+      p {
+        margin-bottom: ${paraSpacing}em !important;
       }
       h1, h2, h3, h4, h5, h6 {
         color: ${colors.text} !important;
@@ -717,15 +721,32 @@ const EpubLoader = (() => {
       if (isNaN(percent)) percent = 0;
     }
 
+    // epub.js reports a page index inside the current spine item; combine it
+    // with the real generated locations for an honest "page n of m" reading.
+    const pageInSection = location.start.displayed?.page;
+    const totalPages = location.start.displayed?.total;
+
+    // Spine-based fallback when locations are generating or percentageFromCfi yields 0
+    if (percent === 0 && currentBook?.spine?.length) {
+      const totalSpine = currentBook.spine.length;
+      let spineIdx = location.start.index;
+      if (typeof spineIdx !== 'number' || spineIdx < 0) {
+        const spineItem = currentBook.spine.get(currentCfi) || currentBook.spine.get(href);
+        spineIdx = spineItem ? spineItem.index : 0;
+      }
+      if (totalSpine > 0 && typeof spineIdx === 'number' && spineIdx >= 0) {
+        const intraChapterFraction = (totalPages && totalPages > 1 && pageInSection)
+          ? ((pageInSection - 1) / totalPages)
+          : 0;
+        percent = Math.min(100, Math.max(0, Math.round(((spineIdx + intraChapterFraction) / totalSpine) * 100)));
+      }
+    }
+
     const match = findActiveEntry();
     const currentChapter = match ? match.label : (currentBookData?.currentChapter || 'Reading');
     currentActiveHref = href;
     Reader?.refreshNavigationPanel?.();
 
-    // epub.js reports a page index inside the current spine item; combine it
-    // with the real generated locations for an honest "page n of m" reading.
-    const pageInSection = location.start.displayed?.page;
-    const totalPages = location.start.displayed?.total;
     const pageLabel = totalPages ? `Page ${pageInSection} of ${totalPages}` : (pageInSection ? `Page ${pageInSection}` : '');
 
     currentProgress = {

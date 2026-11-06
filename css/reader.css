@@ -258,20 +258,17 @@
 #prev-btn { left: var(--sp-5); }
 #next-btn { right: var(--sp-5); }
 
-/* ── Reader bottom status bar ────────────────────────────── */
+/* ── Reader bottom status bar (Removed: all reading details are in top toolbar) ─── */
 #reader-statusbar {
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sp-6);
-  flex-shrink: 0;
-  border-top: 1px solid var(--border-subtle);
-  font-size: 0.78rem;
-  color: var(--text-tertiary);
-  padding: 0 var(--sp-6);
+  display: none !important;
+  height: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
-.statusbar-item { display:flex; align-items:center; gap:5px; }
+.statusbar-item { display: none !important; }
 .statusbar-item svg { width: 13px; height: 13px; }
 
 /* ── Text selection toolbar ──────────────────────────────── */

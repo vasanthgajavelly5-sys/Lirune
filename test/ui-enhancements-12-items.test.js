@@ -106,3 +106,20 @@ test('Item 12: Wider TOC panel matching settings width', () => {
   assert.equal(sidebarMatch[1], panelMatch[1], '--sidebar-w and --panel-w must be equal');
   assert.equal(sidebarMatch[1], '355', 'Width must be 355px');
 });
+
+test('Item 13: Bottom status drawer completely removed from reader view', () => {
+  const readerCss = fs.readFileSync(path.join(root, 'css/reader.css'), 'utf8');
+  assert.match(readerCss, /#reader-statusbar\s*\{[^}]*display:\s*none\s*!important/i, '#reader-statusbar must have display: none !important');
+  const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  assert.match(indexHtml, /<footer id="reader-statusbar"[^>]*hidden[^>]*display:\s*none\s*!important/i, 'reader-statusbar footer in HTML must be hidden and display: none');
+});
+
+test('Item 14: resetView() comprehensively resets filters, search, view prefs and triggers toast', () => {
+  const libJs = fs.readFileSync(path.join(root, 'js/library.js'), 'utf8');
+  assert.match(libJs, /currentFilter\s*=\s*'all'/, 'resetView must reset currentFilter to all');
+  assert.match(libJs, /currentCollection\s*=\s*'all'/, 'resetView must reset currentCollection to all');
+  assert.match(libJs, /searchQuery\s*=\s*''/, 'resetView must clear searchQuery');
+  assert.match(libJs, /Utils\.toast\('Library view reset to defaults', 'success'\)/, 'resetView must provide success toast confirmation');
+});
+
+

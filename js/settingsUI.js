@@ -410,7 +410,6 @@ const SettingsUI = (() => {
         <p class="setting-hint">Fine-tune page-turning, reading progress bars, and scrolling behavior.</p>
       </div>
       ${switchRow('fs-tap-to-turn', 'Tap edges to turn pages', 'Tap left or right screen borders to advance or go back in paginated mode', prefs.tapToTurn)}
-      ${switchRow('fs-reading-bar', 'Reading progress footer', 'Display chapter title, page indicators, and percentage at bottom of screen', prefs.readingFooterBar)}
       ${switchRow('fs-smooth-scroll', 'Smooth momentum scrolling', 'Enable fluid continuous motion when scrolling through chapters', prefs.smoothScroll)}
       ${switchRow('fs-auto-hyphenation', 'Automatic text hyphenation', 'Balance text margins with automatic word breaking at line ends', prefs.autoHyphenation)}
     `;
@@ -1009,7 +1008,7 @@ const SettingsUI = (() => {
     const panel = document.getElementById('settings-panel');
     if (!panel) return;
 
-    panel.addEventListener('click', event => {
+    panel.addEventListener('click', async event => {
       const segment = event.target.closest('.segment-opt');
       if (segment) {
         const catBtn = segment.closest('[data-shortcut-cat]');
@@ -1041,7 +1040,7 @@ const SettingsUI = (() => {
         return;
       }
       if (event.target.closest('#reset-library-view-btn') || event.target.closest('#qs-reset-library-btn')) {
-        Library.resetView();
+        await Library.resetView();
         refresh();
         return;
       }

@@ -99,6 +99,14 @@ const Library = (() => {
     const sortSelect = document.getElementById('sort-select');
     if (sortSelect && sortSelect.value !== viewPrefs.sortBy) sortSelect.value = viewPrefs.sortBy;
     sortSelect?._customDropdownSync?.();
+    const filterSelect = document.getElementById('filter-select');
+    if (filterSelect && filterSelect.value !== currentFilter) filterSelect.value = currentFilter;
+    filterSelect?._customDropdownSync?.();
+    const collectionSelect = document.getElementById('collection-select');
+    if (collectionSelect && collectionSelect.value !== currentCollection) collectionSelect.value = currentCollection;
+    collectionSelect?._customDropdownSync?.();
+    const searchInput = document.getElementById('lib-search-input');
+    if (searchInput && searchInput.value !== searchQuery) searchInput.value = searchQuery;
     const viewToggle = document.getElementById('view-toggle-btn');
     if (viewToggle) viewToggle.classList.toggle('active', isListView);
   }
@@ -107,10 +115,33 @@ const Library = (() => {
     viewPrefs = { ...DEFAULT_VIEW };
     isListView = false;
     currentSort = DEFAULT_VIEW.sortBy;
+    currentFilter = 'all';
+    currentCollection = 'all';
+    searchQuery = '';
+    const searchInput = document.getElementById('lib-search-input');
+    if (searchInput) searchInput.value = '';
+    const filterSelect = document.getElementById('filter-select');
+    if (filterSelect) {
+      filterSelect.value = 'all';
+      filterSelect._customDropdownSync?.();
+    }
+    const collectionSelect = document.getElementById('collection-select');
+    if (collectionSelect) {
+      collectionSelect.value = 'all';
+      collectionSelect._customDropdownSync?.();
+    }
+    const sortSelect = document.getElementById('sort-select');
+    if (sortSelect) {
+      sortSelect.value = DEFAULT_VIEW.sortBy;
+      sortSelect._customDropdownSync?.();
+    }
     applyViewAttributes();
     syncViewControls();
     persistViewPrefs();
     renderLibraryUI();
+    if (typeof Utils !== 'undefined' && typeof Utils.toast === 'function') {
+      Utils.toast('Library view reset to defaults', 'success');
+    }
     return getViewState();
   }
 

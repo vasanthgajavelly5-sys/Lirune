@@ -372,13 +372,13 @@
       </button>
     </div>
 
-    <!-- Bottom Status Bar -->
-    <footer id="reader-statusbar" aria-label="Reader status">
+    <!-- Bottom Status Bar (Hidden/removed: reading progress, chapter and page info are consolidated in top toolbar) -->
+    <footer id="reader-statusbar" class="hidden" style="display: none !important;" aria-label="Reader status" aria-hidden="true">
       <div class="statusbar-item">
-        <span id="status-chapter-name">Chapter</span>
+        <span id="status-chapter-name"></span>
       </div>
       <div class="statusbar-item">
-        <span id="status-progress-pct">0% read</span>
+        <span id="status-progress-pct"></span>
       </div>
       <div class="statusbar-item">
         <span id="status-page"></span>

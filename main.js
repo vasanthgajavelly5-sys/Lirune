@@ -15,6 +15,7 @@ if (process.platform === 'win32' && app?.setAppUserModelId) {
 // renderer performs the authoritative content-based detection.
 const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf', 'md', 'markdown', 'fbz', 'mobi', 'azw', 'azw3', 'cbr', 'doc', 'chm', 'djvu', 'djv'];
 const OPENABLE_EXTENSIONS = [...SUPPORTED_EXTENSIONS];
+const ARCHIVE_EXTENSIONS = ['zip', '7z', 'rar'];
 
 const MAX_BOOK_FILE_SIZE = 512 * 1024 * 1024; // 512MB
 const MAX_ZIP_ENTRIES = 10000;
@@ -376,13 +377,15 @@ ipcMain.handle('dialog:open-files', async (event) => {
     title: 'Select a book',
     buttonLabel: 'Import to Lirune Reader',
     filters: [
+      { name: 'Supported books & archives', extensions: [...SUPPORTED_EXTENSIONS, ...ARCHIVE_EXTENSIONS] },
       { name: 'Supported books', extensions: SUPPORTED_EXTENSIONS },
+      { name: 'Book archives (*.zip, *.7z, *.rar)', extensions: ARCHIVE_EXTENSIONS },
       { name: 'EPUB eBooks (*.epub)', extensions: ['epub'] },
       { name: 'PDF documents (*.pdf)', extensions: ['pdf'] },
       { name: 'Word documents (*.docx)', extensions: ['docx'] },
-      { name: 'Comic archives (*.cbz)', extensions: ['cbz'] },
-      { name: 'Text and HTML (*.txt, *.html, *.htm)', extensions: ['txt', 'html', 'htm'] },
-      { name: 'FictionBook (*.fb2)', extensions: ['fb2'] },
+      { name: 'Comic archives (*.cbz, *.cbr)', extensions: ['cbz', 'cbr'] },
+      { name: 'Text and HTML (*.txt, *.html, *.htm, *.md)', extensions: ['txt', 'html', 'htm', 'md', 'markdown'] },
+      { name: 'FictionBook (*.fb2, *.fbz)', extensions: ['fb2', 'fbz'] },
       { name: 'All Files (*.*)', extensions: ['*'] }
     ],
     properties: ['openFile', 'multiSelections']
@@ -774,6 +777,308 @@ ipcMain.handle('archive:extract-rar', async (event, arrayBuffer) => {
   }
 });
 
+/**
+ * Inspect an archive buffer (ZIP, 7z, RAR) and return a list of contained book files.
+ * Validates against path traversal and only returns files matching SUPPORTED_EXTENSIONS.
+ */
+async function inspectArchiveBuffer(buffer, archiveName = '') {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('Archive buffer is empty');
+  }
+  const ext = (path.extname(archiveName) || '').slice(1).toLowerCase();
+  const isZip = ext === 'zip' || (buffer[0] === 0x50 && buffer[1] === 0x4b);
+
+  if (isZip) {
+    try {
+      const zip = await JSZip.loadAsync(buffer);
+      const books = [];
+      for (const [relPath, entry] of Object.entries(zip.files)) {
+        if (entry.dir) continue;
+        const normalized = relPath.replace(/\\/g, '/');
+        if (normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) continue;
+        if (normalized.includes('..') || path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized)) continue;
+        const entryExt = (path.extname(normalized) || '').slice(1).toLowerCase();
+        if (SUPPORTED_EXTENSIONS.includes(entryExt)) {
+          books.push({
+            path: relPath,
+            name: path.basename(relPath),
+            size: entry._data ? (entry._data.uncompressedSize || 0) : 0,
+            ext: entryExt
+          });
+        }
+      }
+      return books;
+    } catch (zipErr) {
+      console.warn('JSZip inspect failed, trying libarchive-wasm fallback:', zipErr?.message);
+    }
+  }
+
+  // Libarchive-wasm reader (for 7z, rar, or non-standard zip)
+  const { ArchiveReader, libarchiveWasm } = require('libarchive-wasm');
+  const mod = await libarchiveWasm();
+  const i8 = new Int8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const reader = new ArchiveReader(mod, i8);
+  const books = [];
+
+  try {
+    if (reader.hasEncryptedData?.() === true) {
+      throw new Error('Encrypted or password-protected archives are not supported');
+    }
+    for (const entry of reader.entries()) {
+      if (entry.isEncrypted?.()) {
+        throw new Error('Encrypted or password-protected archives are not supported');
+      }
+      const type = entry.getFiletype?.();
+      if (type === 'DIRECTORY' || type === 'Directory') {
+        entry.skipData?.();
+        continue;
+      }
+      const relPath = entry.getPathname?.() || '';
+      const normalized = relPath.replace(/\\/g, '/');
+      if (!normalized || normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) {
+        entry.skipData?.();
+        continue;
+      }
+      if (normalized.includes('..') || path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized)) {
+        entry.skipData?.();
+        continue;
+      }
+      const entryExt = (path.extname(normalized) || '').slice(1).toLowerCase();
+      if (SUPPORTED_EXTENSIONS.includes(entryExt)) {
+        books.push({
+          path: relPath,
+          name: path.basename(relPath),
+          size: entry.getSize?.() || 0,
+          ext: entryExt
+        });
+      }
+      entry.skipData?.();
+    }
+  } finally {
+    reader.free();
+  }
+
+  return books;
+}
+
+/**
+ * Extract selected book files from an archive buffer (ZIP, 7z, RAR).
+ * Validates each entry against path traversal, maximum size, and aggregate size limits.
+ */
+async function extractArchiveBuffer(buffer, selectedPaths = null, archiveName = '') {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('Archive buffer is empty');
+  }
+  const ext = (path.extname(archiveName) || '').slice(1).toLowerCase();
+  const isZip = ext === 'zip' || (buffer[0] === 0x50 && buffer[1] === 0x4b);
+  const filterSet = Array.isArray(selectedPaths) && selectedPaths.length > 0 ? new Set(selectedPaths) : null;
+
+  if (isZip) {
+    try {
+      const zip = await JSZip.loadAsync(buffer);
+      const extracted = [];
+      let totalExtractedBytes = 0;
+
+      for (const [relPath, entry] of Object.entries(zip.files)) {
+        if (filterSet && !filterSet.has(relPath)) continue;
+        if (entry.dir) continue;
+        const normalized = relPath.replace(/\\/g, '/');
+        if (normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) continue;
+        if (normalized.includes('..') || path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized)) continue;
+        const entryExt = (path.extname(normalized) || '').slice(1).toLowerCase();
+        if (!SUPPORTED_EXTENSIONS.includes(entryExt)) continue;
+
+        const arrayBuf = await entry.async('arraybuffer');
+        if (arrayBuf.byteLength > MAX_BOOK_FILE_SIZE) {
+          throw new Error(`File "${path.basename(relPath)}" exceeds maximum allowed size`);
+        }
+        totalExtractedBytes += arrayBuf.byteLength;
+        if (totalExtractedBytes > MAX_ZIP_AGGREGATE_BYTES) {
+          throw new Error('Archive total extracted size exceeds safety limit');
+        }
+
+        extracted.push({
+          path: relPath,
+          name: path.basename(relPath),
+          size: arrayBuf.byteLength,
+          data: Buffer.from(arrayBuf)
+        });
+      }
+      return extracted;
+    } catch (zipErr) {
+      console.warn('JSZip extract failed, trying libarchive-wasm fallback:', zipErr?.message);
+    }
+  }
+
+  // Libarchive-wasm reader
+  const { ArchiveReader, libarchiveWasm } = require('libarchive-wasm');
+  const mod = await libarchiveWasm();
+  const i8 = new Int8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const reader = new ArchiveReader(mod, i8);
+  const extracted = [];
+  let totalExtractedBytes = 0;
+
+  try {
+    if (reader.hasEncryptedData?.() === true) {
+      throw new Error('Encrypted or password-protected archives are not supported');
+    }
+    for (const entry of reader.entries()) {
+      if (entry.isEncrypted?.()) {
+        throw new Error('Encrypted or password-protected archives are not supported');
+      }
+      const relPath = entry.getPathname?.() || '';
+      if (filterSet && !filterSet.has(relPath)) {
+        entry.skipData?.();
+        continue;
+      }
+      const type = entry.getFiletype?.();
+      if (type === 'DIRECTORY' || type === 'Directory') {
+        entry.skipData?.();
+        continue;
+      }
+      const normalized = relPath.replace(/\\/g, '/');
+      if (!normalized || normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) {
+        entry.skipData?.();
+        continue;
+      }
+      if (normalized.includes('..') || path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized)) {
+        entry.skipData?.();
+        continue;
+      }
+      const entryExt = (path.extname(normalized) || '').slice(1).toLowerCase();
+      if (!SUPPORTED_EXTENSIONS.includes(entryExt)) {
+        entry.skipData?.();
+        continue;
+      }
+
+      const data = entry.readData();
+      if (!data) continue;
+      if (data.byteLength > MAX_BOOK_FILE_SIZE) {
+        throw new Error(`File "${path.basename(relPath)}" exceeds maximum allowed size`);
+      }
+      totalExtractedBytes += data.byteLength;
+      if (totalExtractedBytes > MAX_ZIP_AGGREGATE_BYTES) {
+        throw new Error('Archive total extracted size exceeds safety limit');
+      }
+
+      extracted.push({
+        path: relPath,
+        name: path.basename(relPath),
+        size: data.byteLength,
+        data: Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+      });
+    }
+  } finally {
+    reader.free();
+  }
+
+  return extracted;
+}
+
+// Inspect archive contents for supported books (.zip, .7z, .rar)
+ipcMain.handle('archive:inspect', async (event, filePathOrDescriptor) => {
+  requireTrustedSender(event);
+  try {
+    let filePath = typeof filePathOrDescriptor === 'string' ? filePathOrDescriptor : filePathOrDescriptor?.path;
+    let fileBuffer = filePathOrDescriptor?.buffer;
+    let archiveName = filePath ? path.basename(filePath) : (filePathOrDescriptor?.name || 'archive');
+
+    if (filePath) {
+      const resolved = path.resolve(filePath);
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+        return { success: false, error: 'Archive file does not exist' };
+      }
+      const stats = fs.statSync(resolved);
+      if (stats.size > MAX_BOOK_FILE_SIZE) {
+        return { success: false, error: `Archive exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)` };
+      }
+      authorizeBookPath(resolved);
+      fileBuffer = fs.readFileSync(resolved);
+    } else if (fileBuffer) {
+      if (fileBuffer.byteLength > MAX_BOOK_FILE_SIZE) {
+        return { success: false, error: `Archive exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)` };
+      }
+    } else {
+      return { success: false, error: 'No archive file path or buffer provided' };
+    }
+
+    const books = await inspectArchiveBuffer(fileBuffer, archiveName);
+    return {
+      success: true,
+      archiveName,
+      archivePath: filePath ? path.resolve(filePath) : null,
+      books,
+      totalEntries: books.length
+    };
+  } catch (err) {
+    console.error('Error inspecting archive:', err);
+    return { success: false, error: err.message || 'Failed to inspect archive' };
+  }
+});
+
+// Extract selected book files from an archive (.zip, .7z, .rar)
+ipcMain.handle('archive:extract', async (event, { filePath, buffer, selectedPaths, archiveName } = {}) => {
+  requireTrustedSender(event);
+  try {
+    let fileBuffer = buffer;
+    let resolvedName = archiveName;
+    if (filePath) {
+      const resolved = path.resolve(filePath);
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+        return { success: false, error: 'Archive file does not exist' };
+      }
+      const stats = fs.statSync(resolved);
+      if (stats.size > MAX_BOOK_FILE_SIZE) {
+        return { success: false, error: 'Archive exceeds maximum supported size' };
+      }
+      authorizeBookPath(resolved);
+      fileBuffer = fs.readFileSync(resolved);
+      if (!resolvedName) resolvedName = path.basename(resolved);
+    }
+    if (!fileBuffer) {
+      return { success: false, error: 'No archive content provided' };
+    }
+
+    const files = await extractArchiveBuffer(fileBuffer, selectedPaths, resolvedName);
+    return { success: true, files };
+  } catch (err) {
+    console.error('Error extracting archive:', err);
+    return { success: false, error: err.message || 'Failed to extract archive' };
+  }
+});
+
+// Dedicated archive file picker dialog
+ipcMain.handle('dialog:open-archive', async (event) => {
+  requireTrustedSender(event);
+  if (!mainWindow) return { canceled: true, file: null };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select a book archive',
+    buttonLabel: 'Inspect Archive',
+    filters: [
+      { name: 'Book Archives (*.zip, *.7z, *.rar)', extensions: ARCHIVE_EXTENSIONS },
+      { name: 'All Files (*.*)', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  });
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return { canceled: true, file: null };
+  }
+  const resolved = path.resolve(result.filePaths[0]);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    return { canceled: true, file: null };
+  }
+  authorizeBookPath(resolved);
+  return {
+    canceled: false,
+    file: {
+      name: path.basename(resolved),
+      path: resolved,
+      size: fs.statSync(resolved).size,
+      isArchive: true
+    }
+  };
+});
+
 ipcMain.handle('fs:get-storage-path', (event) => {
   requireTrustedSender(event);
   return getBooksStorageDir();
@@ -1094,6 +1399,9 @@ if (typeof module !== 'undefined' && module.exports) {
     isTrustedSender,
     SUPPORTED_EXTENSIONS,
     OPENABLE_EXTENSIONS,
+    ARCHIVE_EXTENSIONS,
+    inspectArchiveBuffer,
+    extractArchiveBuffer,
     PENDING_PATH_TTL_MS,
     MAX_BOOK_FILE_SIZE,
     MAX_ZIP_ENTRIES,

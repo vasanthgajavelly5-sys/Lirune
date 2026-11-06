@@ -677,9 +677,28 @@ const RENDER_BATCH_SIZE = 50;
       if (window.noveraDesktop?.openFileDialog) {
         const result = await window.noveraDesktop.openFileDialog();
         showImportErrors(result.errors);
-        if (!result.canceled && result.files?.length) await processNativeFiles(result.files, null, updateImportProgress);
+        if (!result.canceled && result.files?.length) {
+          closeImport();
+          const archiveFiles = result.files.filter(f => isArchiveFilename(f.name || f.path));
+          const regularFiles = result.files.filter(f => !isArchiveFilename(f.name || f.path));
+          if (regularFiles.length) await processNativeFiles(regularFiles, null, updateImportProgress);
+          for (const arch of archiveFiles) {
+            await openArchiveInspection(arch);
+          }
+        }
       } else {
         closeImport();
+        fileInput?.click();
+      }
+    };
+    const handleArchiveChoice = async () => {
+      closeImport();
+      if (window.noveraDesktop?.openArchiveDialog) {
+        const result = await window.noveraDesktop.openArchiveDialog();
+        if (!result.canceled && result.file) {
+          await openArchiveInspection(result.file);
+        }
+      } else {
         fileInput?.click();
       }
     };
@@ -707,6 +726,8 @@ const RENDER_BATCH_SIZE = 50;
     });
     importFileBtn?.addEventListener('click', handleFileChoice);
     importFolderBtn?.addEventListener('click', handleFolderChoice);
+    const importArchiveBtn = document.getElementById('import-archive-btn');
+    importArchiveBtn?.addEventListener('click', handleArchiveChoice);
 
     const sampleBookBtn = document.getElementById('sample-book-btn');
     if (sampleBookBtn) {
@@ -716,13 +737,21 @@ const RENDER_BATCH_SIZE = 50;
     }
 
     BackgroundQueue.init();
+    initArchiveImportUI();
 
     // File input change (browser/fallback)
     if (fileInput) {
       fileInput.addEventListener('change', async (e) => {
         const files = Array.from(e.target.files || []);
         if (files.length > 0) {
-          await processFiles(files);
+          const archiveFiles = files.filter(f => isArchiveFilename(f.name));
+          const regularFiles = files.filter(f => !isArchiveFilename(f.name));
+          if (regularFiles.length > 0) {
+            await processFiles(regularFiles);
+          }
+          for (const arch of archiveFiles) {
+            await openArchiveInspection(arch);
+          }
           fileInput.value = '';
         }
       });
@@ -752,8 +781,12 @@ const RENDER_BATCH_SIZE = 50;
 
     async function openBookFromFilePath(filePath) {
       if (!filePath) return;
-      window.__externalFileOpening = true;
       const fileName = filePath.replace(/^[\\/]/, '').split(/[\\/]/).pop() || 'Book';
+      if (isArchiveFilename(fileName)) {
+        await openArchiveInspection({ path: filePath, name: fileName });
+        return;
+      }
+      window.__externalFileOpening = true;
       showStorageOpenOverlay(fileName, 15, 'Starting book loader…');
 
       if (!libraryInitialized && libraryInitPromise) {
@@ -861,14 +894,20 @@ const RENDER_BATCH_SIZE = 50;
       if (dropZone) dropZone.classList.remove('drag-active');
 
       const files = Array.from(e.dataTransfer?.files || []);
-      const books = files.filter(f => isImportableFile(f));
+      const archiveFiles = files.filter(f => isArchiveFilename(f.name || f.path));
+      const regularFiles = files.filter(f => isImportableFile(f) && !isArchiveFilename(f.name || f.path));
 
-      if (books.length === 0) {
+      if (regularFiles.length === 0 && archiveFiles.length === 0) {
         Utils.toast(await rejectionReason(files), 'error');
         return;
       }
 
-      await processFiles(books);
+      if (regularFiles.length > 0) {
+        await processFiles(regularFiles);
+      }
+      for (const arch of archiveFiles) {
+        await openArchiveInspection(arch);
+      }
     });
   }
 
@@ -878,7 +917,7 @@ const RENDER_BATCH_SIZE = 50;
    * unrecognised falls back to the list of formats that do work.
    */
   async function rejectionReason(files) {
-    const supported = `Drop a supported book file (${BookFormat.importExtensions().map(e => '.' + e).join(', ')})`;
+    const supported = `Drop a supported book file (${BookFormat.importExtensions().map(e => '.' + e).join(', ')}, .zip, .7z, .rar)`;
     const candidate = files.find(f => f && f.size);
     if (!candidate) return supported;
     try {
@@ -895,7 +934,9 @@ const RENDER_BATCH_SIZE = 50;
 
   function isImportableFile(file) {
     if (!file) return false;
-    if (BookFormat.importExtensions().includes(BookFormat.extensionOf(file.name))) return true;
+    const ext = BookFormat.extensionOf(file.name || file.path || '');
+    if (BookFormat.importExtensions().includes(ext)) return true;
+    if (['zip', '7z', 'rar'].includes(ext)) return true;
     const type = (file.type || '').toLowerCase();
     return Object.values(BookFormat.FORMATS).some(format => format.supported && format.mime === type);
   }
@@ -903,6 +944,288 @@ const RENDER_BATCH_SIZE = 50;
   /** Managed storage keeps the real extension so a book can be re-detected. */
   function storageIdFor(fingerprint, extension) {
     return `${fingerprint}.${extension || 'epub'}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Archive Inspection & Selective Import (.zip, .7z, .rar)
+  // ─────────────────────────────────────────────────────────────────────────────
+  function isArchiveFilename(name) {
+    if (!name || typeof name !== 'string') return false;
+    const ext = name.split('.').pop().toLowerCase();
+    return ['zip', '7z', 'rar'].includes(ext);
+  }
+
+  let currentArchiveContext = null;
+
+  async function openArchiveInspection(fileOrDescriptor) {
+    try {
+      const modal = document.getElementById('archive-import-modal');
+      const subtitleEl = document.getElementById('archive-modal-subtitle');
+      const listEl = document.getElementById('archive-book-list');
+      const selectAllCb = document.getElementById('archive-select-all-cb');
+      const countEl = document.getElementById('archive-selection-count');
+      const importSelBtn = document.getElementById('import-selected-archive-btn');
+
+      if (!modal) return;
+
+      Utils.toast('Inspecting archive contents...', 'info');
+
+      let inspectResult = null;
+      let archiveBuffer = null;
+      const archivePath = fileOrDescriptor?.path || (typeof fileOrDescriptor === 'string' ? fileOrDescriptor : null);
+      const archiveName = fileOrDescriptor?.name || (archivePath ? archivePath.replace(/^[\\/]/, '').split(/[\\/]/).pop() : 'archive');
+
+      const desktopApi = window.liruneDesktop || window.noveraDesktop;
+      if (desktopApi?.inspectArchive) {
+        inspectResult = await desktopApi.inspectArchive(archivePath || {
+          name: archiveName,
+          buffer: fileOrDescriptor instanceof File ? await fileOrDescriptor.arrayBuffer() : fileOrDescriptor?.data
+        });
+      } else if (fileOrDescriptor instanceof File || fileOrDescriptor?.data) {
+        archiveBuffer = fileOrDescriptor instanceof File ? await fileOrDescriptor.arrayBuffer() : fileOrDescriptor.data;
+        if (typeof JSZip !== 'undefined') {
+          const zip = await JSZip.loadAsync(archiveBuffer);
+          const found = [];
+          for (const [relPath, entry] of Object.entries(zip.files)) {
+            if (entry.dir) continue;
+            const normalized = relPath.replace(/\\/g, '/');
+            if (normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) continue;
+            const ext = normalized.split('.').pop().toLowerCase();
+            if (BookFormat.importExtensions().includes(ext)) {
+              found.push({
+                path: relPath,
+                name: relPath.split('/').pop(),
+                size: entry._data ? (entry._data.uncompressedSize || 0) : 0,
+                ext
+              });
+            }
+          }
+          inspectResult = { success: true, archiveName, books: found, totalEntries: found.length };
+        }
+      }
+
+      if (!inspectResult || !inspectResult.success) {
+        Utils.toast(inspectResult?.error || 'Could not read archive file', 'error');
+        return;
+      }
+
+      const books = inspectResult.books || [];
+      if (books.length === 0) {
+        Utils.toast(`No supported book files found inside ${inspectResult.archiveName || 'archive'}.`, 'warning');
+        return;
+      }
+
+      currentArchiveContext = {
+        archivePath: inspectResult.archivePath || archivePath,
+        archiveName: inspectResult.archiveName || archiveName,
+        buffer: archiveBuffer,
+        books,
+        selectedPaths: new Set(books.map(b => b.path))
+      };
+
+      if (subtitleEl) {
+        subtitleEl.textContent = `${currentArchiveContext.archiveName} · ${books.length} book${books.length === 1 ? '' : 's'} found`;
+      }
+
+      function updateArchiveModalUI() {
+        if (!currentArchiveContext) return;
+        const total = currentArchiveContext.books.length;
+        const selectedCount = currentArchiveContext.selectedPaths.size;
+        let totalSelectedBytes = 0;
+        for (const b of currentArchiveContext.books) {
+          if (currentArchiveContext.selectedPaths.has(b.path)) {
+            totalSelectedBytes += (b.size || 0);
+          }
+        }
+
+        if (countEl) {
+          countEl.textContent = `${selectedCount} of ${total} selected (${Utils.formatBytes(totalSelectedBytes)})`;
+        }
+        if (selectAllCb) {
+          selectAllCb.checked = selectedCount === total;
+          selectAllCb.indeterminate = selectedCount > 0 && selectedCount < total;
+        }
+        if (importSelBtn) {
+          importSelBtn.textContent = `Import Selected (${selectedCount})`;
+          importSelBtn.disabled = selectedCount === 0;
+        }
+
+        listEl?.querySelectorAll('.archive-book-item').forEach(row => {
+          const rowPath = row.dataset.path;
+          const isSel = currentArchiveContext.selectedPaths.has(rowPath);
+          row.classList.toggle('selected', isSel);
+          const cb = row.querySelector('input[type="checkbox"]');
+          if (cb) cb.checked = isSel;
+        });
+      }
+
+      if (listEl) {
+        listEl.innerHTML = books.map(book => {
+          const isChecked = currentArchiveContext.selectedPaths.has(book.path);
+          const safeName = Utils.escapeHTML(book.name);
+          const safeExt = Utils.escapeHTML((book.ext || 'epub').toUpperCase());
+          const safePath = Utils.escapeHTML(book.path);
+          const formattedSize = Utils.formatBytes(book.size || 0);
+          return `
+            <div class="archive-book-item ${isChecked ? 'selected' : ''}" data-path="${safePath}" role="button" tabindex="0">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} aria-label="Select ${safeName}">
+              <span class="archive-badge">${safeExt}</span>
+              <div class="archive-book-info">
+                <span class="archive-book-name" title="${safeName}">${safeName}</span>
+                <span class="archive-book-meta">${formattedSize}${book.path !== book.name ? ` • ${safePath}` : ''}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        listEl.querySelectorAll('.archive-book-item').forEach(row => {
+          const rowPath = row.dataset.path;
+          const cb = row.querySelector('input[type="checkbox"]');
+          row.addEventListener('click', (e) => {
+            if (e.target === cb) return;
+            cb.checked = !cb.checked;
+            cb.dispatchEvent(new Event('change'));
+          });
+          cb?.addEventListener('change', () => {
+            if (cb.checked) {
+              currentArchiveContext.selectedPaths.add(rowPath);
+            } else {
+              currentArchiveContext.selectedPaths.delete(rowPath);
+            }
+            updateArchiveModalUI();
+          });
+        });
+      }
+
+      updateArchiveModalUI();
+      modal.classList.remove('hidden');
+    } catch (err) {
+      console.error('Error opening archive inspection:', err);
+      Utils.toast(err?.message || 'Failed to inspect archive', 'error');
+    }
+  }
+
+  function closeArchiveModal() {
+    const modal = document.getElementById('archive-import-modal');
+    if (modal) modal.classList.add('hidden');
+    currentArchiveContext = null;
+  }
+
+  async function executeArchiveImport(onlySelected = true) {
+    if (!currentArchiveContext) return;
+    const ctx = currentArchiveContext;
+    const targetPaths = onlySelected
+      ? Array.from(ctx.selectedPaths)
+      : ctx.books.map(b => b.path);
+
+    if (targetPaths.length === 0) {
+      Utils.toast('Please select at least one book to import.', 'warning');
+      return;
+    }
+
+    closeArchiveModal();
+    Utils.toast(`Extracting ${targetPaths.length} book${targetPaths.length === 1 ? '' : 's'} from ${ctx.archiveName}...`, 'info');
+
+    try {
+      let extractedFiles = [];
+      const desktopApi = window.liruneDesktop || window.noveraDesktop;
+      if (desktopApi?.extractArchiveFiles) {
+        const res = await desktopApi.extractArchiveFiles({
+          filePath: ctx.archivePath,
+          buffer: ctx.buffer,
+          selectedPaths: targetPaths,
+          archiveName: ctx.archiveName
+        });
+        if (!res || !res.success) {
+          throw new Error(res?.error || 'Failed to extract books from archive');
+        }
+        extractedFiles = res.files || [];
+      } else if (ctx.buffer && typeof JSZip !== 'undefined') {
+        const zip = await JSZip.loadAsync(ctx.buffer);
+        const set = new Set(targetPaths);
+        for (const [relPath, entry] of Object.entries(zip.files)) {
+          if (!set.has(relPath) || entry.dir) continue;
+          const ab = await entry.async('arraybuffer');
+          extractedFiles.push({
+            name: relPath.split('/').pop(),
+            path: null,
+            size: ab.byteLength,
+            data: ab
+          });
+        }
+      }
+
+      if (extractedFiles.length === 0) {
+        Utils.toast('No books were extracted from the archive.', 'warning');
+        return;
+      }
+
+      const nativeFilesToProcess = extractedFiles.map(f => {
+        let buf = f.data;
+        if (buf && buf.buffer && buf.byteOffset !== undefined) {
+          buf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        }
+        return {
+          name: f.name,
+          data: buf,
+          size: f.size || buf?.byteLength,
+          path: null
+        };
+      });
+
+      await processNativeFiles(nativeFilesToProcess, null, null);
+      Utils.toast(`✓ Successfully imported ${nativeFilesToProcess.length} book${nativeFilesToProcess.length === 1 ? '' : 's'} from ${ctx.archiveName}`);
+    } catch (err) {
+      console.error('Error during archive import:', err);
+      Utils.toast(err?.message || 'Error extracting archive', 'error');
+    }
+  }
+
+  function initArchiveImportUI() {
+    const archiveModal = document.getElementById('archive-import-modal');
+    const closeBtn = document.getElementById('close-archive-modal-btn');
+    const cancelBtn = document.getElementById('cancel-archive-import-btn');
+    const selectAllCb = document.getElementById('archive-select-all-cb');
+    const importAllBtn = document.getElementById('import-all-archive-btn');
+    const importSelBtn = document.getElementById('import-selected-archive-btn');
+
+    closeBtn?.addEventListener('click', closeArchiveModal);
+    cancelBtn?.addEventListener('click', closeArchiveModal);
+    archiveModal?.addEventListener('click', (e) => {
+      if (e.target === archiveModal) closeArchiveModal();
+    });
+
+    selectAllCb?.addEventListener('change', () => {
+      if (!currentArchiveContext) return;
+      const shouldSelect = selectAllCb.checked;
+      if (shouldSelect) {
+        currentArchiveContext.selectedPaths = new Set(currentArchiveContext.books.map(b => b.path));
+      } else {
+        currentArchiveContext.selectedPaths.clear();
+      }
+      const listEl = document.getElementById('archive-book-list');
+      listEl?.querySelectorAll('.archive-book-item').forEach(row => {
+        row.classList.toggle('selected', shouldSelect);
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = shouldSelect;
+      });
+      const total = currentArchiveContext.books.length;
+      const countEl = document.getElementById('archive-selection-count');
+      if (countEl) {
+        let totalBytes = 0;
+        if (shouldSelect) {
+          for (const b of currentArchiveContext.books) totalBytes += (b.size || 0);
+        }
+        countEl.textContent = `${shouldSelect ? total : 0} of ${total} selected (${Utils.formatBytes(totalBytes)})`;
+      }
+      if (importSelBtn) {
+        importSelBtn.textContent = `Import Selected (${shouldSelect ? total : 0})`;
+        importSelBtn.disabled = !shouldSelect;
+      }
+    });
+
+    importAllBtn?.addEventListener('click', () => executeArchiveImport(false));
+    importSelBtn?.addEventListener('click', () => executeArchiveImport(true));
   }
 
   const BackgroundQueue = (() => {
@@ -1032,13 +1355,15 @@ const RENDER_BATCH_SIZE = 50;
         const completed = Math.round((index / fileList.length) * 100);
         updateProgress?.(completed, `Importing ${index + 1} of ${fileList.length}: ${file.name}`);
         const normalized = (file.path || '').toLowerCase();
-        const existing = allBooks.find(book =>
-          (book.sourcePath && book.sourcePath.toLowerCase() === normalized) ||
-          (book.diskPath && book.diskPath.toLowerCase() === normalized)
-        );
-        if (existing) {
-          if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
-          continue;
+        if (normalized) {
+          const existing = allBooks.find(book =>
+            (book.sourcePath && book.sourcePath.toLowerCase() === normalized) ||
+            (book.diskPath && book.diskPath.toLowerCase() === normalized)
+          );
+          if (existing) {
+            if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
+            continue;
+          }
         }
 
         let fileData = file.data;

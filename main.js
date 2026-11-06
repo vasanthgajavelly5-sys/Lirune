@@ -696,37 +696,75 @@ ipcMain.handle('fs:delete-book', (event, storageId) => {
 ipcMain.handle('archive:extract-rar', async (event, arrayBuffer) => {
   requireTrustedSender(event);
   try {
-    const unrar = require('node-unrar-js');
+    const { ArchiveReader, libarchiveWasm } = require('libarchive-wasm');
     const buf = Buffer.from(arrayBuffer);
     if (buf.length > MAX_BOOK_FILE_SIZE) throw new Error('CBR exceeds maximum file size');
-    const cleanData = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    const extractor = await unrar.createExtractorFromData({ data: cleanData });
-    const extracted = extractor.extract();
-    const files = [...extracted.files];
+
+    const mod = await libarchiveWasm();
+    const i8 = new Int8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+    const reader = new ArchiveReader(mod, i8);
+
     const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.jxl'];
     const entries = [];
     let totalBytes = 0;
 
-    for (const file of files) {
-      if (file.fileHeader?.flags?.directory) continue;
-      const rawName = file.fileHeader?.name || '';
-      // Validate against path traversal
-      if (rawName.includes('..') || path.isAbsolute(rawName) || /^[a-zA-Z]:/.test(rawName)) continue;
-      const isImg = IMAGE_EXTS.some(ext => rawName.toLowerCase().endsWith(ext));
-      if (!isImg || !file.extraction) continue;
-
-      if (file.extraction.length > MAX_ZIP_SINGLE_ENTRY_SIZE) {
-        throw new Error('CBR contains an oversized image file');
-      }
-      totalBytes += file.extraction.length;
-      if (totalBytes > MAX_ZIP_AGGREGATE_BYTES) {
-        throw new Error('CBR archive expansion limit exceeded');
+    try {
+      if (reader.hasEncryptedData?.() === true) {
+        throw new Error('Encrypted or password-protected archives are not supported');
       }
 
-      entries.push({
-        name: rawName,
-        buffer: file.extraction.buffer.slice(file.extraction.byteOffset, file.extraction.byteOffset + file.extraction.byteLength)
-      });
+      for (const entry of reader.entries()) {
+        if (entry.isEncrypted?.()) {
+          throw new Error('Encrypted or password-protected archives are not supported');
+        }
+        if (entry.getFiletype?.() === 'DIRECTORY') {
+          entry.skipData?.();
+          continue;
+        }
+
+        const rawName = entry.getPathname?.() || '';
+        // Validate against path traversal
+        if (rawName.includes('..') || path.isAbsolute(rawName) || /^[a-zA-Z]:/.test(rawName)) {
+          entry.skipData?.();
+          continue;
+        }
+        const isImg = IMAGE_EXTS.some(ext => rawName.toLowerCase().endsWith(ext));
+        if (!isImg) {
+          entry.skipData?.();
+          continue;
+        }
+
+        const size = entry.getSize?.() || 0;
+        if (size > MAX_ZIP_SINGLE_ENTRY_SIZE) {
+          throw new Error('CBR contains an oversized image file');
+        }
+
+        let data;
+        try {
+          data = entry.readData();
+        } catch (e) {
+          if (entry.isEncrypted?.() || /encrypted/i.test(e.message)) {
+            throw new Error('Encrypted or password-protected archives are not supported');
+          }
+          throw e;
+        }
+        if (!data) continue;
+
+        if (data.byteLength > MAX_ZIP_SINGLE_ENTRY_SIZE) {
+          throw new Error('CBR contains an oversized image file');
+        }
+        totalBytes += data.byteLength;
+        if (totalBytes > MAX_ZIP_AGGREGATE_BYTES) {
+          throw new Error('CBR archive expansion limit exceeded');
+        }
+
+        entries.push({
+          name: rawName,
+          buffer: Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+        });
+      }
+    } finally {
+      reader.free();
     }
 
     return { success: true, entries };

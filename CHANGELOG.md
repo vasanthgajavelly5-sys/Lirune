@@ -1,3 +1,40 @@
+## 5.6.3 - 2026-11-06
+
+### Changed
+- Replaced the RAR/CBR decoder with libarchive-wasm for licence compatibility.
+
+## 5.6.2 - 2026-10-28
+
+### Security
+- FB2 Cover Sanitization & XSS Prevention: Thoroughly sanitized FB2 cover data URLs to protect against SVG payload execution, CSS expression injection, and attribute breakout attacks.
+- Archive Exhaustion & Zip-Bomb Protection: Implemented strict unpacking limits (maximum uncompressed size caps, maximum file counts, and entry ratio checks) across archive extraction flows.
+- IPC Bridge Hardening: Enforced context isolation, strict parameter validation, path TTLs, safe sender validation, and eliminated unsafe remote IPC channels.
+
+### Fixed
+- Batch Launcher Fix: Corrected syntax and escape handling in `Launch-Lirune.bat` and documented the architecture specification.
+- Cross-Platform Test Execution: Updated test runner commands to operate consistently across Windows PowerShell and Unix shells.
+
+## 5.6.1 - 2026-10-25
+
+### Added
+- Distraction-Free Fullscreen Reading: Status bar, reading progress stripe, and top toolbar are hidden in focused fullscreen mode; floating frosted glass controls pill provides immediate TOC and Settings access.
+- Quick Themes in Side Panel: Direct visual theme swatches in reading settings drawer for one-click theme switching.
+- Window Controls & Desktop Chrome: Dynamic maximize/restore button state synchronization and crisp window management controls.
+
+## 5.6.0 - 2026-10-23
+
+### Added
+- Fullscreen Table of Contents: Dedicated floating frosted glass action pill in fullscreen mode containing TOC and Settings buttons.
+- Responsive Sizing for Restored / Split Windows: Adaptive toolbar actions capsule preventing button congestion or collisions down to 720px window widths.
+- Smooth Top Hover Reveal: Polished fullscreen top edge reveal interaction.
+
+## 5.5.0 - 2026-10-09
+
+### Added
+- Custom Glass Dropdowns: Replaced default select controls with accessible glass dropdowns featuring arrow navigation, aria-expanded, and auto-sync.
+- Settings UI: Refined frosted glass card surfaces, typographic alignment, and About card structure.
+- Launcher & Packaging: Windows Desktop Microsoft Store AppX and NSIS release packages.
+
 ## 5.0.0 - Lirune V5 Major Upgrade
 
 ### Improvements & Fixes

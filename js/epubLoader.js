@@ -27,6 +27,9 @@ const EpubLoader = (() => {
   let initialCfi = null;
   let isNavigating = false;
   let pendingNavigation = null;
+  let styleRefreshRaf = null;
+  let lastAppliedThemeFontSize = null;
+  let lastAppliedThemeFontFamily = null;
 
   // Prevent epub.js dangling promises on destroyed books from leaking unhandled rejections
   window.addEventListener('unhandledrejection', (event) => {
@@ -294,6 +297,8 @@ const EpubLoader = (() => {
     }
 
     // Clear previous rendition DOM container
+    lastAppliedThemeFontSize = null;
+    lastAppliedThemeFontFamily = null;
     const container = document.getElementById('epub-container');
     if (container) container.innerHTML = '';
 
@@ -409,6 +414,17 @@ const EpubLoader = (() => {
 
       // Hide selection toolbar on page turn
       hideSelectionToolbar();
+
+      // Re-apply live padding/typography after epub.js completes paginated layout/relocation
+      scheduleLiveStyleRefresh();
+    });
+
+    rendition.on('resized', () => {
+      scheduleLiveStyleRefresh();
+    });
+
+    rendition.on('layout', () => {
+      scheduleLiveStyleRefresh();
     });
 
     // Content rendered in iframe: hook fonts, styles & keyboard events
@@ -417,6 +433,9 @@ const EpubLoader = (() => {
       bindIframeKeyboard(view.document);
       bindIframeWheel(view.document);
       bindIframeNavigation(view.document);
+      // epub.js layout.format() applies inline paginated column padding right after rendered;
+      // schedule an rAF refresh so our body margin overrides stick after initial load and reRender().
+      scheduleLiveStyleRefresh();
     });
 
     // Text selection inside the EPUB iframe
@@ -454,7 +473,6 @@ const EpubLoader = (() => {
         * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
         body { margin: 0 !important; }
         img, svg, video { max-width: 100% !important; height: auto !important; }
-        p { margin-bottom: 1.15em !important; }
       `;
       doc.head.appendChild(style);
     }
@@ -469,16 +487,58 @@ const EpubLoader = (() => {
     const themeName = ThemeManager.getReaderTheme();
     const colors = ThemeManager.getThemeColors(themeName);
     const settings = ReaderSettings.getSettings();
+    const appPrefs = (typeof AppPrefs !== 'undefined' && typeof AppPrefs.getAll === 'function')
+      ? AppPrefs.getAll()
+      : {};
 
-    const fontFam = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getFontCssStack)
+    let fontFam = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getFontCssStack)
       ? ReaderSettings.getFontCssStack(settings.fontFamily)
       : (settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', Georgia, serif`);
-    const headingFam = settings.fontFamily === 'Playfair Display' ? "\"Playfair Display\", Georgia, serif" : fontFam;
+    let headingFam = settings.fontFamily === 'Playfair Display' ? "\"Playfair Display\", Georgia, serif" : fontFam;
+    if (appPrefs.dyslexicFont) {
+      fontFam = "'OpenDyslexic', 'Comic Sans MS', sans-serif";
+      headingFam = fontFam;
+    }
     const fontSize = Math.round((settings.fontSize || 18) * currentZoom / 100);
     const alignment = settings.alignment || 'left';
     const lineHeight = settings.lineHeight || 1.6;
     const paraSpacing = Number(settings.paragraphSpacing ?? 1.0);
     const margin = settings.margin ? `${settings.margin * 3}px` : '30px';
+    const hyphensVal = appPrefs.autoHyphenation === false ? 'none' : 'auto';
+    const underlineCss = appPrefs.underlineLinks === true ? 'text-decoration: underline !important;' : '';
+
+    if (doc.body && doc.body.style) {
+      // epub.js sets inline padding-left/right on body in paginated mode, which
+      // would otherwise override stylesheet rules. Force our margin directly and
+      // guard against epub.js re-applying column padding after layout.
+      doc._noveraTargetMargin = margin;
+      if (doc.body.style.getPropertyValue('padding-left') !== margin ||
+          doc.body.style.getPropertyPriority('padding-left') !== 'important') {
+        doc.body.style.setProperty('padding-left', margin, 'important');
+      }
+      if (doc.body.style.getPropertyValue('padding-right') !== margin ||
+          doc.body.style.getPropertyPriority('padding-right') !== 'important') {
+        doc.body.style.setProperty('padding-right', margin, 'important');
+      }
+      if (!doc._noveraBodyStyleObserver && typeof MutationObserver !== 'undefined') {
+        doc._noveraBodyStyleObserver = new MutationObserver(() => {
+          const target = doc._noveraTargetMargin;
+          if (!target || !doc.body?.style) return;
+          if (doc.body.style.getPropertyValue('padding-left') !== target ||
+              doc.body.style.getPropertyPriority('padding-left') !== 'important') {
+            doc.body.style.setProperty('padding-left', target, 'important');
+          }
+          if (doc.body.style.getPropertyValue('padding-right') !== target ||
+              doc.body.style.getPropertyPriority('padding-right') !== 'important') {
+            doc.body.style.setProperty('padding-right', target, 'important');
+          }
+        });
+        doc._noveraBodyStyleObserver.observe(doc.body, {
+          attributes: true,
+          attributeFilter: ['style']
+        });
+      }
+    }
 
     let styleEl = doc.getElementById('novera-page-custom-style');
     if (!styleEl) {
@@ -506,6 +566,10 @@ const EpubLoader = (() => {
         line-height: ${lineHeight} !important;
         text-align: ${alignment} !important;
       }
+      p, div, li, blockquote {
+        hyphens: ${hyphensVal} !important;
+        -webkit-hyphens: ${hyphensVal} !important;
+      }
       small, figcaption, cite, .muted, .secondary, [class*="muted"], [class*="secondary"] {
         color: ${colors.muted} !important;
       }
@@ -521,6 +585,7 @@ const EpubLoader = (() => {
       }
       a, a:link, a:visited {
         color: ${colors.link} !important;
+        ${underlineCss}
       }
       ::selection {
         background: ${colors.selection} !important;
@@ -626,7 +691,10 @@ const EpubLoader = (() => {
       const settings = ReaderSettings.getSettings();
       const start = pointerStart;
       pointerStart = null;
-      if (settings.mouseNavigation === false || !start || event.button !== 0 ||
+      const appPrefs = (typeof AppPrefs !== 'undefined' && typeof AppPrefs.getAll === 'function')
+        ? AppPrefs.getAll()
+        : {};
+      if (settings.mouseNavigation === false || appPrefs.tapToTurn === false || !start || event.button !== 0 ||
           event.target.closest(interactive) || start.target.closest(interactive) ||
           doc.defaultView.getSelection()?.toString().trim()) return;
       if (Math.abs(event.clientX - start.x) > 8 || Math.abs(event.clientY - start.y) > 8) return;
@@ -917,11 +985,20 @@ const EpubLoader = (() => {
     }
   }
 
-  function scheduleLiveStyleRefresh() {
-    // Theme/settings changes must be applied once. Rewriting every EPUB
-    // iframe on multiple animation/timer passes causes the visible
-    // top-to-bottom repaint/wipe effect.
-    applyStylesToAllContents();
+  function scheduleLiveStyleRefresh(immediate = false) {
+    if (immediate) {
+      if (styleRefreshRaf !== null) {
+        cancelAnimationFrame(styleRefreshRaf);
+        styleRefreshRaf = null;
+      }
+      applyStylesToAllContents();
+      return;
+    }
+    if (styleRefreshRaf !== null) return;
+    styleRefreshRaf = requestAnimationFrame(() => {
+      styleRefreshRaf = null;
+      applyStylesToAllContents();
+    });
   }
 
   function registerDefaultTheme() {
@@ -961,17 +1038,21 @@ const EpubLoader = (() => {
 
     if (settings.fontSize) {
       const effectiveFontSize = Math.round(settings.fontSize * currentZoom / 100);
-      rendition.themes.fontSize(`${effectiveFontSize}px`);
+      if (effectiveFontSize !== lastAppliedThemeFontSize) {
+        lastAppliedThemeFontSize = effectiveFontSize;
+        rendition.themes.fontSize(`${effectiveFontSize}px`);
+      }
     }
 
-    if (settings.fontFamily) {
+    if (settings.fontFamily && settings.fontFamily !== lastAppliedThemeFontFamily) {
+      lastAppliedThemeFontFamily = settings.fontFamily;
       const font = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getFontCssStack)
         ? ReaderSettings.getFontCssStack(settings.fontFamily)
         : (settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', serif`);
       rendition.themes.font(font);
     }
 
-    // Force style injection directly to live iframe DOM
+    // Inject live styles once per animation frame so slider drags never stack reflows
     scheduleLiveStyleRefresh();
   }
 

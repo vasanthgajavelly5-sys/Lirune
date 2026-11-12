@@ -152,6 +152,10 @@ const AppPrefs = (() => {
     const next = normalize({ ...current, ...patch });
     current = next;
     apply();
+    if (typeof Reader !== 'undefined' && typeof Reader.applySettings === 'function' &&
+        ('dyslexicFont' in patch || 'underlineLinks' in patch || 'autoHyphenation' in patch || 'smoothScroll' in patch)) {
+      Reader.applySettings();
+    }
     clearTimeout(persistTimer);
     persistTimer = setTimeout(() => NoveraDB.setPref('appPrefs', { ...current }), 200);
     return getAll();
@@ -161,6 +165,9 @@ const AppPrefs = (() => {
     clearTimeout(persistTimer);
     current = { ...DEFAULTS };
     apply();
+    if (typeof Reader !== 'undefined' && typeof Reader.applySettings === 'function') {
+      Reader.applySettings();
+    }
     NoveraDB.setPref('appPrefs', { ...current });
     return getAll();
   }

@@ -4,8 +4,14 @@ set "ELECTRON_RUN_AS_NODE="
 title Lirune Reader - A calm home for your books
 cd /d "%~dp0"
 
+set "APP_VERSION=5.6.4"
+where node >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    for /f "delims=" %%v in ('node -p "require('./package.json').version" 2^>nul') do set "APP_VERSION=%%v"
+)
+
 echo ========================================================
-echo Launching Lirune Reader (Desktop)...
+echo Launching Lirune Reader v%APP_VERSION% (Desktop)...
 echo ========================================================
 
 REM 1. Verify Node.js environment
@@ -39,8 +45,20 @@ if /i "%~1"=="--clean" (
     set "EXTRA_FLAGS=--user-data-dir=%TEMP%\Lirune-Fresh-%RANDOM%"
 )
 
-REM 4. Launch live workspace directly from Electron source
-echo Starting Lirune Reader desktop client from live workspace...
+REM 4. Launch packaged binary if --packaged is passed, otherwise live workspace
+if /i "%~1"=="--packaged" (
+    if not exist "dist\win-unpacked\Lirune Reader.exe" (
+        echo [ERROR] Packaged build not found at dist\win-unpacked\Lirune Reader.exe
+        echo Run npm run pack or npm run dist:store first.
+        pause
+        exit /b 1
+    )
+    echo Starting packaged Lirune Reader v%APP_VERSION%...
+    "dist\win-unpacked\Lirune Reader.exe" %EXTRA_FLAGS%
+    goto :done
+)
+
+echo Starting Lirune Reader v%APP_VERSION% desktop client from live workspace...
 if exist "node_modules\.bin\electron.cmd" (
     call "node_modules\.bin\electron.cmd" . %EXTRA_FLAGS% %*
 ) else (

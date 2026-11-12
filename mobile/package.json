@@ -14,7 +14,7 @@
     "expo-speech": "^57.0.3",
     "expo-splash-screen": "~57.0.10",
     "expo-sqlite": "~57.0.3",
-    "expo-status-bar": "~57.0.1",
+    "expo-status-bar": "~58.0.4",
     "jszip": "^3.10.2",
     "pdfjs-dist": "4.10.38",
     "react": "19.2.3",

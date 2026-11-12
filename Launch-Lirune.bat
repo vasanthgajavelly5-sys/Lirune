@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set "ELECTRON_RUN_AS_NODE="
 title Lirune Reader - A calm home for your books
 cd /d "%~dp0"
 

@@ -1809,3 +1809,30 @@ body.reader-open .zoom-overlay-home { display: none; }
   align-items: center;
   gap: 8px;
 }
+
+/* Reader-scoped panel controls follow active reader theme polarity & palette */
+.panel[data-reader-panel-theme] {
+  scrollbar-color: var(--border-default) transparent;
+}
+.panel[data-reader-panel-theme] .custom-dropdown-menu {
+  background: var(--reader-panel-dropdown-bg);
+  border-color: var(--border-default);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
+}
+.panel[data-reader-panel-theme] .custom-dropdown-item.active {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+}
+.panel[data-reader-panel-theme] .custom-dropdown-item-special {
+  color: var(--accent-text);
+}
+.panel[data-reader-panel-theme="light"] .btn-danger {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.22);
+  color: #C53030;
+}
+.panel[data-reader-panel-theme="dark"] .btn-danger {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #F87171;
+}

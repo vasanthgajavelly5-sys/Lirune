@@ -124,6 +124,7 @@ const App = (() => {
     await Library.loadAndRenderBooks();
 
     document.body.classList.remove('reader-open');
+    if (typeof ThemeManager !== 'undefined') ThemeManager.syncReaderPanels?.(false);
 
     const libView = document.getElementById('library-view');
     const readerView = document.getElementById('reader-view');
@@ -149,6 +150,7 @@ const App = (() => {
     activeView = 'reader';
     closeAllPanels();
     document.body.classList.add('reader-open');
+    if (typeof ThemeManager !== 'undefined') ThemeManager.syncReaderPanels?.(true);
 
     const libView = document.getElementById('library-view');
     const readerView = document.getElementById('reader-view');

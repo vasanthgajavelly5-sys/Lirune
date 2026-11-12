@@ -40,7 +40,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "electron": "^44.8.0",
+    "electron": "^45.2.3",
     "electron-builder": "^26.15.3"
   },
   "build": {

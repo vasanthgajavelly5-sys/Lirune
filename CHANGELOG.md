@@ -1,3 +1,12 @@
+## 5.6.4 - 2026-11-12
+
+### Fixed
+- Scoped reader side panels (`#toc-panel`, `#settings-panel`, `#annotations-panel`) and their controls to the active reader theme while reading, restoring app theme inheritance in Library view.
+- Cleared `ELECTRON_RUN_AS_NODE` in `Launch-Lirune.bat` so launching from Electron-based terminals starts the desktop app cleanly.
+
+### Maintenance
+- Updated release packaging and dependency metadata for Windows Microsoft Store version `5.6.4`.
+
 ## 5.6.3 - 2026-11-06
 
 ### Changed

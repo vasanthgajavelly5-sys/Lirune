@@ -1,0 +1,23 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Lirune Reader"
+    timeout: 60000
+
+# Open drawer
+- tapOn:
+    point: "8%,10%"
+
+# Tap on About
+- tapOn: "About"
+
+# Assertions on About screen
+- assertVisible: "About"
+- assertVisible: "Supported Formats"
+- assertVisible: "Privacy and Philosophy"
+- assertVisible: "Version 4.0.5 (Android)"
+
+# Test Back navigation
+- back

@@ -1,23 +1,62 @@
 {
   "name": "mobile",
-  "version": "1.0.0",
-  "main": "index.ts",
+  "version": "4.9.3",
+  "main": "expo-router/entry",
   "dependencies": {
-    "expo": "~57.0.23",
-    "expo-document-picker": "^57.0.2",
+    "@expo/vector-icons": "^15.0.2",
+    "expo": "~57.0.26",
+    "expo-build-properties": "~57.0.22",
+    "expo-constants": "~57.0.20",
+    "expo-document-picker": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "expo-linking": "^57.0.0",
+    "expo-router": "~57.0.24",
+    "expo-speech": "^57.0.3",
+    "expo-splash-screen": "~57.0.10",
+    "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
+    "jszip": "^3.10.2",
+    "pdfjs-dist": "4.10.38",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-reanimated": "~4.5.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-webview": "13.16.1",
+    "react-native-worklets": "^0.10.4",
+    "zustand": "^5.0.15",
+    "expo-modules-core": "~57.0.20"
   },
   "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@types/jszip": "^3.4.0",
     "@types/react": "~19.2.2",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "gen:pdfjs": "node scripts/gen-pdfjs.js",
+    "check:pdfjs": "node scripts/check-pdfjs.js",
+    "prepare": "node scripts/gen-pdfjs.js"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "decode-uri-component": "^0.5.1",
+    "react-dom": "19.2.3",
+    "shell-quote": "^1.10.1",
+    "source-map-js": "^1.2.2",
+    "uuid": "^11.1.1"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
 }

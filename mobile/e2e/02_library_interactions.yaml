@@ -1,0 +1,19 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+# 1. Test Filter Switching
+- tapOn: "Reading"
+- tapOn: "Favorites"
+- tapOn: "All"
+
+# 2. Test Side Navigation Drawer
+# The hamburger icon button is on top left. In React Native LiruneNavButton:
+- tapOn:
+    point: "8%,10%"
+- assertVisible: "Library"
+- assertVisible: "Files"
+- assertVisible: "Annotations"
+- assertVisible: "Settings"
+- assertVisible: "About"

@@ -1,0 +1,15 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "18 books in library"
+    timeout: 120000
+- scrollUntilVisible:
+    element:
+      text: "W3C Dummy PDF (pdf)"
+    direction: DOWN
+    timeout: 30000
+- tapOn: "W3C Dummy PDF (pdf)"
+- waitForAnimationToEnd:
+    timeout: 15000

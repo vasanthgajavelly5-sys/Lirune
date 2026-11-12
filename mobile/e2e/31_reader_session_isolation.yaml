@@ -1,0 +1,27 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+- tapOn: "Open navigation menu"
+- tapOn: "Library"
+- openLink: "lirune://reader?bookId=d2321f43-28ff-4007-b7a2-b5f2d7f6237f"
+- extendedWaitUntil:
+    visible: "Display Error"
+    timeout: 20000
+    optional: true
+- assertNotVisible: "Display Error"
+- tapOn:
+    point: "50%,50%"
+- back
+- extendedWaitUntil:
+    visible: "Lirune Reader"
+    timeout: 30000
+- openLink: "lirune://reader?bookId=773c43cb-269e-4c88-be6b-17d37a413a44"
+- extendedWaitUntil:
+    visible: "Display Error"
+    timeout: 20000
+    optional: true
+- assertNotVisible: "Display Error"
+- tapOn:
+    point: "50%,50%"
+- takeScreenshot: "seq_second_reader"

@@ -1,0 +1,35 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+# Navigate to library  
+- tapOn: "All"
+
+# === Open TXT format ===
+- tapOn: ".*Alice in Wonderland.*txt.*"
+- waitForAnimationToEnd:
+    timeout: 6000
+- tapOn:
+    point: "10%,90%"
+
+# === Open HTML format ===
+- tapOn: ".*Alice Chapter 1.*html.*"
+- waitForAnimationToEnd:
+    timeout: 6000
+- tapOn:
+    point: "10%,90%"
+
+# === Open DOC format ===
+- tapOn: ".*Apache Tika Word Doc.*"
+- waitForAnimationToEnd:
+    timeout: 6000
+- tapOn:
+    point: "10%,90%"
+
+# === Open DOCX format ===
+- tapOn: ".*Python.*docx.*"
+- waitForAnimationToEnd:
+    timeout: 6000
+- tapOn:
+    point: "10%,90%"

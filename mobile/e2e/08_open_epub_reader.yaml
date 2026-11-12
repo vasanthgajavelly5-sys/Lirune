@@ -1,0 +1,9 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+- tapOn: "All"
+
+# Tap on the EPUB book card
+- tapOn: ".*100x Return System.*"

@@ -1,0 +1,6 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+- tapOn: "Scan Phone"

@@ -1,0 +1,10 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "18 books in library"
+    timeout: 60000
+- tapOn: "Pandoc FictionBook Test (fb2)"
+- waitForAnimationToEnd:
+    timeout: 10000

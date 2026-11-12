@@ -1,0 +1,14 @@
+appId: com.lirune.reader
+---
+- launchApp:
+    stopApp: false
+
+# Tap on "Files" in the open drawer or open the drawer and tap Files
+- tapOn:
+    text: "Files"
+    optional: true
+
+- assertVisible: "Storage Discovery & Import"
+- assertVisible: "Scan Phone"
+- assertVisible: "Scan Folder"
+- assertVisible: "Scan File"

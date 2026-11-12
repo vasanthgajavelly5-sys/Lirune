@@ -177,6 +177,50 @@ const SettingsUI = (() => {
     }
   }
 
+  function syncQuickControls() {
+    const host = document.getElementById('quick-settings');
+    if (!host || host.dataset.context !== currentContext) {
+      renderQuick();
+      return;
+    }
+    if (currentContext !== 'reader') return;
+
+    const reader = ReaderSettings.getSettings();
+    const theme = ThemeManager.getReaderTheme();
+
+    const themeSel = document.getElementById('qs-theme-select');
+    if (themeSel && themeSel.value !== theme) {
+      themeSel.value = theme;
+      themeSel._customDropdownSync?.();
+    }
+    host.querySelectorAll('.theme-preset').forEach(btn => {
+      const active = btn.dataset.theme === theme;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+
+    const fontSel = document.getElementById('qs-font-select');
+    if (fontSel && fontSel.value !== reader.fontFamily) {
+      fontSel.value = reader.fontFamily;
+      fontSel._customDropdownSync?.();
+    }
+
+    const segmentValues = {
+      'qs-alignment': reader.alignment,
+      'qs-flow': reader.flow,
+      'qs-spread': reader.spread
+    };
+    Object.entries(segmentValues).forEach(([segId, activeVal]) => {
+      const group = host.querySelector(`[data-quick-segment="${segId}"]`);
+      if (!group) return;
+      group.querySelectorAll('.segment-opt').forEach(btn => {
+        const active = btn.dataset.value === activeVal;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    });
+  }
+
   function libraryQuickMarkup() {
     const view = Library.getViewState();
     return `
@@ -1186,12 +1230,14 @@ const SettingsUI = (() => {
       }
       if (id === 'qs-theme') {
         ThemeManager.setReaderTheme(select.value);
-        refresh();
+        syncQuickControls();
+        if (expanded) syncFullControls();
         return;
       }
       if (id === 'qs-font') {
         ReaderSettings.setSetting('fontFamily', select.value);
-        refresh();
+        syncQuickControls();
+        if (expanded) syncFullControls();
         return;
       }
       if (id === 'fs-tts-voice') {
@@ -1254,7 +1300,8 @@ const SettingsUI = (() => {
       // Flow and column changes need a re-render, which the existing settings
       // controls already do.
       if (readerKeys[id] === 'flow' || readerKeys[id] === 'spread') Reader.reRender();
-      refresh();
+      syncQuickControls();
+      if (expanded) syncFullControls();
       return;
     }
 

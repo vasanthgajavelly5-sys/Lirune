@@ -1,31 +1,85 @@
-const { app, BrowserWindow, dialog, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
 const JSZip = require('jszip');
 const crypto = require('crypto');
 const { fingerprintBuffer, storageIdForFingerprint, isStorageId } = require('./scripts/storage-contract');
 
+if (process.platform === 'win32' && app?.setAppUserModelId) {
+  app.setAppUserModelId('com.novera.reader');
+}
+
+// Formats the application can open. Kept in sync with js/formats.js; the
+// renderer performs the authoritative content-based detection.
+const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf', 'md', 'markdown', 'fbz', 'mobi', 'azw', 'azw3', 'cbr', 'doc', 'chm', 'djvu', 'djv'];
+const OPENABLE_EXTENSIONS = [...SUPPORTED_EXTENSIONS];
+const ARCHIVE_EXTENSIONS = ['zip', '7z', 'rar'];
+
+const MAX_BOOK_FILE_SIZE = 512 * 1024 * 1024; // 512MB
+const MAX_ZIP_ENTRIES = 10000;
+const MAX_ZIP_SINGLE_ENTRY_SIZE = 64 * 1024 * 1024; // 64MB
+const MAX_ZIP_AGGREGATE_BYTES = 512 * 1024 * 1024; // 512MB
+const MAX_FOLDER_IMPORT_FILES = 2000;
+
 let mainWindow = null;
 let pendingOpenFile = null;
-const pendingEpubReadPaths = new Set();
-const EXPECTED_SHELL_PATH = path.resolve(__dirname, 'index.html');
-const EXPECTED_SHELL_URL = pathToFileURL(EXPECTED_SHELL_PATH).toString();
+let isRendererReady = false;
+const pendingBookReadPaths = new Map();
+const PENDING_PATH_TTL_MS = 5 * 60 * 1000;
+
+function normalizePath(p) {
+  if (typeof p !== 'string' || !p) return '';
+  return path.resolve(p).toLowerCase();
+}
+
+function authorizeBookPath(p) {
+  const canonical = normalizePath(p);
+  if (!canonical) return;
+  const now = Date.now();
+  for (const [k, time] of pendingBookReadPaths) {
+    if (now - time > PENDING_PATH_TTL_MS) pendingBookReadPaths.delete(k);
+  }
+  pendingBookReadPaths.set(canonical, now);
+}
+
+function consumeAuthorizedBookPath(p) {
+  const canonical = normalizePath(p);
+  if (!canonical || !pendingBookReadPaths.has(canonical)) return false;
+  const timestamp = pendingBookReadPaths.get(canonical);
+  pendingBookReadPaths.delete(canonical);
+  if (Date.now() - timestamp > PENDING_PATH_TTL_MS) {
+    return false;
+  }
+  return true;
+}
+
+function revokeAuthorizedBookPath(p) {
+  const canonical = normalizePath(p);
+  if (canonical) pendingBookReadPaths.delete(canonical);
+}
 
 // Single instance lock
-const gotTheLock = app.requestSingleInstanceLock();
+const gotTheLock = app?.requestSingleInstanceLock ? app.requestSingleInstanceLock() : true;
 
-if (!gotTheLock) {
+if (!gotTheLock && app?.quit) {
   app.quit();
-} else {
+} else if (app?.on) {
   app.on('second-instance', (event, argv, workingDirectory) => {
-    // Focus existing window
-    if (mainWindow) {
+    // Focus existing window or recreate if window was closed
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
       mainWindow.focus();
 
-      // Check if an EPUB file path was passed in the arguments
-      const filePath = extractEpubArg(argv);
+      const filePath = extractBookArg(argv);
+      if (filePath) {
+        dispatchOpenFile(filePath);
+      }
+    } else {
+      createWindow();
+      const filePath = extractBookArg(argv);
       if (filePath) {
         dispatchOpenFile(filePath);
       }
@@ -33,24 +87,42 @@ if (!gotTheLock) {
   });
 }
 
-function extractEpubArg(args) {
-  for (const arg of args) {
-    if (typeof arg === 'string' && arg.toLowerCase().endsWith('.epub')) {
-      if (fs.existsSync(arg)) {
+function extractBookArg(args) {
+  if (!Array.isArray(args)) return null;
+  for (const rawArg of args) {
+    if (typeof rawArg !== 'string') continue;
+    let arg = rawArg.trim();
+    if ((arg.startsWith('"') && arg.endsWith('"')) || (arg.startsWith("'") && arg.endsWith("'"))) {
+      arg = arg.slice(1, -1).trim();
+    }
+    if (!arg || arg.startsWith('--') || arg.startsWith('-')) continue;
+    const ext = path.extname(arg).slice(1).toLowerCase();
+    if (!OPENABLE_EXTENSIONS.includes(ext)) continue;
+    try {
+      if (fs.existsSync(arg) && fs.statSync(arg).isFile()) {
         return path.resolve(arg);
       }
-    }
+    } catch (_) {}
   }
   return null;
 }
 
+// Extract initial book argument at cold launch as early as possible
+const coldLaunchArg = extractBookArg(process.argv);
+if (coldLaunchArg) {
+  pendingOpenFile = path.resolve(coldLaunchArg);
+  authorizeBookPath(pendingOpenFile);
+}
+
 function dispatchOpenFile(filePath) {
-  if (!mainWindow || mainWindow.webContents.isLoading()) {
-    pendingOpenFile = filePath;
+  if (!filePath) return;
+  const resolved = path.resolve(filePath);
+  authorizeBookPath(resolved);
+  if (!mainWindow || !isRendererReady) {
+    pendingOpenFile = resolved;
     return;
   }
-  pendingEpubReadPaths.add(path.resolve(filePath));
-  mainWindow.webContents.send('open-file-from-os', filePath);
+  mainWindow.webContents.send('open-file-from-os', resolved);
 }
 
 function isManagedBookPath(filePath) {
@@ -77,16 +149,52 @@ function getStoragePath(storageId) {
   return path.join(getBooksStorageDir(), storageId);
 }
 
-function isTrustedSender(event) {
-  const frame = event?.senderFrame;
-  if (!frame || !frame.url.startsWith('file://')) return false;
+const EXPECTED_SHELL_PATH = path.resolve(__dirname, 'index.html');
+const EXPECTED_SHELL_URL = pathToFileURL(EXPECTED_SHELL_PATH).href;
+
+function isExpectedShellUrl(targetUrl) {
+  if (typeof targetUrl !== 'string' || !targetUrl) return false;
   try {
-    let senderPath = decodeURIComponent(new URL(frame.url).pathname);
-    senderPath = senderPath.replace(/^\/([A-Za-z]:)/, '$1');
-    return path.resolve(senderPath) === EXPECTED_SHELL_PATH;
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol !== 'file:') return false;
+    let targetPath = decodeURIComponent(parsed.pathname);
+    targetPath = targetPath.replace(/^\/([A-Za-z]:)/, '$1');
+    return path.resolve(targetPath).toLowerCase() === EXPECTED_SHELL_PATH.toLowerCase();
   } catch {
     return false;
   }
+}
+
+function isValidExternalHttpUrl(parsed) {
+  if (!parsed || !(parsed instanceof URL)) return false;
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') return false;
+  // Disallow userinfo (credential injection / spoofing)
+  if (parsed.username || parsed.password) return false;
+  if (!parsed.hostname || parsed.hostname.trim() === '') return false;
+  return true;
+}
+
+function classifyNavigation(targetUrl) {
+  if (typeof targetUrl !== 'string' || !targetUrl) return 'deny';
+  try {
+    const parsed = new URL(targetUrl);
+    if (isValidExternalHttpUrl(parsed)) {
+      return 'external';
+    }
+    if (isExpectedShellUrl(targetUrl)) {
+      return 'allow';
+    }
+    return 'deny';
+  } catch {
+    return 'deny';
+  }
+}
+
+function isTrustedSender(event) {
+  const frame = event?.senderFrame;
+  if (!frame || !frame.url || !frame.url.startsWith('file://')) return false;
+  return isExpectedShellUrl(frame.url);
 }
 
 function requireTrustedSender(event) {
@@ -101,12 +209,18 @@ function writeManagedBook(storageId, buffer) {
     throw new Error('Managed storage identity already belongs to different content');
   }
   const temporary = `${destination}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporary, buffer, { flag: 'wx' });
   try {
+    fs.writeFileSync(temporary, buffer, { flag: 'wx' });
     fs.renameSync(temporary, destination);
   } catch (error) {
-    if (fs.existsSync(destination)) fs.unlinkSync(temporary);
-    else throw error;
+    if (fs.existsSync(temporary)) {
+      try { fs.unlinkSync(temporary); } catch (_) {}
+    }
+    if (fs.existsSync(destination)) {
+      const existing = fs.readFileSync(destination);
+      if (fingerprintBuffer(existing) === fingerprintBuffer(buffer)) return destination;
+    }
+    throw error;
   }
   return destination;
 }
@@ -159,7 +273,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     frame: false,
-    backgroundColor: '#0C0C12',
+    backgroundColor: '#EEECF8',
     icon: iconPath,
     show: false,
     title: 'Lirune Reader — A calm home for your books',
@@ -180,14 +294,26 @@ function createWindow() {
   // Load the application
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
+  // Safety fallback: ensure window becomes visible even if ready-to-show is delayed by GPU/system
+  const showFallbackTimer = setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 3000);
+
   mainWindow.once('ready-to-show', () => {
+    clearTimeout(showFallbackTimer);
     mainWindow.show();
 
-    // If an EPUB was passed at launch, dispatch it now
-    const initialFile = pendingOpenFile || extractEpubArg(process.argv);
+    // If a book was passed at launch, store it in pendingOpenFile so renderer receives it once ready
+    const initialFile = pendingOpenFile || extractBookArg(process.argv);
     if (initialFile) {
-      pendingOpenFile = null;
-      dispatchOpenFile(initialFile);
+      pendingOpenFile = path.resolve(initialFile);
+      authorizeBookPath(pendingOpenFile);
+      if (isRendererReady) {
+        dispatchOpenFile(pendingOpenFile);
+        pendingOpenFile = null;
+      }
     }
   });
 
@@ -208,19 +334,31 @@ function createWindow() {
     mainWindow?.webContents.send('native-fullscreen-changed', false);
   });
 
-  // External web links open in user's default browser
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window-maximized-changed', true);
+  });
+
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window-maximized-changed', false);
+  });
+
+  // Disallow automatic external navigation on top-level will-navigate (prevents hostile auto-redirects)
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('http:') || url.startsWith('https:')) {
-      event.preventDefault();
-      shell.openExternal(url);
+    const action = classifyNavigation(url);
+    if (action === 'allow') {
       return;
     }
-    if (url !== EXPECTED_SHELL_URL) event.preventDefault();
+    event.preventDefault();
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http:') || url.startsWith('https:')) {
-      shell.openExternal(url);
+    if (typeof url === 'string') {
+      try {
+        const parsed = new URL(url);
+        if (isValidExternalHttpUrl(parsed)) {
+          shell.openExternal(parsed.href);
+        }
+      } catch {}
     }
     return { action: 'deny' };
   });
@@ -236,48 +374,56 @@ ipcMain.handle('dialog:open-files', async (event) => {
   if (!mainWindow) return { canceled: true, files: [] };
 
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Select one EPUB book',
+    title: 'Select a book',
     buttonLabel: 'Import to Lirune Reader',
     filters: [
+      { name: 'Supported books & archives', extensions: [...SUPPORTED_EXTENSIONS, ...ARCHIVE_EXTENSIONS] },
+      { name: 'Supported books', extensions: SUPPORTED_EXTENSIONS },
+      { name: 'Book archives (*.zip, *.7z, *.rar)', extensions: ARCHIVE_EXTENSIONS },
       { name: 'EPUB eBooks (*.epub)', extensions: ['epub'] },
+      { name: 'PDF documents (*.pdf)', extensions: ['pdf'] },
+      { name: 'Word documents (*.docx)', extensions: ['docx'] },
+      { name: 'Comic archives (*.cbz, *.cbr)', extensions: ['cbz', 'cbr'] },
+      { name: 'Text and HTML (*.txt, *.html, *.htm, *.md)', extensions: ['txt', 'html', 'htm', 'md', 'markdown'] },
+      { name: 'FictionBook (*.fb2, *.fbz)', extensions: ['fb2', 'fbz'] },
       { name: 'All Files (*.*)', extensions: ['*'] }
     ],
-    properties: ['openFile']
+    properties: ['openFile', 'multiSelections']
   });
 
   if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
     return { canceled: true, files: [] };
   }
 
-  const loadedFiles = [];
+  const descriptors = [];
   const errors = [];
-  for (const filePath of result.filePaths.slice(0, 1)) {
+  for (const filePath of result.filePaths) {
     try {
-      const buffer = fs.readFileSync(filePath);
-      await validateEpubBuffer(buffer);
-      const name = path.basename(filePath);
-      loadedFiles.push({
-        name,
-        path: filePath,
-        data: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
-        size: buffer.length
-      });
+      const resolved = path.resolve(filePath);
+      if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+        authorizeBookPath(resolved);
+        descriptors.push({
+          name: path.basename(resolved),
+          path: resolved,
+          size: fs.statSync(resolved).size
+        });
+      }
     } catch (e) {
-      console.error('Error reading file:', filePath, e);
+      console.error('Error reading file info:', filePath, e);
       errors.push({ name: path.basename(filePath), error: e.message });
     }
   }
 
-  return { canceled: false, files: loadedFiles, errors };
+  return { canceled: false, files: descriptors, errors };
 });
 
-// Native Windows Folder Dialog (batch import)
+// Native Windows Folder Dialog (batch import with controlled streaming memory)
 ipcMain.handle('dialog:open-folder', async (event) => {
   requireTrustedSender(event);
   if (!mainWindow) return { canceled: true, files: [] };
 
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Select Folder Containing EPUBs',
+    title: 'Select Folder Containing Books',
     buttonLabel: 'Import Folder',
     properties: ['openDirectory']
   });
@@ -287,46 +433,206 @@ ipcMain.handle('dialog:open-folder', async (event) => {
   }
 
   const dirPath = result.filePaths[0];
-  const loadedFiles = [];
+  const descriptors = [];
   const errors = [];
+  const queue = [dirPath];
 
-  async function scanDir(dir) {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await scanDir(full);
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.epub')) {
-        try {
-          const buffer = fs.readFileSync(full);
-          await validateEpubBuffer(buffer);
-          loadedFiles.push({
-            name: entry.name,
-            path: full,
-            data: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
-            size: buffer.length
-          });
-        } catch (e) {
-          errors.push({ name: full, error: e.message });
+  try {
+    while (queue.length > 0) {
+      const currentDir = queue.shift();
+      let entries;
+      try {
+        entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+      } catch (e) {
+        errors.push({ name: currentDir, error: e.message });
+        continue;
+      }
+      for (const entry of entries) {
+        if (descriptors.length >= MAX_FOLDER_IMPORT_FILES) {
+          errors.push({ name: currentDir, error: `Folder import capped at ${MAX_FOLDER_IMPORT_FILES} books to prevent resource exhaustion.` });
+          queue.length = 0;
+          break;
+        }
+        const full = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name.startsWith('.')) continue;
+          queue.push(full);
+        } else if (entry.isFile()) {
+          const ext = path.extname(entry.name).slice(1).toLowerCase();
+          if (SUPPORTED_EXTENSIONS.includes(ext)) {
+            try {
+              const resolved = path.resolve(full);
+              authorizeBookPath(resolved);
+              const stats = await fs.promises.stat(resolved);
+              descriptors.push({
+                name: entry.name,
+                path: resolved,
+                size: stats.size
+              });
+            } catch (e) {
+              errors.push({ name: full, error: e.message });
+            }
+          }
         }
       }
     }
-  }
-
-  try {
-    await scanDir(dirPath);
   } catch (e) {
     console.error('Folder scan error:', e);
   }
 
-  return { canceled: false, files: loadedFiles, errors };
+  return { canceled: false, files: descriptors, errors };
 });
+
+function validateZipSafety(zip) {
+  const entries = Object.values(zip.files);
+  if (entries.length > MAX_ZIP_ENTRIES) {
+    throw new Error(`Archive exceeds maximum entry count limit (${MAX_ZIP_ENTRIES})`);
+  }
+  let totalBytes = 0;
+  for (const entry of entries) {
+    const name = entry.name;
+    // Zip Slip / path traversal check
+    if (name.includes('..') || name.startsWith('/') || name.startsWith('\\') || name.includes('\0')) {
+      throw new Error('Archive contains potentially dangerous file path');
+    }
+    const uncompressedSize = entry._data ? (entry._data.uncompressedSize || 0) : 0;
+    if (uncompressedSize > MAX_ZIP_SINGLE_ENTRY_SIZE) {
+      throw new Error(`Archive contains an entry that exceeds the maximum allowed size (${MAX_ZIP_SINGLE_ENTRY_SIZE / 1024 / 1024}MB)`);
+    }
+    totalBytes += uncompressedSize;
+    if (totalBytes > MAX_ZIP_AGGREGATE_BYTES) {
+      throw new Error(`Archive aggregate expanded content exceeds maximum size limit (${MAX_ZIP_AGGREGATE_BYTES / 1024 / 1024}MB)`);
+    }
+  }
+}
+
+/**
+ * Validate an imported file.
+ * EPUB gets the full OCF/DRM check; every other supported format is checked
+ * against its file signature so a renamed file is rejected up front.
+ */
+async function validateBookBuffer(buffer, extension = '') {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('The file is empty');
+  }
+  if (buffer.length > MAX_BOOK_FILE_SIZE) {
+    throw new Error(`File exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)`);
+  }
+  const isZip = buffer.length >= 4 && buffer.readUInt32BE(0) === 0x504b0304;
+  const ext = String(extension || '').toLowerCase();
+
+  // The declared extension is checked first: EPUB, CBZ, DOCX, and ODT are ZIP containers
+  if (ext === 'cbz') {
+    if (!isZip) throw new Error('Not a readable ZIP archive');
+    const zip = await JSZip.loadAsync(buffer);
+    validateZipSafety(zip);
+    const nonDirEntries = Object.values(zip.files).filter(name => !name.dir);
+    if (nonDirEntries.length === 0) {
+      throw new Error('The comic archive is empty');
+    }
+    const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.jxl'];
+    const hasImage = nonDirEntries.some(e => IMAGE_EXTS.some(x => e.name.toLowerCase().endsWith(x)));
+    if (!hasImage) {
+      throw new Error('Not a valid comic archive: no image files found');
+    }
+    return true;
+  }
+  if (ext === 'docx') {
+    if (!isZip) throw new Error('Not a readable Word (.docx) document');
+    const zip = await JSZip.loadAsync(buffer);
+    validateZipSafety(zip);
+    if (!zip.file('word/document.xml')) {
+      throw new Error('Not a valid Word (.docx) document');
+    }
+    return true;
+  }
+  if (ext === 'odt') {
+    if (!isZip) throw new Error('Not a readable OpenDocument (.odt) document');
+    const zip = await JSZip.loadAsync(buffer);
+    validateZipSafety(zip);
+    if (!zip.file('content.xml')) {
+      throw new Error('Not a valid OpenDocument (.odt) document');
+    }
+    return true;
+  }
+  if (ext === 'epub' || (isZip && !ext)) {
+    return validateEpubBuffer(buffer);
+  }
+  if (ext === 'pdf' || (!ext && buffer.slice(0, 5).toString('latin1') === '%PDF-')) {
+    if (buffer.slice(0, 5).toString('latin1') !== '%PDF-') throw new Error('Not a readable PDF document');
+    return true;
+  }
+  if (ext === 'rtf') {
+    const head = buffer.slice(0, 16).toString('latin1').trimStart();
+    if (!head.startsWith('{\\rtf')) {
+      throw new Error('Not a valid Rich Text Format (.rtf) document');
+    }
+    return true;
+  }
+  if (ext === 'fb2') {
+    const headText = buffer.slice(0, 1024).toString('utf-8');
+    if (!headText.includes('<FictionBook') && !headText.includes('<fictionbook')) {
+      throw new Error('Not a valid FictionBook (.fb2) document');
+    }
+    return true;
+  }
+  if (ext === 'fbz') {
+    if (!isZip) throw new Error('Not a readable ZIP archive');
+    const zip = await JSZip.loadAsync(buffer);
+    validateZipSafety(zip);
+    const hasFb2 = Object.keys(zip.files).some(name => name.toLowerCase().endsWith('.fb2'));
+    if (!hasFb2) {
+      throw new Error('Not a valid FictionBook archive: no .fb2 file found inside');
+    }
+    return true;
+  }
+  if (['mobi', 'azw', 'azw3'].includes(ext)) {
+    if (buffer.length < 68) throw new Error('Not a valid Kindle/MOBI file: header too short');
+    const name = buffer.slice(60, 68).toString('latin1');
+    const isPalm = name === 'BOOKMOBI' || name.startsWith('TEXt') || (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x00 && buffer[3] === 0x60);
+    if (!isPalm) throw new Error('Not a valid Kindle/MOBI document');
+    return true;
+  }
+  if (ext === 'cbr') {
+    if (buffer.length < 7) throw new Error('Not a valid RAR archive: header too short');
+    const isRar = buffer[0] === 0x52 && buffer[1] === 0x61 && buffer[2] === 0x72 && buffer[3] === 0x21 && buffer[4] === 0x1A && buffer[5] === 0x07;
+    if (!isRar) throw new Error('Not a valid RAR archive (.cbr)');
+    return true;
+  }
+  if (ext === 'doc') {
+    if (buffer.length < 512) throw new Error('Not a valid Word (.doc) document: file too small');
+    const isOle = buffer[0] === 0xd0 && buffer[1] === 0xcf && buffer[2] === 0x11 && buffer[3] === 0xe0 &&
+                  buffer[4] === 0xa1 && buffer[5] === 0xb1 && buffer[6] === 0x1a && buffer[7] === 0xe1;
+    if (!isOle) throw new Error('Not a valid Word (.doc) document');
+    return true;
+  }
+  if (ext === 'chm') {
+    if (buffer.length < 100) throw new Error('Not a valid Compiled HTML Help (.chm) file: buffer too small');
+    const isItsf = buffer[0] === 0x49 && buffer[1] === 0x54 && buffer[2] === 0x53 && buffer[3] === 0x46;
+    if (!isItsf) throw new Error('Not a valid Compiled HTML Help (.chm) file');
+    return true;
+  }
+  if (['djvu', 'djv'].includes(ext)) {
+    if (buffer.length < 12) throw new Error('Not a valid DjVu file: buffer too small');
+    const isDjvu = buffer[0] === 0x41 && buffer[1] === 0x54 && buffer[2] === 0x26 && buffer[3] === 0x54;
+    if (!isDjvu) throw new Error('Not a valid DjVu document');
+    return true;
+  }
+  if (['txt', 'html', 'htm', 'md', 'markdown'].includes(ext)) {
+    return true;
+  }
+  if (isZip) {
+    throw new Error(`Unsupported archive format${ext ? ` (.${ext})` : ''}. Only EPUB, CBZ, DOCX, ODT, and FBZ archives are supported.`);
+  }
+  throw new Error(`Unsupported file type${ext ? ` (.${ext})` : ''}`);
+}
 
 async function validateEpubBuffer(buffer) {
   if (!buffer || buffer.length < 4 || buffer.readUInt32BE(0) !== 0x504b0304) {
     throw new Error('Not a readable ZIP archive');
   }
   const zip = await JSZip.loadAsync(buffer);
+  validateZipSafety(zip);
   if (zip.file('META-INF/rights.xml')) throw new Error('DRM-protected EPUBs are not supported');
   if (zip.file('META-INF/encryption.xml')) throw new Error('Encrypted EPUB resources are not supported');
   const container = zip.file('META-INF/container.xml');
@@ -357,14 +663,15 @@ ipcMain.handle('shell:show-in-folder', (event, targetPath) => {
 ipcMain.handle('fs:save-book', async (event, { fileName, storageId, buffer }) => {
   requireTrustedSender(event);
   try {
-    if (typeof fileName !== 'string' || !fileName.toLowerCase().endsWith('.epub')) {
-      throw new Error('Only EPUB files can be stored');
+    const extension = typeof fileName === 'string' ? path.extname(fileName).slice(1).toLowerCase() : '';
+    if (!SUPPORTED_EXTENSIONS.includes(extension)) {
+      throw new Error(`Unsupported file type${extension ? ` (.${extension})` : ''}`);
     }
     const bookBuffer = Buffer.from(buffer);
-    await validateEpubBuffer(bookBuffer);
+    await validateBookBuffer(bookBuffer, extension);
     const fingerprint = fingerprintBuffer(bookBuffer);
-    const safeStorageId = storageId || storageIdForFingerprint(fingerprint);
-    if (safeStorageId !== storageIdForFingerprint(fingerprint)) throw new Error('Storage identity does not match EPUB content');
+    const safeStorageId = storageId || storageIdForFingerprint(fingerprint, extension);
+    if (safeStorageId !== storageIdForFingerprint(fingerprint, extension)) throw new Error('Storage identity does not match file content');
     const destPath = writeManagedBook(safeStorageId, bookBuffer);
     return { success: true, storageId: safeStorageId, fingerprint, fileSize: bookBuffer.length, originalName: path.basename(fileName) };
   } catch (e) {
@@ -388,6 +695,390 @@ ipcMain.handle('fs:delete-book', (event, storageId) => {
   return false;
 });
 
+// Extract image files from RAR (.cbr) archive
+ipcMain.handle('archive:extract-rar', async (event, arrayBuffer) => {
+  requireTrustedSender(event);
+  try {
+    const { ArchiveReader, libarchiveWasm } = require('libarchive-wasm');
+    const buf = Buffer.from(arrayBuffer);
+    if (buf.length > MAX_BOOK_FILE_SIZE) throw new Error('CBR exceeds maximum file size');
+
+    const mod = await libarchiveWasm();
+    const i8 = new Int8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+    const reader = new ArchiveReader(mod, i8);
+
+    const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.jxl'];
+    const entries = [];
+    let totalBytes = 0;
+
+    try {
+      if (reader.hasEncryptedData?.() === true) {
+        throw new Error('Encrypted or password-protected archives are not supported');
+      }
+
+      for (const entry of reader.entries()) {
+        if (entry.isEncrypted?.()) {
+          throw new Error('Encrypted or password-protected archives are not supported');
+        }
+        if (entry.getFiletype?.() === 'DIRECTORY') {
+          entry.skipData?.();
+          continue;
+        }
+
+        const rawName = entry.getPathname?.() || '';
+        // Validate against path traversal
+        if (rawName.includes('..') || path.isAbsolute(rawName) || /^[a-zA-Z]:/.test(rawName)) {
+          entry.skipData?.();
+          continue;
+        }
+        const isImg = IMAGE_EXTS.some(ext => rawName.toLowerCase().endsWith(ext));
+        if (!isImg) {
+          entry.skipData?.();
+          continue;
+        }
+
+        const size = entry.getSize?.() || 0;
+        if (size > MAX_ZIP_SINGLE_ENTRY_SIZE) {
+          throw new Error('CBR contains an oversized image file');
+        }
+
+        let data;
+        try {
+          data = entry.readData();
+        } catch (e) {
+          if (entry.isEncrypted?.() || /encrypted/i.test(e.message)) {
+            throw new Error('Encrypted or password-protected archives are not supported');
+          }
+          throw e;
+        }
+        if (!data) continue;
+
+        if (data.byteLength > MAX_ZIP_SINGLE_ENTRY_SIZE) {
+          throw new Error('CBR contains an oversized image file');
+        }
+        totalBytes += data.byteLength;
+        if (totalBytes > MAX_ZIP_AGGREGATE_BYTES) {
+          throw new Error('CBR archive expansion limit exceeded');
+        }
+
+        entries.push({
+          name: rawName,
+          buffer: Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+        });
+      }
+    } finally {
+      reader.free();
+    }
+
+    return { success: true, entries };
+  } catch (err) {
+    console.error('Failed to extract RAR archive:', err);
+    return { success: false, error: err.message || 'Failed to read RAR archive' };
+  }
+});
+
+/**
+ * Inspect an archive buffer (ZIP, 7z, RAR) and return a list of contained book files.
+ * Validates against path traversal and only returns files matching SUPPORTED_EXTENSIONS.
+ */
+async function inspectArchiveBuffer(buffer, archiveName = '') {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('Archive buffer is empty');
+  }
+  const ext = (path.extname(archiveName) || '').slice(1).toLowerCase();
+  const isZip = ext === 'zip' || (buffer[0] === 0x50 && buffer[1] === 0x4b);
+
+  if (isZip) {
+    try {
+      const zip = await JSZip.loadAsync(buffer);
+      const books = [];
+      for (const [relPath, entry] of Object.entries(zip.files)) {
+        if (entry.dir) continue;
+        const normalized = relPath.replace(/\\/g, '/');
+        if (normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) continue;
+        if (normalized.includes('..') || path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized)) continue;
+        const entryExt = (path.extname(normalized) || '').slice(1).toLowerCase();
+        if (SUPPORTED_EXTENSIONS.includes(entryExt)) {
+          books.push({
+            path: relPath,
+            name: path.basename(relPath),
+            size: entry._data ? (entry._data.uncompressedSize || 0) : 0,
+            ext: entryExt
+          });
+        }
+      }
+      return books;
+    } catch (zipErr) {
+      console.warn('JSZip inspect failed, trying libarchive-wasm fallback:', zipErr?.message);
+    }
+  }
+
+  // Libarchive-wasm reader (for 7z, rar, or non-standard zip)
+  const { ArchiveReader, libarchiveWasm } = require('libarchive-wasm');
+  const mod = await libarchiveWasm();
+  const i8 = new Int8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const reader = new ArchiveReader(mod, i8);
+  const books = [];
+
+  try {
+    if (reader.hasEncryptedData?.() === true) {
+      throw new Error('Encrypted or password-protected archives are not supported');
+    }
+    for (const entry of reader.entries()) {
+      if (entry.isEncrypted?.()) {
+        throw new Error('Encrypted or password-protected archives are not supported');
+      }
+      const type = entry.getFiletype?.();
+      if (type === 'DIRECTORY' || type === 'Directory') {
+        entry.skipData?.();
+        continue;
+      }
+      const relPath = entry.getPathname?.() || '';
+      const normalized = relPath.replace(/\\/g, '/');
+      if (!normalized || normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) {
+        entry.skipData?.();
+        continue;
+      }
+      if (normalized.includes('..') || path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized)) {
+        entry.skipData?.();
+        continue;
+      }
+      const entryExt = (path.extname(normalized) || '').slice(1).toLowerCase();
+      if (SUPPORTED_EXTENSIONS.includes(entryExt)) {
+        books.push({
+          path: relPath,
+          name: path.basename(relPath),
+          size: entry.getSize?.() || 0,
+          ext: entryExt
+        });
+      }
+      entry.skipData?.();
+    }
+  } finally {
+    reader.free();
+  }
+
+  return books;
+}
+
+/**
+ * Extract selected book files from an archive buffer (ZIP, 7z, RAR).
+ * Validates each entry against path traversal, maximum size, and aggregate size limits.
+ */
+async function extractArchiveBuffer(buffer, selectedPaths = null, archiveName = '') {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('Archive buffer is empty');
+  }
+  const ext = (path.extname(archiveName) || '').slice(1).toLowerCase();
+  const isZip = ext === 'zip' || (buffer[0] === 0x50 && buffer[1] === 0x4b);
+  const filterSet = Array.isArray(selectedPaths) && selectedPaths.length > 0 ? new Set(selectedPaths) : null;
+
+  if (isZip) {
+    try {
+      const zip = await JSZip.loadAsync(buffer);
+      const extracted = [];
+      let totalExtractedBytes = 0;
+
+      for (const [relPath, entry] of Object.entries(zip.files)) {
+        if (filterSet && !filterSet.has(relPath)) continue;
+        if (entry.dir) continue;
+        const normalized = relPath.replace(/\\/g, '/');
+        if (normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) continue;
+        if (normalized.includes('..') || path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized)) continue;
+        const entryExt = (path.extname(normalized) || '').slice(1).toLowerCase();
+        if (!SUPPORTED_EXTENSIONS.includes(entryExt)) continue;
+
+        const arrayBuf = await entry.async('arraybuffer');
+        if (arrayBuf.byteLength > MAX_BOOK_FILE_SIZE) {
+          throw new Error(`File "${path.basename(relPath)}" exceeds maximum allowed size`);
+        }
+        totalExtractedBytes += arrayBuf.byteLength;
+        if (totalExtractedBytes > MAX_ZIP_AGGREGATE_BYTES) {
+          throw new Error('Archive total extracted size exceeds safety limit');
+        }
+
+        extracted.push({
+          path: relPath,
+          name: path.basename(relPath),
+          size: arrayBuf.byteLength,
+          data: Buffer.from(arrayBuf)
+        });
+      }
+      return extracted;
+    } catch (zipErr) {
+      console.warn('JSZip extract failed, trying libarchive-wasm fallback:', zipErr?.message);
+    }
+  }
+
+  // Libarchive-wasm reader
+  const { ArchiveReader, libarchiveWasm } = require('libarchive-wasm');
+  const mod = await libarchiveWasm();
+  const i8 = new Int8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const reader = new ArchiveReader(mod, i8);
+  const extracted = [];
+  let totalExtractedBytes = 0;
+
+  try {
+    if (reader.hasEncryptedData?.() === true) {
+      throw new Error('Encrypted or password-protected archives are not supported');
+    }
+    for (const entry of reader.entries()) {
+      if (entry.isEncrypted?.()) {
+        throw new Error('Encrypted or password-protected archives are not supported');
+      }
+      const relPath = entry.getPathname?.() || '';
+      if (filterSet && !filterSet.has(relPath)) {
+        entry.skipData?.();
+        continue;
+      }
+      const type = entry.getFiletype?.();
+      if (type === 'DIRECTORY' || type === 'Directory') {
+        entry.skipData?.();
+        continue;
+      }
+      const normalized = relPath.replace(/\\/g, '/');
+      if (!normalized || normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) {
+        entry.skipData?.();
+        continue;
+      }
+      if (normalized.includes('..') || path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized)) {
+        entry.skipData?.();
+        continue;
+      }
+      const entryExt = (path.extname(normalized) || '').slice(1).toLowerCase();
+      if (!SUPPORTED_EXTENSIONS.includes(entryExt)) {
+        entry.skipData?.();
+        continue;
+      }
+
+      const data = entry.readData();
+      if (!data) continue;
+      if (data.byteLength > MAX_BOOK_FILE_SIZE) {
+        throw new Error(`File "${path.basename(relPath)}" exceeds maximum allowed size`);
+      }
+      totalExtractedBytes += data.byteLength;
+      if (totalExtractedBytes > MAX_ZIP_AGGREGATE_BYTES) {
+        throw new Error('Archive total extracted size exceeds safety limit');
+      }
+
+      extracted.push({
+        path: relPath,
+        name: path.basename(relPath),
+        size: data.byteLength,
+        data: Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+      });
+    }
+  } finally {
+    reader.free();
+  }
+
+  return extracted;
+}
+
+// Inspect archive contents for supported books (.zip, .7z, .rar)
+ipcMain.handle('archive:inspect', async (event, filePathOrDescriptor) => {
+  requireTrustedSender(event);
+  try {
+    let filePath = typeof filePathOrDescriptor === 'string' ? filePathOrDescriptor : filePathOrDescriptor?.path;
+    let fileBuffer = filePathOrDescriptor?.buffer;
+    let archiveName = filePath ? path.basename(filePath) : (filePathOrDescriptor?.name || 'archive');
+
+    if (filePath) {
+      const resolved = path.resolve(filePath);
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+        return { success: false, error: 'Archive file does not exist' };
+      }
+      const stats = fs.statSync(resolved);
+      if (stats.size > MAX_BOOK_FILE_SIZE) {
+        return { success: false, error: `Archive exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)` };
+      }
+      authorizeBookPath(resolved);
+      fileBuffer = fs.readFileSync(resolved);
+    } else if (fileBuffer) {
+      if (fileBuffer.byteLength > MAX_BOOK_FILE_SIZE) {
+        return { success: false, error: `Archive exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)` };
+      }
+    } else {
+      return { success: false, error: 'No archive file path or buffer provided' };
+    }
+
+    const books = await inspectArchiveBuffer(fileBuffer, archiveName);
+    return {
+      success: true,
+      archiveName,
+      archivePath: filePath ? path.resolve(filePath) : null,
+      books,
+      totalEntries: books.length
+    };
+  } catch (err) {
+    console.error('Error inspecting archive:', err);
+    return { success: false, error: err.message || 'Failed to inspect archive' };
+  }
+});
+
+// Extract selected book files from an archive (.zip, .7z, .rar)
+ipcMain.handle('archive:extract', async (event, { filePath, buffer, selectedPaths, archiveName } = {}) => {
+  requireTrustedSender(event);
+  try {
+    let fileBuffer = buffer;
+    let resolvedName = archiveName;
+    if (filePath) {
+      const resolved = path.resolve(filePath);
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+        return { success: false, error: 'Archive file does not exist' };
+      }
+      const stats = fs.statSync(resolved);
+      if (stats.size > MAX_BOOK_FILE_SIZE) {
+        return { success: false, error: 'Archive exceeds maximum supported size' };
+      }
+      authorizeBookPath(resolved);
+      fileBuffer = fs.readFileSync(resolved);
+      if (!resolvedName) resolvedName = path.basename(resolved);
+    }
+    if (!fileBuffer) {
+      return { success: false, error: 'No archive content provided' };
+    }
+
+    const files = await extractArchiveBuffer(fileBuffer, selectedPaths, resolvedName);
+    return { success: true, files };
+  } catch (err) {
+    console.error('Error extracting archive:', err);
+    return { success: false, error: err.message || 'Failed to extract archive' };
+  }
+});
+
+// Dedicated archive file picker dialog
+ipcMain.handle('dialog:open-archive', async (event) => {
+  requireTrustedSender(event);
+  if (!mainWindow) return { canceled: true, file: null };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select a book archive',
+    buttonLabel: 'Inspect Archive',
+    filters: [
+      { name: 'Book Archives (*.zip, *.7z, *.rar)', extensions: ARCHIVE_EXTENSIONS },
+      { name: 'All Files (*.*)', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  });
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return { canceled: true, file: null };
+  }
+  const resolved = path.resolve(result.filePaths[0]);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    return { canceled: true, file: null };
+  }
+  authorizeBookPath(resolved);
+  return {
+    canceled: false,
+    file: {
+      name: path.basename(resolved),
+      path: resolved,
+      size: fs.statSync(resolved).size,
+      isArchive: true
+    }
+  };
+});
+
 ipcMain.handle('fs:get-storage-path', (event) => {
   requireTrustedSender(event);
   return getBooksStorageDir();
@@ -397,18 +1088,58 @@ ipcMain.handle('app:get-version', (event) => {
   return app.getVersion();
 });
 
-ipcMain.handle('fs:read-epub', (event, filePath) => {
+ipcMain.handle('app:has-pending-file', (event) => {
   requireTrustedSender(event);
-  if (typeof filePath !== 'string' || !filePath.toLowerCase().endsWith('.epub')) {
-    throw new Error('Only EPUB files can be opened');
+  return Boolean(pendingOpenFile);
+});
+
+ipcMain.handle('app:signal-renderer-ready', (event) => {
+  requireTrustedSender(event);
+  isRendererReady = true;
+  if (pendingOpenFile && mainWindow) {
+    const file = pendingOpenFile;
+    pendingOpenFile = null;
+    authorizeBookPath(file);
+    mainWindow.webContents.send('open-file-from-os', file);
+  }
+  return true;
+});
+
+ipcMain.handle('app:get-pending-file', (event) => {
+  requireTrustedSender(event);
+  const file = pendingOpenFile;
+  pendingOpenFile = null;
+  if (file) {
+    authorizeBookPath(file);
+    return file;
+  }
+  return null;
+});
+
+ipcMain.handle('fs:revoke-pending-book', (event, filePath) => {
+  requireTrustedSender(event);
+  if (filePath) revokeAuthorizedBookPath(filePath);
+  return true;
+});
+
+ipcMain.handle('fs:read-book', (event, filePath) => {
+  requireTrustedSender(event);
+  const extension = typeof filePath === 'string' ? path.extname(filePath).slice(1).toLowerCase() : '';
+  if (!OPENABLE_EXTENSIONS.includes(extension)) {
+    throw new Error('This file type cannot be opened');
   }
 
   const resolvedPath = path.resolve(filePath);
-  if (!pendingEpubReadPaths.delete(resolvedPath)) {
-    throw new Error('This EPUB was not opened by the operating system');
+  if (!consumeAuthorizedBookPath(resolvedPath)) {
+    throw new Error('This file was not opened by the operating system');
   }
   if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
-    throw new Error('The EPUB file does not exist');
+    throw new Error('The file does not exist');
+  }
+
+  const stats = fs.statSync(resolvedPath);
+  if (stats.size > MAX_BOOK_FILE_SIZE) {
+    throw new Error(`File exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)`);
   }
 
   const buffer = fs.readFileSync(resolvedPath);
@@ -420,13 +1151,30 @@ ipcMain.handle('fs:read-epub', (event, filePath) => {
   };
 });
 
+ipcMain.handle('shell:open-external', async (event, rawUrl) => {
+  requireTrustedSender(event);
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+    return { success: false, error: 'Invalid URL' };
+  }
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (!isValidExternalHttpUrl(parsed)) {
+      return { success: false, error: 'Disallowed URL scheme or format' };
+    }
+    await shell.openExternal(parsed.href);
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Malformed URL' };
+  }
+});
+
 ipcMain.handle('fs:read-managed-book', (event, { storageId, fingerprint, fileSize } = {}) => {
   requireTrustedSender(event);
   const managedPath = getStoragePath(storageId);
-  if (!fs.existsSync(managedPath)) throw new Error('Managed EPUB file is unavailable');
+  if (!fs.existsSync(managedPath)) throw new Error('Managed book file is unavailable');
   const buffer = fs.readFileSync(managedPath);
-  if (fileSize !== undefined && buffer.length !== Number(fileSize)) throw new Error('Managed EPUB file is corrupted');
-  if (fingerprint && fingerprintBuffer(buffer) !== fingerprint.toLowerCase()) throw new Error('Managed EPUB file is corrupted');
+  if (fileSize !== undefined && buffer.length !== Number(fileSize)) throw new Error('Managed book file is corrupted');
+  if (fingerprint && fingerprintBuffer(buffer) !== fingerprint.toLowerCase()) throw new Error('Managed book file is corrupted');
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
 });
 
@@ -435,6 +1183,115 @@ ipcMain.handle('fs:list-managed-books', (event) => {
   return fs.readdirSync(getBooksStorageDir(), { withFileTypes: true })
     .filter(entry => entry.isFile() && isStorageId(entry.name))
     .map(entry => entry.name);
+});
+
+/**
+ * Inspects one managed file without sending its contents to the renderer.
+ *
+ * The integrity check needs the real on-disk size and content hash to tell a
+ * healthy book apart from a truncated or altered one, and hashing has to happen
+ * in the main process because the books can be hundreds of megabytes. Reading
+ * one file per call is deliberate: it lets the renderer report honest progress
+ * as a large library is checked.
+ */
+function streamFileFingerprint(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', chunk => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
+ipcMain.handle('fs:inspect-managed-book', async (event, { storageId } = {}) => {
+  requireTrustedSender(event);
+  const managedPath = getStoragePath(storageId);
+  try {
+    const stats = await fs.promises.stat(managedPath);
+    if (!stats.isFile()) return { exists: false, size: 0, fingerprint: null };
+    const fingerprint = await streamFileFingerprint(managedPath);
+    return {
+      exists: true,
+      size: stats.size,
+      fingerprint
+    };
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return { exists: false, size: 0, fingerprint: null };
+    }
+    throw err;
+  }
+});
+
+/**
+ * Removes managed files that no library record refers to.
+ *
+ * Re-checked authoritatively so a bug or stale renderer state can never
+ * delete a live managed file.
+ */
+ipcMain.handle('fs:delete-orphan-files', async (event, { storageIds, referencedIds } = {}) => {
+  requireTrustedSender(event);
+  const referenced = new Set((Array.isArray(referencedIds) ? referencedIds : []).filter(id => isStorageId(id)));
+
+  // Authoritatively verify against active renderer state if available
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    try {
+      const activeIds = await mainWindow.webContents.executeJavaScript(
+        `typeof NoveraDB !== 'undefined' ? NoveraDB.getAllBooks().then(books => books.map(b => b.storageId).filter(Boolean)) : []`,
+        true
+      );
+      if (Array.isArray(activeIds)) {
+        for (const id of activeIds) {
+          if (isStorageId(id)) referenced.add(id);
+        }
+      }
+    } catch (_) {}
+  }
+
+  const removed = [];
+  const skipped = [];
+  const booksDir = path.resolve(getBooksStorageDir());
+
+  for (const storageId of Array.isArray(storageIds) ? storageIds : []) {
+    if (!isStorageId(storageId)) {
+      skipped.push({ storageId, reason: 'invalid-identity' });
+      continue;
+    }
+    if (referenced.has(storageId)) {
+      skipped.push({ storageId, reason: 'referenced' });
+      continue;
+    }
+    try {
+      const target = getStoragePath(storageId);
+      const resolvedTarget = path.resolve(target);
+      if (!resolvedTarget.startsWith(booksDir + path.sep)) {
+        skipped.push({ storageId, reason: 'invalid-path' });
+        continue;
+      }
+      try {
+        const stat = await fs.promises.stat(resolvedTarget);
+        if (!stat.isFile()) {
+          skipped.push({ storageId, reason: 'not-a-file' });
+          continue;
+        }
+      } catch (statErr) {
+        if (statErr.code === 'ENOENT') {
+          skipped.push({ storageId, reason: 'absent' });
+          continue;
+        }
+        skipped.push({ storageId, reason: 'failed' });
+        continue;
+      }
+
+      await fs.promises.unlink(resolvedTarget);
+      removed.push(storageId);
+    } catch (error) {
+      skipped.push({ storageId, reason: 'failed' });
+    }
+  }
+
+  return { removed, skipped };
 });
 
 ipcMain.handle('window:toggle-fullscreen', (event) => {
@@ -448,6 +1305,11 @@ ipcMain.handle('window:toggle-fullscreen', (event) => {
 ipcMain.handle('window:is-fullscreen', (event) => {
   requireTrustedSender(event);
   return Boolean(mainWindow?.isFullScreen());
+});
+
+ipcMain.handle('window:is-maximized', (event) => {
+  requireTrustedSender(event);
+  return Boolean(mainWindow?.isMaximized());
 });
 
 // Window controls
@@ -469,9 +1331,43 @@ ipcMain.on('window:close', (event) => {
   mainWindow?.close();
 });
 
+function ensureWindowsRegistryAssociation() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  const exe = process.execPath;
+  const regCommands = [
+    ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe', '/v', 'FriendlyAppName', '/d', 'Lirune Reader', '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe\\shell\\open\\command', '/ve', '/d', `"${exe}" "%1"`, '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe\\SupportedTypes', '/v', '.epub', '/d', '', '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Lirune.epub', '/ve', '/d', 'EPUB Electronic Publication', '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Lirune.epub\\DefaultIcon', '/ve', '/d', `"${exe}",0`, '/f'],
+    ['add', 'HKCU\\Software\\Classes\\Lirune.epub\\shell\\open\\command', '/ve', '/d', `"${exe}" "%1"`, '/f'],
+    ['add', 'HKCU\\Software\\Classes\\.epub', '/ve', '/d', 'Lirune.epub', '/f'],
+    ['add', 'HKCU\\Software\\Classes\\.epub\\OpenWithProgids', '/v', 'Lirune.epub', '/d', '', '/f'],
+    ['add', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.epub\\OpenWithProgids', '/v', 'Lirune.epub', '/d', '', '/f'],
+    ['add', 'HKCU\\Software\\Lirune Reader\\Capabilities', '/v', 'ApplicationName', '/d', 'Lirune Reader', '/f'],
+    ['add', 'HKCU\\Software\\Lirune Reader\\Capabilities\\FileAssociations', '/v', '.epub', '/d', 'Lirune.epub', '/f'],
+    ['add', 'HKCU\\Software\\RegisteredApplications', '/v', 'Lirune Reader', '/d', 'Software\\Lirune Reader\\Capabilities', '/f']
+  ];
+  for (const cmdArgs of regCommands) {
+    try {
+      spawn('reg', cmdArgs, { stdio: 'ignore', windowsHide: true });
+    } catch (_) {}
+  }
+}
+
 // Application Lifecycle
 app.whenReady().then(() => {
+  if (session?.defaultSession) {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      callback(false);
+    });
+    session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+      return false;
+    });
+  }
+
   createWindow();
+  ensureWindowsRegistryAssociation();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -485,3 +1381,32 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    EXPECTED_SHELL_PATH,
+    EXPECTED_SHELL_URL,
+    isExpectedShellUrl,
+    isValidExternalHttpUrl,
+    classifyNavigation,
+    streamFileFingerprint,
+    validateBookBuffer,
+    validateEpubBuffer,
+    validateZipSafety,
+    authorizeBookPath,
+    consumeAuthorizedBookPath,
+    revokeAuthorizedBookPath,
+    isTrustedSender,
+    SUPPORTED_EXTENSIONS,
+    OPENABLE_EXTENSIONS,
+    ARCHIVE_EXTENSIONS,
+    inspectArchiveBuffer,
+    extractArchiveBuffer,
+    PENDING_PATH_TTL_MS,
+    MAX_BOOK_FILE_SIZE,
+    MAX_ZIP_ENTRIES,
+    MAX_ZIP_SINGLE_ENTRY_SIZE,
+    MAX_ZIP_AGGREGATE_BYTES,
+    MAX_FOLDER_IMPORT_FILES
+  };
+}

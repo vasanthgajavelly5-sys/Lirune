@@ -75,10 +75,42 @@ const NoveraDB = (() => {
     return dbPromise;
   }
 
+  const SAFE_FORMAT_EXTENSIONS = {
+    epub: 'epub',
+    pdf: 'pdf',
+    txt: 'txt',
+    html: 'html',
+    htm: 'html',
+    fb2: 'fb2',
+    cbz: 'cbz',
+    docx: 'docx',
+    odt: 'odt',
+    rtf: 'rtf'
+  };
+
+  function deriveSafeExtension(book) {
+    const fmt = (book.format || '').toLowerCase();
+    if (SAFE_FORMAT_EXTENSIONS[fmt]) {
+      return SAFE_FORMAT_EXTENSIONS[fmt];
+    }
+    const name = book.originalName || book.fileName || book.title || '';
+    const match = /\.([A-Za-z0-9]+)$/.exec(name);
+    if (match) {
+      const ext = match[1].toLowerCase();
+      if (SAFE_FORMAT_EXTENSIONS[ext]) {
+        return SAFE_FORMAT_EXTENSIONS[ext];
+      }
+    }
+    return 'epub';
+  }
+
   function metadataOnly(book) {
     if (!book) return book;
-    const { fileData, ...metadata } = book;
-    return metadata;
+    if (book.storageId) {
+      const { fileData, ...metadata } = book;
+      return metadata;
+    }
+    return book;
   }
 
   async function migrateLegacyBooks() {
@@ -96,11 +128,26 @@ const NoveraDB = (() => {
       try {
         const digest = await crypto.subtle.digest('SHA-256', book.fileData);
         const fingerprint = Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
-        storageId = `${fingerprint}.epub`;
-        const result = await window.noveraDesktop.saveBookToStorage(book.originalName || `${book.title || book.id}.epub`, book.fileData, storageId);
-        if (!result?.success || result.storageId !== storageId) throw new Error('Managed storage did not confirm the EPUB write');
+        const extension = deriveSafeExtension(book);
+        storageId = `${fingerprint}.${extension}`;
+        const fileName = book.originalName || `${book.title || book.id}.${extension}`;
+
+        const result = await window.noveraDesktop.saveBookToStorage(fileName, book.fileData, storageId);
+        if (!result?.success || result.storageId !== storageId) {
+          throw new Error(`Managed storage did not confirm write for ${storageId}`);
+        }
         storageConfirmed = true;
-        const migrated = metadataOnly({ ...book, fingerprint, storageId, fileSize: book.fileSize || book.fileData.byteLength, schemaVersion: DB_VERSION });
+
+        const migrated = metadataOnly({
+          ...book,
+          fingerprint,
+          storageId,
+          fileSize: book.fileSize || book.fileData.byteLength,
+          schemaVersion: DB_VERSION,
+          migrationStatus: 'migrated',
+          availability: 'available'
+        });
+
         await new Promise((resolve, reject) => {
           const transaction = db.transaction('books', 'readwrite');
           transaction.objectStore('books').put(migrated);
@@ -109,8 +156,30 @@ const NoveraDB = (() => {
         });
       } catch (error) {
         console.error(`Could not migrate book ${book.id}:`, error);
-        if (storageConfirmed) {
-          try { await window.noveraDesktop.deleteBookFromStorage?.(storageId); } catch (_) {}
+        try {
+          await new Promise((resolve, reject) => {
+            const transaction = db.transaction('books', 'readwrite');
+            const unmigrated = {
+              ...book,
+              migrationStatus: 'failed',
+              availability: 'needs-migration',
+              migrationError: error?.message || 'Storage migration failed'
+            };
+            transaction.objectStore('books').put(unmigrated);
+            transaction.oncomplete = resolve;
+            transaction.onerror = () => reject(transaction.error);
+          });
+        } catch (dbErr) {
+          console.error(`Could not update failure status for book ${book.id}:`, dbErr);
+        }
+
+        if (storageConfirmed && storageId) {
+          try {
+            const otherUsingSameStorage = legacyBooks.some(b => b.id !== book.id && b.storageId === storageId);
+            if (!otherUsingSameStorage) {
+              await window.noveraDesktop.deleteBookFromStorage?.(storageId);
+            }
+          } catch (_) {}
         }
       }
     }
@@ -175,9 +244,28 @@ const NoveraDB = (() => {
         const transaction = db.transaction('books', 'readwrite');
         const store = transaction.objectStore('books');
         const metadata = { favorite: false, collectionIds: [], ...(window.noveraDesktop ? metadataOnly(bookData) : bookData) };
-        const req = store.put(metadata);
-        req.onsuccess = () => resolve(metadata);
-        req.onerror = () => reject(req.error);
+        store.put(metadata);
+        transaction.oncomplete = () => resolve(metadata);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      });
+    },
+
+    async updateBookMetadata(id, fields) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction('books', 'readwrite');
+        const store = transaction.objectStore('books');
+        const request = store.get(id);
+        let result = null;
+        request.onsuccess = () => {
+          if (!request.result) return;
+          result = Object.assign(request.result, fields || {});
+          store.put(result);
+        };
+        transaction.oncomplete = () => resolve(result);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       });
     },
 
@@ -187,13 +275,16 @@ const NoveraDB = (() => {
         const transaction = db.transaction('books', 'readwrite');
         const store = transaction.objectStore('books');
         const request = store.get(id);
+        let result = null;
         request.onsuccess = () => {
-          if (!request.result) return resolve(null);
+          if (!request.result) return;
           request.result.favorite = Boolean(favorite);
+          result = Boolean(favorite);
           store.put(request.result);
-          resolve(Boolean(favorite));
         };
-        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => resolve(result);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       });
     },
 
@@ -203,13 +294,16 @@ const NoveraDB = (() => {
         const transaction = db.transaction('books', 'readwrite');
         const store = transaction.objectStore('books');
         const request = store.get(id);
+        let result = null;
         request.onsuccess = () => {
-          if (!request.result) return resolve(null);
+          if (!request.result) return;
           request.result.availability = availability;
+          result = availability;
           store.put(request.result);
-          resolve(availability);
         };
-        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => resolve(result);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       });
     },
 
@@ -253,36 +347,44 @@ const NoveraDB = (() => {
         const transaction = db.transaction('books', 'readwrite');
         const store = transaction.objectStore('books');
         const request = store.get(bookId);
+        let result = null;
         request.onsuccess = () => {
-          if (!request.result) return resolve(null);
+          if (!request.result) return;
           const ids = Array.isArray(request.result.collectionIds) ? request.result.collectionIds : [];
           request.result.collectionIds = included
             ? Array.from(new Set([...ids, collectionId]))
             : ids.filter(id => id !== collectionId);
+          result = request.result.collectionIds;
           store.put(request.result);
-          resolve(request.result.collectionIds);
         };
-        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => resolve(result);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       });
     },
 
-    async updateProgress(id, { currentCfi, progressPercent, currentChapter }) {
+    async updateProgress(id, { currentCfi, progressPercent, currentChapter, updateLastRead = true }) {
       const db = await openDB();
       return new Promise((resolve, reject) => {
         const transaction = db.transaction('books', 'readwrite');
         const store = transaction.objectStore('books');
         const req = store.get(id);
+        let result = null;
         req.onsuccess = () => {
           const book = req.result;
-          if (!book) return resolve(null);
+          if (!book) return;
           if (currentCfi !== undefined) book.currentCfi = currentCfi;
           if (progressPercent !== undefined) book.progressPercent = progressPercent;
           if (currentChapter !== undefined) book.currentChapter = currentChapter;
-          book.lastReadDate = Date.now();
+          if (updateLastRead) {
+            book.lastReadDate = Date.now();
+          }
+          result = book;
           store.put(book);
-          resolve(book);
         };
-        req.onerror = () => reject(req.error);
+        transaction.oncomplete = () => resolve(result);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       });
     },
 
@@ -343,9 +445,10 @@ const NoveraDB = (() => {
       return new Promise((resolve, reject) => {
         const transaction = db.transaction('annotations', 'readwrite');
         const store = transaction.objectStore('annotations');
-        const req = store.put(annotation);
-        req.onsuccess = () => resolve(annotation);
-        req.onerror = () => reject(req.error);
+        store.put(annotation);
+        transaction.oncomplete = () => resolve(annotation);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       });
     },
 
@@ -354,9 +457,10 @@ const NoveraDB = (() => {
       return new Promise((resolve, reject) => {
         const transaction = db.transaction('annotations', 'readwrite');
         const store = transaction.objectStore('annotations');
-        const req = store.delete(id);
-        req.onsuccess = () => resolve(true);
-        req.onerror = () => reject(req.error);
+        store.delete(id);
+        transaction.oncomplete = () => resolve(true);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       });
     },
 
@@ -389,6 +493,10 @@ const NoveraDB = (() => {
       } catch (e) {
         return false;
       }
-    }
+    },
+
+    deriveSafeExtension,
+    metadataOnly,
+    migrateLegacyBooks
   };
 })();

@@ -1,6 +1,6 @@
 # Windows Release Validation
 
-Lirune Reader uses electron-builder's standard NSIS installer. No custom NSIS script or uninstall hook is configured. `deleteAppDataOnUninstall` is intentionally unset, so the default uninstall keeps the user's `%APPDATA%\Novera` library, metadata, annotations, backups, and settings for compatibility with existing installations.
+Lirune Reader uses electron-builder's standard NSIS installer. No custom NSIS script or uninstall hook is configured. `deleteAppDataOnUninstall` is intentionally unset, so the default uninstall keeps the user's `%APPDATA%\Lirune Reader` library, metadata, annotations, backups, and settings for compatibility with existing installations. The folder is named from the app's `productName`; installs created before the rename may still hold their data in the older `%APPDATA%\Novera` folder.
 
 ## Build targets
 
@@ -20,7 +20,7 @@ On a Windows machine where the generated installer is allowed to run:
 3. Reopen the app and open an EPUB through the Windows association.
 4. Uninstall from Installed apps / Apps & features.
 5. Confirm the application directory, shortcuts, uninstall registration, association, and Lirune Reader processes are removed.
-6. Confirm the existing `%APPDATA%\Novera` data remains unless an explicit future remove-data option is selected.
+6. Confirm the existing `%APPDATA%\Lirune Reader` data remains unless an explicit future remove-data option is selected.
 7. Repeat once while Lirune Reader is running and confirm the uninstaller prompts or safely closes it.
 8. Test upgrade from the previous release and confirm library data remains.
 

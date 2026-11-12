@@ -2,28 +2,35 @@
 
 ## Supported Versions
 
-Security fixes are developed for the latest version on the `main` branch and the latest published release when practical.
+Security fixes are actively maintained for the latest release on the primary branches:
+- **Windows Desktop:** `main` and latest packaged release.
+- **Android Mobile:** `android` and latest APK release.
 
 ## Reporting a Vulnerability
 
-Please do not disclose security vulnerabilities in public issues.
+Please **do not** disclose suspected security vulnerabilities in public issues, discussions, or pull requests.
 
-Report suspected vulnerabilities privately to the project maintainers through the private security reporting tools available on the GitHub repository:
+Report vulnerabilities privately using GitHub's Private Vulnerability Reporting channel:
 
-<https://github.com/vasanthgajavelly5-sys/Novera/security/advisories/new>
+<https://github.com/vasanthgajavelly5-sys/Lirune/security/advisories/new>
 
-Include:
+### What to Include in Your Report
+To help us triage and remediate issues promptly, please provide:
+1. **Description:** A concise explanation of the vulnerability and its potential impact.
+2. **Reproduction Steps:** Step-by-step instructions or a safe, minimal synthetic reproduction file (e.g., an HTML/EPUB/FB2 sample with inert demonstration payloads).
+3. **Target Platform:** Affected version, operating system (Windows/Android), and installation source (installer, APK, or source build).
+4. **Logs & Diagnostics:** Relevant error messages with any personal filenames, tokens, or paths removed.
+5. **Mitigation Suggestion:** If you have identified a potential fix, please describe it.
 
-- A clear description of the issue.
-- Steps to reproduce it.
-- Affected version, platform, and installation type.
-- Relevant logs or screenshots with personal data removed.
-- A suggested mitigation, if known.
+### Handling and Disclosure Process
+- Maintainers aim to acknowledge reports within a reasonable timeframe (typically 3–5 business days).
+- Please provide maintainers sufficient time to remediate and publish a verified fix before disclosing details publicly.
+- Do not include copyrighted publications, private libraries, or personal credentials in test artifacts.
 
-You should receive an acknowledgement as soon as practical. Please allow maintainers reasonable time to investigate and release a fix before public disclosure.
+## Scope
 
-## Security Scope
-
-Lirune Reader is a local Electron application. Reports involving EPUB parsing, unsafe renderer behavior, unrestricted IPC, filesystem access, imported file handling, dependency vulnerabilities, or packaged-app execution are especially important.
-
-Do not submit copyrighted books or private library files with a report. Use a minimal synthetic reproduction whenever possible.
+Lirune Reader is a local-first, privacy-focused application. Reports related to the following areas are especially critical:
+- Document sanitization and parser safety (EPUB, PDF, FB2, CBZ, DOCX, DjVu, RTF, ODT).
+- Sandbox escapes, context-isolation bypasses, or unrestricted IPC mechanisms in the Electron shell.
+- Android WebView navigation bypasses, intent spoofing, or storage path traversal.
+- Dependency vulnerabilities affecting runtime execution.

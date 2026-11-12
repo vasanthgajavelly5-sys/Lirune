@@ -19,6 +19,7 @@
   --bg-glass-nav:   rgba(17,21,27,0.94);
   --bg-scrim:       rgba(0,0,0,0.68);
   --bg-input:       rgba(255,255,255,0.05);
+  --bg-inset:       rgba(255,255,255,0.05);
 
   /* Text */
   --text-primary:   #E9E7F5;
@@ -103,6 +104,7 @@
   --bg-glass-nav:   rgba(248,247,255,0.92);
   --bg-scrim:       rgba(0,0,0,0.4);
   --bg-input:       rgba(0,0,0,0.04);
+  --bg-inset:       rgba(0,0,0,0.04);
 
   --text-primary:   #1A1630;
   --text-secondary: #4D4A68;
@@ -332,6 +334,14 @@
   --r-2xl: 30px;
   --r-full:9999px;
 
+  /* Aliases for semantic radius usage */
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
+  --radius-full: var(--r-full);
+
   /* Font stacks */
   --font-ui:      'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --font-cormorant:'Cormorant Garamond', Georgia, 'Times New Roman', serif;
@@ -345,19 +355,19 @@
   /* Component metrics */
   --topbar-h:   60px;
   --progress-h: 3px;
-  --sidebar-w:  310px;
-  --panel-w:    350px;
+  --sidebar-w:  355px;
+  --panel-w:    355px;
 
-  /* Transitions */
-  --dur-instant: 80ms;
-  --dur-fast:    160ms;
-  --dur-normal:  260ms;
-  --dur-slow:    420ms;
-  --dur-slower:  640ms;
+  /* Transitions — V5 restrained, responsive, calm motion */
+  --dur-instant: 70ms;
+  --dur-fast:    150ms;
+  --dur-normal:  210ms;
+  --dur-slow:    280ms;
+  --dur-slower:  320ms;
   --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
   --ease-io:     cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --ease-spring: cubic-bezier(0.2, 0.8, 0.4, 1);
+  --ease-bounce: cubic-bezier(0.2, 0.8, 0.4, 1);
 
   /* Blur */
   --blur-sm: blur(8px);

@@ -1,0 +1,83 @@
+name: Security, Lint & CI Gate
+
+on:
+  push:
+    branches: [ lirune-store-home, main, master, android ]
+  pull_request:
+    branches: [ lirune-store-home, main, master, android ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  validate-desktop:
+    name: Desktop Validation (Node 20 / Windows)
+    runs-on: windows-latest
+    if: github.ref_name != 'android'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Clean install dependencies
+        run: npm ci
+
+      - name: Lint and syntax checks
+        run: npm run lint
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Validate corpus (if available)
+        run: npm run validate:corpus
+
+      - name: Production dependency audit
+        run: npm audit --omit=dev
+
+      - name: Release configuration validation
+        run: npm run validate:release:config
+
+  validate-mobile:
+    name: Mobile Validation (Node 22 / Ubuntu)
+    runs-on: ubuntu-latest
+    if: github.ref_name != 'lirune-store-home'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'mobile/package-lock.json'
+
+      - name: Clean install mobile dependencies
+        run: npm --prefix mobile ci
+
+      - name: Generate PDF.js assets
+        run: npm --prefix mobile run gen:pdfjs
+
+      - name: Mobile linting
+        run: npm --prefix mobile run lint
+
+      - name: Mobile TypeScript check
+        run: npm --prefix mobile run typecheck
+
+      - name: Verify PDF.js integrity
+        run: npm --prefix mobile run check:pdfjs
+
+      - name: Mobile test suite
+        run: npm --prefix mobile test
+
+      - name: Mobile production dependency audit
+        run: npm --prefix mobile audit --omit=dev --audit-level=critical

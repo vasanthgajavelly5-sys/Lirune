@@ -24,7 +24,7 @@
 - [ ] Uninstall while running
 - [ ] Application files and shortcuts removed
 - [ ] EPUB association cleaned up
-- [ ] Existing `%APPDATA%\\Novera` user data preserved
+- [ ] Existing `%APPDATA%\\Lirune Reader` user data preserved
 - [ ] Upgrade from previous release preserves user data
 - [ ] Metadata backup and restore merge preserve books, progress, annotations, preferences, and collections
 

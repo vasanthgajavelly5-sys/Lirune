@@ -4,9 +4,14 @@
 
 const ThemeManager = (() => {
   const APP_THEMES = ['dark', 'light'];
-  const READER_THEMES = ['neutral', 'sepia', 'night', 'paper', 'contrast1', 'contrast2', 'contrast3', 'contrast4', 'custom'];
-  const LEGACY_READER_THEMES = { dark: 'night', light: 'neutral', oled: 'night', sepia: 'sepia' };
-  let currentAppTheme = 'dark';
+  const READER_THEMES = [
+    'neutral', 'sepia', 'night', 'paper',
+    'contrast1', 'contrast2', 'contrast3', 'contrast4',
+    'nord', 'gruvbox', 'solarized', 'rosepine', 'dracula', 'mocha',
+    'custom'
+  ];
+  const LEGACY_READER_THEMES = { dark: 'night', light: 'neutral', oled: 'contrast1', sepia: 'sepia' };
+  let currentAppTheme = 'light';
   let currentReaderTheme = 'neutral';
   let customColors = null;
   let persistTimer = null;
@@ -54,6 +59,30 @@ const ThemeManager = (() => {
     contrast4: {
       bg: '#E4F1E5', surface: '#F3FAF3', text: '#102B19', muted: '#4D6B55',
       link: '#176B3A', selection: 'rgba(23,107,58,0.28)', selectionText: '#FFFFFF'
+    },
+    nord: {
+      bg: '#2E3440', surface: '#3B4252', text: '#ECEFF4', muted: '#D8DEE9',
+      link: '#88C0D0', selection: 'rgba(136,192,208,0.35)', selectionText: '#FFFFFF'
+    },
+    gruvbox: {
+      bg: '#282828', surface: '#32302F', text: '#EBDBB2', muted: '#A89984',
+      link: '#FABD2F', selection: 'rgba(250,189,47,0.35)', selectionText: '#282828'
+    },
+    solarized: {
+      bg: '#002B36', surface: '#073642', text: '#93A1A1', muted: '#657B83',
+      link: '#2AA198', selection: 'rgba(42,161,152,0.35)', selectionText: '#002B36'
+    },
+    rosepine: {
+      bg: '#191724', surface: '#1F1D2E', text: '#E0DEF4', muted: '#908CAA',
+      link: '#EB6F92', selection: 'rgba(235,111,146,0.35)', selectionText: '#FFFFFF'
+    },
+    dracula: {
+      bg: '#282A36', surface: '#343746', text: '#F8F8F2', muted: '#6272A4',
+      link: '#BD93F9', selection: 'rgba(189,147,249,0.35)', selectionText: '#282A36'
+    },
+    mocha: {
+      bg: '#1E1E2E', surface: '#24273A', text: '#CDD6F4', muted: '#A6ADC8',
+      link: '#CBA6F7', selection: 'rgba(203,166,247,0.35)', selectionText: '#1E1E2E'
     }
   };
 
@@ -85,8 +114,17 @@ const ThemeManager = (() => {
   }
 
   async function init() {
-    const legacyTheme = await NoveraDB.getPref('theme', 'dark');
-    const savedAppTheme = await NoveraDB.getPref('appTheme', APP_THEMES.includes(legacyTheme) ? legacyTheme : 'dark');
+    let cachedTheme = null;
+    try { cachedTheme = localStorage.getItem('lirune-app-theme'); } catch (_) {}
+    const dbAppTheme = await NoveraDB.getPref('appTheme', null);
+    const legacyTheme = await NoveraDB.getPref('theme', null);
+    const savedAppTheme = (dbAppTheme && APP_THEMES.includes(dbAppTheme))
+      ? dbAppTheme
+      : (cachedTheme && APP_THEMES.includes(cachedTheme))
+        ? cachedTheme
+        : (legacyTheme && APP_THEMES.includes(legacyTheme))
+          ? legacyTheme
+          : 'light';
     customColors = normalizeCustomColors(await NoveraDB.getPref('customReaderTheme', DEFAULT_CUSTOM_COLORS));
     const savedReaderTheme = await NoveraDB.getPref('readerTheme', 'neutral');
     applyAccent(await NoveraDB.getPref('accentColor', DEFAULT_ACCENT), false);
@@ -98,11 +136,16 @@ const ThemeManager = (() => {
   }
 
   function setAppTheme(themeName, persist = true) {
-    if (!APP_THEMES.includes(themeName)) themeName = 'dark';
+    if (!APP_THEMES.includes(themeName)) themeName = 'light';
     currentAppTheme = themeName;
 
     document.documentElement.setAttribute('data-theme', themeName);
     document.body.setAttribute('data-theme', themeName);
+
+    // Write to localStorage immediately so the anti-flash <script> in index.html
+    // can apply the correct theme synchronously on next app launch, before IndexedDB
+    // is even opened — this eliminates the dark→light repaint on startup.
+    try { localStorage.setItem('lirune-app-theme', themeName); } catch (_) {}
 
     if (persist) {
       NoveraDB.setPref('appTheme', themeName);
@@ -120,6 +163,7 @@ const ThemeManager = (() => {
       themeSwitch.setAttribute('aria-checked', isDark ? 'true' : 'false');
       themeSwitch.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
     }
+    syncReaderPanels();
     window.dispatchEvent(new CustomEvent('novera:appthemechange', { detail: { theme: themeName } }));
   }
 
@@ -132,7 +176,7 @@ const ThemeManager = (() => {
     return [parseInt(value.slice(0, 2), 16), parseInt(value.slice(2, 4), 16), parseInt(value.slice(4, 6), 16)];
   }
 
-  function applyAccent(value, persist = true) {
+  function applyAccent(value, shouldPersist = true) {
     const accent = normalizeAccent(value);
     const [red, green, blue] = accentRgb(accent);
     const luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
@@ -143,7 +187,9 @@ const ThemeManager = (() => {
     root.style.setProperty('--accent', accent);
     root.style.setProperty('--accent-hover', hover);
     root.style.setProperty('--accent-active', active);
-    root.style.setProperty('--accent-text', luminance > 0.62 ? foreground : accent);
+    // --accent-text is always a legible foreground that can be placed on top
+    // of an accent-coloured surface; it is never the raw accent hex.
+    root.style.setProperty('--accent-text', foreground);
     root.style.setProperty('--text-on-accent', foreground);
     root.style.setProperty('--gradient-accent', `linear-gradient(135deg, ${accent}, ${active})`);
     root.style.setProperty('--border-accent', `rgba(${red},${green},${blue},0.48)`);
@@ -153,11 +199,175 @@ const ThemeManager = (() => {
     root.style.setProperty('--accent-glow-strong', `rgba(${red},${green},${blue},0.3)`);
     const input = document.getElementById('app-accent-color');
     if (input) input.value = accent;
-    if (persist) persist('accentColor', accent);
+    if (shouldPersist) persist('accentColor', accent);
   }
 
-  function setReaderTheme(themeName, persist = true) {
-    if (!READER_THEMES.includes(themeName)) themeName = 'night';
+  function hexToRgb(hex) {
+    const clean = normalizeHex(hex, '#000000').slice(1);
+    return [
+      parseInt(clean.slice(0, 2), 16),
+      parseInt(clean.slice(2, 4), 16),
+      parseInt(clean.slice(4, 6), 16)
+    ];
+  }
+
+  function rgbToHex(r, g, b) {
+    const clamp = n => Math.max(0, Math.min(255, Math.round(n)));
+    return `#${[clamp(r), clamp(g), clamp(b)].map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+  }
+
+  function rgbaFromHex(hex, alpha) {
+    const [r, g, b] = hexToRgb(hex);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function mixHex(hexA, hexB, weightB) {
+    const [r1, g1, b1] = hexToRgb(hexA);
+    const [r2, g2, b2] = hexToRgb(hexB);
+    const w = Math.max(0, Math.min(1, weightB));
+    return rgbToHex(r1 + (r2 - r1) * w, g1 + (g2 - g1) * w, b1 + (b2 - b1) * w);
+  }
+
+  function relativeLuminance(hex) {
+    const channels = hexToRgb(hex).map(v => {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  }
+
+  function contrastRatio(hexA, hexB) {
+    const lumA = relativeLuminance(hexA);
+    const lumB = relativeLuminance(hexB);
+    const lighter = Math.max(lumA, lumB);
+    const darker = Math.min(lumA, lumB);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  function isDarkColor(hex) {
+    return relativeLuminance(hex) < 0.22;
+  }
+
+  function pickReadableForeground(bgHex) {
+    const lightOption = '#FFFFFF';
+    const darkOption = '#11151B';
+    return contrastRatio(bgHex, lightOption) >= contrastRatio(bgHex, darkOption)
+      ? lightOption
+      : darkOption;
+  }
+
+  const READER_PANEL_IDS = ['toc-panel', 'settings-panel', 'annotations-panel'];
+  const READER_SCOPED_TOKEN_PROPS = [
+    '--bg-base', '--bg-surface', '--bg-elevated', '--bg-card', '--bg-overlay',
+    '--bg-glass', '--bg-glass-nav', '--bg-hover', '--bg-active', '--bg-input', '--bg-inset',
+    '--text-primary', '--text-secondary', '--text-tertiary', '--text-muted', '--text-on-accent',
+    '--border-subtle', '--border-default', '--border-strong', '--border-accent',
+    '--accent', '--accent-hover', '--accent-active', '--accent-text',
+    '--gradient-accent', '--accent-subtle', '--accent-subtle-h',
+    '--accent-glow', '--accent-glow-strong',
+    '--reader-panel-switch-bg', '--reader-panel-switch-active-bg',
+    '--reader-panel-segment-bg', '--reader-panel-segment-active-bg', '--reader-panel-segment-active-fg',
+    '--reader-panel-dropdown-bg', '--reader-panel-group-bg', '--reader-panel-btn-bg',
+    'accent-color'
+  ];
+
+  function computeReaderPanelTokens(colors) {
+    const bgHex = normalizeHex(colors.bg, '#FDFCF8');
+    const surfaceHex = normalizeHex(colors.surface || colors.bg, bgHex);
+    const textHex = normalizeHex(colors.text, '#1A1410');
+    const mutedHex = normalizeHex(colors.muted, '#6B6055');
+    const linkHex = normalizeHex(colors.link, '#245A8D');
+    const dark = isDarkColor(surfaceHex);
+    const accentFg = pickReadableForeground(linkHex);
+    const accentActive = mixHex(linkHex, '#000000', 0.16);
+
+    return {
+      isDark: dark,
+      props: {
+        '--bg-base': bgHex,
+        '--bg-surface': surfaceHex,
+        '--bg-elevated': mixHex(surfaceHex, dark ? '#FFFFFF' : '#000000', dark ? 0.06 : 0.03),
+        '--bg-card': surfaceHex,
+        '--bg-overlay': mixHex(surfaceHex, textHex, 0.08),
+        '--bg-glass': rgbaFromHex(surfaceHex, 0.94),
+        '--bg-glass-nav': rgbaFromHex(surfaceHex, 0.97),
+        '--bg-hover': rgbaFromHex(textHex, dark ? 0.09 : 0.055),
+        '--bg-active': rgbaFromHex(textHex, dark ? 0.15 : 0.09),
+        '--bg-input': rgbaFromHex(textHex, dark ? 0.08 : 0.05),
+        '--bg-inset': rgbaFromHex(textHex, dark ? 0.07 : 0.05),
+        '--text-primary': textHex,
+        '--text-secondary': mixHex(textHex, mutedHex, 0.35),
+        '--text-tertiary': mutedHex,
+        '--text-muted': mutedHex,
+        '--text-on-accent': accentFg,
+        '--border-subtle': rgbaFromHex(textHex, dark ? 0.13 : 0.1),
+        '--border-default': rgbaFromHex(textHex, dark ? 0.22 : 0.16),
+        '--border-strong': rgbaFromHex(textHex, dark ? 0.34 : 0.26),
+        '--border-accent': rgbaFromHex(linkHex, 0.54),
+        '--accent': linkHex,
+        '--accent-hover': mixHex(linkHex, dark ? '#FFFFFF' : '#000000', 0.12),
+        '--accent-active': accentActive,
+        '--accent-text': linkHex,
+        '--gradient-accent': `linear-gradient(135deg, ${linkHex}, ${accentActive})`,
+        '--accent-subtle': rgbaFromHex(linkHex, dark ? 0.18 : 0.14),
+        '--accent-subtle-h': rgbaFromHex(linkHex, dark ? 0.26 : 0.22),
+        '--accent-glow': rgbaFromHex(linkHex, 0.2),
+        '--accent-glow-strong': rgbaFromHex(linkHex, 0.32),
+        '--reader-panel-switch-bg': rgbaFromHex(textHex, dark ? 0.16 : 0.14),
+        '--reader-panel-switch-active-bg': linkHex,
+        '--reader-panel-segment-bg': rgbaFromHex(textHex, dark ? 0.08 : 0.055),
+        '--reader-panel-segment-active-bg': mixHex(surfaceHex, '#FFFFFF', dark ? 0.16 : 0.65),
+        '--reader-panel-segment-active-fg': textHex,
+        '--reader-panel-dropdown-bg': rgbaFromHex(mixHex(surfaceHex, bgHex, 0.25), 0.96),
+        '--reader-panel-group-bg': rgbaFromHex(textHex, dark ? 0.045 : 0.035),
+        '--reader-panel-btn-bg': rgbaFromHex(textHex, dark ? 0.065 : 0.045),
+        'accent-color': linkHex
+      }
+    };
+  }
+
+  function clearReaderPanelTheme(el) {
+    if (!el) return;
+    el.removeAttribute('data-reader-panel-theme');
+    el.removeAttribute('data-reader-theme-name');
+    if (el.style) {
+      el.style.colorScheme = '';
+      for (const prop of READER_SCOPED_TOKEN_PROPS) {
+        el.style.removeProperty(prop);
+      }
+    }
+  }
+
+  function applyReaderPanelTheme(el, themeName, tokens) {
+    if (!el || !el.style) return;
+    el.setAttribute('data-reader-panel-theme', tokens.isDark ? 'dark' : 'light');
+    el.setAttribute('data-reader-theme-name', themeName);
+    el.style.colorScheme = tokens.isDark ? 'dark' : 'light';
+    for (const [prop, val] of Object.entries(tokens.props)) {
+      el.style.setProperty(prop, val);
+    }
+  }
+
+  function syncReaderPanels(isReaderOpen) {
+    if (typeof document === 'undefined') return;
+    const readerActive = typeof isReaderOpen === 'boolean'
+      ? isReaderOpen
+      : !!document.body?.classList?.contains('reader-open');
+    const colors = getThemeColors(currentReaderTheme);
+    const readerView = document.getElementById('reader-view');
+    const targets = [...READER_PANEL_IDS.map(id => document.getElementById(id)), readerView].filter(Boolean);
+
+    if (!readerActive) {
+      for (const el of targets) clearReaderPanelTheme(el);
+      return;
+    }
+
+    const tokens = computeReaderPanelTokens(colors);
+    for (const el of targets) applyReaderPanelTheme(el, currentReaderTheme, tokens);
+  }
+
+  function setReaderTheme(themeName, shouldPersist = true) {
+    if (!READER_THEMES.includes(themeName)) themeName = 'neutral';
     currentReaderTheme = themeName;
     const colors = getThemeColors(themeName);
 
@@ -179,8 +389,16 @@ const ThemeManager = (() => {
       preset.classList.toggle('active', preset.dataset.theme === themeName);
       preset.setAttribute('aria-pressed', preset.dataset.theme === themeName ? 'true' : 'false');
     });
+    const qsThemeSelect = document.getElementById('qs-theme-select');
+    if (qsThemeSelect) {
+      if (qsThemeSelect.value !== themeName) {
+        qsThemeSelect.value = themeName;
+      }
+      qsThemeSelect._customDropdownSync?.();
+    }
     updateCustomUI();
-    if (persist) persist('readerTheme', themeName);
+    syncReaderPanels();
+    if (shouldPersist) persist('readerTheme', themeName);
 
     // Apply directly into EPUB iframe page content
     if (typeof EpubLoader !== 'undefined' && EpubLoader.isLoaded()) {
@@ -269,6 +487,7 @@ const ThemeManager = (() => {
     init,
     setAppTheme,
     setReaderTheme,
+    syncReaderPanels,
     getAppTheme,
     getReaderTheme,
     getThemeColors,

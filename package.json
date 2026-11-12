@@ -125,7 +125,7 @@
     "epubjs": "^0.3.93",
     "jszip": "^3.10.2",
     "libarchive-wasm": "1.2.0",
-    "pdfjs-dist": "^4.10.38"
+    "pdfjs-dist": "^6.5.438"
   },
   "overrides": {
     "@xmldom/xmldom": "^0.8.15"

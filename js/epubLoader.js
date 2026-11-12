@@ -551,7 +551,6 @@ const EpubLoader = (() => {
       html, body {
         background-color: ${colors.bg} !important;
         color: ${colors.text} !important;
-        transition: background-color 0.15s ease, color 0.15s ease;
       }
       body {
         font-family: ${fontFam} !important;
@@ -994,7 +993,11 @@ const EpubLoader = (() => {
       applyStylesToAllContents();
       return;
     }
-    if (styleRefreshRaf !== null) return;
+    // Cancel any pending rAF and queue a new one so rapid successive calls
+    // (e.g. slider drag) always fire after the last value is committed.
+    if (styleRefreshRaf !== null) {
+      cancelAnimationFrame(styleRefreshRaf);
+    }
     styleRefreshRaf = requestAnimationFrame(() => {
       styleRefreshRaf = null;
       applyStylesToAllContents();
@@ -1026,8 +1029,9 @@ const EpubLoader = (() => {
   function applyTheme(themeName) {
     if (!rendition) return;
 
-    // Force style injection directly to live iframe DOM
-    scheduleLiveStyleRefresh();
+    // Apply theme colors directly to the live iframe DOM immediately so there
+    // is no visible flash between the old and new background colors.
+    scheduleLiveStyleRefresh(true);
   }
 
   function applySettings(settings) {
@@ -1036,24 +1040,14 @@ const EpubLoader = (() => {
     }
     if (!settings || !rendition) return;
 
-    if (settings.fontSize) {
-      const effectiveFontSize = Math.round(settings.fontSize * currentZoom / 100);
-      if (effectiveFontSize !== lastAppliedThemeFontSize) {
-        lastAppliedThemeFontSize = effectiveFontSize;
-        rendition.themes.fontSize(`${effectiveFontSize}px`);
-      }
-    }
-
-    if (settings.fontFamily && settings.fontFamily !== lastAppliedThemeFontFamily) {
-      lastAppliedThemeFontFamily = settings.fontFamily;
-      const font = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getFontCssStack)
-        ? ReaderSettings.getFontCssStack(settings.fontFamily)
-        : (settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', serif`);
-      rendition.themes.font(font);
-    }
-
-    // Inject live styles once per animation frame so slider drags never stack reflows
-    scheduleLiveStyleRefresh();
+    // Apply typography directly to the iframe DOM via injectPageStyles instead of
+    // going through rendition.themes.fontSize / rendition.themes.font, which
+    // cause epub.js to rewrite body.style with its default theme colors (white bg,
+    // black text) before our custom styles can override them — producing visible
+    // theme flicker on sepia / dark themes and triggering redundant layout reflows.
+    // All values (font-family, font-size, line-height, colors, margin) are already
+    // applied with !important in injectPageStyles, so the theme calls are redundant.
+    scheduleLiveStyleRefresh(true);
   }
 
   function reRender() {

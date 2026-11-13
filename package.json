@@ -7,9 +7,9 @@
   "scripts": {
     "start": "electron .",
     "lint": "node scripts/lint.js",
-    "test": "node --test test/unit/*.test.js test/integration/*.test.js test/*.test.js",
-    "test:unit": "node --test test/unit/*.test.js test/*.test.js",
-    "test:integration": "node --test test/integration/*.test.js",
+    "test": "node scripts/run-tests.js all",
+    "test:unit": "node scripts/run-tests.js unit",
+    "test:integration": "node scripts/run-tests.js integration",
     "test:e2e:smoke": "node test/e2e/smoke.mjs",
     "test:e2e:formats": "node test/e2e/format-e2e.mjs",
     "test:e2e:matrix": "node test/e2e/format-matrix.mjs",

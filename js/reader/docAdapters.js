@@ -65,6 +65,13 @@ const DocAdapter = (() => {
       super(host, record);
       this.format = 'doc';
       this.formatLabel = 'Word document';
+      this.flow = 'scrolled';
+    }
+
+    _mount() {
+      super._mount();
+      this.element?.classList.add('is-word-document');
+      this.viewport?.classList.add('is-word-document');
     }
 
     async buildSections() {
@@ -76,11 +83,19 @@ const DocAdapter = (() => {
       const CHUNK_SIZE = 25;
       for (let i = 0; i < paragraphs.length; i += CHUNK_SIZE) {
         const slice = paragraphs.slice(i, i + CHUNK_SIZE);
-        const sectionNum = Math.floor(i / CHUNK_SIZE) + 1;
-        const html = slice.map(p => `<p>${Utils.escapeHTML ? Utils.escapeHTML(p) : p}</p>`).join('\n');
+        const pageNum = Math.floor(i / CHUNK_SIZE) + 1;
+        const pageContent = slice.map(p => `<p>${Utils.escapeHTML ? Utils.escapeHTML(p) : p}</p>`).join('\n');
+        const html = `
+          <article class="word-page-card" data-page-number="${pageNum}">
+            <div class="word-page-content">
+              ${pageContent}
+            </div>
+            <div class="word-page-footer">Page ${pageNum}</div>
+          </article>
+        `;
         sections.push({
-          id: `sec-${sectionNum}`,
-          label: sectionNum === 1 && this.record.title ? this.record.title : `Section ${sectionNum}`,
+          id: `page-${pageNum}`,
+          label: pageNum === 1 && this.record.title ? this.record.title : `Page ${pageNum}`,
           depth: 0,
           html
         });

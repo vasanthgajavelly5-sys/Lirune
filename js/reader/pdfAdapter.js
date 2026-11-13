@@ -71,6 +71,10 @@ const PdfAdapter = (() => {
       this.pageCount = 0;
       this.zoom = 100;
       this.fitMode = 'width';
+      this.flow = 'scrolled';
+      this.pagesMap = new Map();
+      this._pageRenderTasks = new Map();
+      this._intersectionObserver = null;
       this.destroyed = false;
       this.outline = [];
       this.searchIndex = [];
@@ -88,9 +92,10 @@ const PdfAdapter = (() => {
       this.pdf = await pdfjs.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false }).promise;
       this.pageCount = this.pdf.numPages;
       await this._readOutline();
+      this.pageNumber = this._savedPage();
       this._mount();
       this._attachResize();
-      await this.renderPage(this._savedPage());
+      await this.goTo(this.pageNumber);
       return true;
     }
 
@@ -108,14 +113,17 @@ const PdfAdapter = (() => {
 
     destroy() {
       this.destroyed = true;
-      this._settleRender();
+      this._pageRenderTasks.forEach(task => {
+        try { task.cancel(); } catch {}
+      });
+      this._pageRenderTasks.clear();
+      this._intersectionObserver?.disconnect();
       this._resizeObserver?.disconnect();
       window.removeEventListener('resize', this._onWindowResize);
       try { this.pdf?.destroy?.(); } catch { /* already gone */ }
       this.pdf = null;
       if (this.host) this.host.innerHTML = '';
-      this.canvasWrap = null;
-      this.canvas = null;
+      this.pagesMap.clear();
       this.viewportEl = null;
     }
 
@@ -125,29 +133,86 @@ const PdfAdapter = (() => {
       this.host.classList.add('pdf-host');
 
       this.viewportEl = document.createElement('div');
-      this.viewportEl.className = 'pdf-viewport';
+      this.viewportEl.className = 'pdf-viewport' + (this.flow === 'paginated' ? ' is-paginated' : '');
       this.viewportEl.setAttribute('role', 'document');
       this.viewportEl.tabIndex = 0;
       this.viewportEl.setAttribute('aria-label', 'PDF pages');
 
-      this.canvasWrap = document.createElement('div');
-      this.canvasWrap.className = 'pdf-page';
+      this.pagesMap = new Map();
+      for (let i = 1; i <= this.pageCount; i++) {
+        const wrap = document.createElement('div');
+        wrap.className = 'pdf-page' + (this.flow === 'paginated' ? (i === this.pageNumber ? ' is-active' : '') : ' is-active');
+        wrap.dataset.page = String(i);
+        wrap.id = `pdf-page-${i}`;
+        wrap.setAttribute('aria-label', `Page ${i} of ${this.pageCount}`);
 
-      this.canvas = document.createElement('canvas');
-      this.canvas.className = 'pdf-canvas';
-      this.canvasWrap.appendChild(this.canvas);
-      this.viewportEl.appendChild(this.canvasWrap);
+        const canvas = document.createElement('canvas');
+        canvas.className = 'pdf-canvas';
+        wrap.appendChild(canvas);
+        this.viewportEl.appendChild(wrap);
+
+        this.pagesMap.set(i, { wrap, canvas, rendered: false });
+      }
+
       this.host.appendChild(this.viewportEl);
-      this.context = this.canvas.getContext('2d', { alpha: false });
-      this._onWindowResize = () => this._renderInBackground(this.pageNumber);
+
+      this._setupObserver();
+      this._onWindowResize = () => this._rerenderAllVisible();
       window.addEventListener('resize', this._onWindowResize);
+    }
+
+    _setupObserver() {
+      this._intersectionObserver?.disconnect();
+      if (typeof IntersectionObserver === 'undefined' || !this.viewportEl) return;
+
+      this._intersectionObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          const pageNum = Number(entry.target.dataset.page);
+          if (entry.isIntersecting && pageNum) {
+            this._renderPageCanvas(pageNum).catch(err => {
+              if (err?.name !== 'RenderingCancelledException') console.warn('PDF render warning:', err);
+            });
+          }
+        }
+      }, {
+        root: this.viewportEl,
+        rootMargin: '300px 0px 300px 0px',
+        threshold: 0.01
+      });
+
+      this.pagesMap.forEach(p => {
+        this._intersectionObserver.observe(p.wrap);
+      });
+
+      this.viewportEl.addEventListener('scroll', () => {
+        if (this.flow !== 'scrolled') return;
+        const vRect = this.viewportEl.getBoundingClientRect();
+        const vMid = vRect.top + vRect.height * 0.35;
+        let bestPage = this.pageNumber;
+        let minDiff = Infinity;
+        for (const [num, p] of this.pagesMap.entries()) {
+          const pRect = p.wrap.getBoundingClientRect();
+          if (pRect.bottom >= vRect.top && pRect.top <= vRect.bottom) {
+            const diff = Math.abs(pRect.top - vMid);
+            if (diff < minDiff) {
+              minDiff = diff;
+              bestPage = num;
+            }
+          }
+        }
+        if (bestPage !== this.pageNumber) {
+          this.pageNumber = bestPage;
+          this.hooks.onPageChange?.(this.pageNumber, this.pageCount);
+          this.hooks.onLocationChange?.();
+        }
+      }, { passive: true });
     }
 
     _attachResize() {
       if (typeof ResizeObserver === 'undefined' || !this.viewportEl) return;
       this._resizeObserver = new ResizeObserver(() => {
         clearTimeout(this._pending);
-        this._pending = setTimeout(() => this._renderInBackground(this.pageNumber), 120);
+        this._pending = setTimeout(() => this._rerenderAllVisible(), 120);
       });
       this._resizeObserver.observe(this.viewportEl);
     }
@@ -218,17 +283,35 @@ const PdfAdapter = (() => {
     }
 
     async goTo(target) {
-      const page = Number(target);
-      if (!Number.isFinite(page)) return false;
-      return this.renderPage(Math.min(this.pageCount, Math.max(1, Math.round(page))));
+      const page = Math.min(this.pageCount, Math.max(1, Number(target) || 1));
+      this.pageNumber = page;
+      if (this.flow === 'scrolled') {
+        const wrap = this.pagesMap.get(page)?.wrap;
+        wrap?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        await this._renderPageCanvas(page);
+      } else {
+        this.pagesMap.forEach((p, num) => {
+          p.wrap.classList.toggle('is-active', num === page);
+        });
+        await this._renderPageCanvas(page);
+      }
+      this.hooks.onPageChange?.(this.pageNumber, this.pageCount);
+      this.hooks.onLocationChange?.();
+      return true;
     }
 
     async next() {
-      return this.renderPage(this.pageNumber + 1);
+      if (this.pageNumber < this.pageCount) {
+        return this.goTo(this.pageNumber + 1);
+      }
+      return false;
     }
 
     async prev() {
-      return this.renderPage(this.pageNumber - 1);
+      if (this.pageNumber > 1) {
+        return this.goTo(this.pageNumber - 1);
+      }
+      return false;
     }
 
     async scroll(delta) {
@@ -238,19 +321,23 @@ const PdfAdapter = (() => {
     }
 
     async renderPage(number) {
-      if (!this.pdf || this.destroyed) return false;
-      const target = Math.min(this.pageCount, Math.max(1, Number(number) || 1));
+      return this.goTo(number);
+    }
 
-      // A resize, a zoom or a quick page turn can start a new render before
-      // the previous one finishes. pdf.js refuses to share a canvas between
-      // concurrent renders, so the in-flight task is cancelled and awaited
-      // before the next one starts.
-      await this._settleRender();
+    async _renderPageCanvas(target) {
+      if (!this.pdf || this.destroyed) return false;
+      const pageInfo = this.pagesMap.get(target);
+      if (!pageInfo) return false;
+
+      const existingTask = this._pageRenderTasks.get(target);
+      if (existingTask) {
+        try { existingTask.cancel(); } catch {}
+        this._pageRenderTasks.delete(target);
+      }
 
       const page = await this.pdf.getPage(target);
       if (this.destroyed) return false;
 
-      const token = ++this._renderToken;
       const base = page.getViewport({ scale: 1 });
       const available = this._availableSize();
       let scale = (this.zoom / 100) * this.cssPixelsPerUnit();
@@ -261,49 +348,43 @@ const PdfAdapter = (() => {
 
       const viewport = page.getViewport({ scale });
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const canvas = this.canvas;
+      const canvas = pageInfo.canvas;
       canvas.width = Math.max(1, Math.floor(viewport.width * dpr));
       canvas.height = Math.max(1, Math.floor(viewport.height * dpr));
       canvas.style.width = `${Math.floor(viewport.width)}px`;
       canvas.style.height = `${Math.floor(viewport.height)}px`;
-      this.canvasWrap.setAttribute('aria-label', `Page ${target} of ${this.pageCount}`);
+      pageInfo.wrap.style.width = `${Math.floor(viewport.width)}px`;
+      pageInfo.wrap.style.minHeight = `${Math.floor(viewport.height)}px`;
 
-      const task = page.render({ canvasContext: this.context, viewport, transform: dpr === 1 ? null : [dpr, 0, 0, dpr, 0, 0] });
-      this._renderTask = task;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      const task = page.render({ canvasContext: ctx, viewport, transform: dpr === 1 ? null : [dpr, 0, 0, dpr, 0, 0] });
+      this._pageRenderTasks.set(target, task);
       try {
         await task.promise;
-      } catch (error) {
-        // A cancelled render is the expected outcome of a superseded one.
-        if (error?.name !== 'RenderingCancelledException') throw error;
-        return false;
+        pageInfo.rendered = true;
+      } catch (err) {
+        if (err?.name !== 'RenderingCancelledException') throw err;
       } finally {
-        if (this._renderTask === task) this._renderTask = null;
+        if (this._pageRenderTasks.get(target) === task) {
+          this._pageRenderTasks.delete(target);
+        }
       }
-      if (token !== this._renderToken || this.destroyed) return false;
-
-      this.pageNumber = target;
-      this.hooks.onPageChange?.(target, this.pageCount);
-      this.hooks.onLocationChange?.();
       return true;
     }
 
-    /** Repaints the current page without making the caller wait for it. */
-    _renderInBackground(number) {
-      this.renderPage(number).catch(error => {
-        console.warn('PDF page render failed:', error);
-      });
-    }
-
-    /** Cancels any in-flight render and waits for the canvas to be free. */
-    async _settleRender() {
-      const task = this._renderTask;
-      if (!task) return;
-      this._renderTask = null;
-      try {
-        task.cancel();
-        await task.promise;
-      } catch {
-        // Cancellation is the point; a rejected render settles the same way.
+    /** Repaints visible pages when layout changes. */
+    async _rerenderAllVisible() {
+      if (!this.viewportEl || this.destroyed) return;
+      const vRect = this.viewportEl.getBoundingClientRect();
+      for (const [num, p] of this.pagesMap.entries()) {
+        if (this.flow === 'paginated') {
+          if (num === this.pageNumber) this._renderPageCanvas(num).catch(() => {});
+        } else {
+          const pRect = p.wrap.getBoundingClientRect();
+          if (pRect.bottom >= vRect.top - 200 && pRect.top <= vRect.bottom + 200) {
+            this._renderPageCanvas(num).catch(() => {});
+          }
+        }
       }
     }
 
@@ -323,7 +404,7 @@ const PdfAdapter = (() => {
       const next = Math.min(200, Math.max(50, Number(zoom) || 100));
       if (next === this.zoom) return false;
       this.zoom = next;
-      this._renderInBackground(this.pageNumber);
+      this._rerenderAllVisible();
       return true;
     }
 
@@ -334,7 +415,7 @@ const PdfAdapter = (() => {
     setFit(mode) {
       if (!FIT_MODES.includes(mode) || mode === 'custom') mode = 'width';
       this.fitMode = mode;
-      this._renderInBackground(this.pageNumber);
+      this._rerenderAllVisible();
       return true;
     }
 
@@ -342,9 +423,26 @@ const PdfAdapter = (() => {
       return this.fitMode;
     }
 
-    applySettings() {
-      // Fixed-layout documents ignore typography settings by design.
-      this._renderInBackground(this.pageNumber);
+    applySettings(settings) {
+      if (settings?.flow && settings.flow !== this.flow) {
+        this.flow = settings.flow;
+        if (this.flow === 'paginated') {
+          this.viewportEl?.classList.add('is-paginated');
+          this.pagesMap.forEach((p, num) => {
+            p.wrap.classList.toggle('is-active', num === this.pageNumber);
+          });
+          this._renderPageCanvas(this.pageNumber);
+        } else {
+          this.viewportEl?.classList.remove('is-paginated');
+          this.pagesMap.forEach(p => {
+            p.wrap.classList.add('is-active');
+          });
+          this._renderPageCanvas(this.pageNumber);
+          this.pagesMap.get(this.pageNumber)?.wrap?.scrollIntoView({ block: 'start' });
+        }
+      } else {
+        this._rerenderAllVisible();
+      }
       return true;
     }
 

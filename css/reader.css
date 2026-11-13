@@ -719,17 +719,119 @@ body.focus-mode .focus-toc-btn {
   margin: 0 auto;
   max-width: 46em;
 }
-.doc-viewport.is-paginated { overflow-x: hidden; overflow-y: hidden; }
+.doc-viewport.is-paginated {
+  overflow-x: hidden;
+  overflow-y: hidden;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
 .doc-body.is-paginated {
   height: 100%;
+  width: 100%;
   max-width: none;
-  padding-bottom: var(--sp-6);
-  column-width: var(--doc-page-width, 40em);
-  column-gap: var(--doc-page-gap, 48px);
+  margin: 0;
+  padding: var(--sp-6) 0;
+  column-width: var(--doc-column-step, 100vw);
+  column-gap: 0px;
   column-fill: auto;
+  will-change: transform;
+  box-sizing: border-box;
+}
+.doc-body.is-paginated > * {
+  box-sizing: border-box;
   padding-left: var(--doc-margin, 10%);
   padding-right: var(--doc-margin, 10%);
-  will-change: transform;
+  max-width: 100%;
+}
+.doc-body.is-paginated .doc-section > * {
+  box-sizing: border-box;
+  padding-left: var(--doc-margin, 10%);
+  padding-right: var(--doc-margin, 10%);
+  max-width: 100%;
+}
+.doc-body.is-txt {
+  text-align: left !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.doc-body.is-txt p {
+  text-align: left !important;
+  font-family: inherit;
+  margin-bottom: 0.5em;
+}
+
+/* Authentic Word Page Layout */
+.doc-viewport.is-word-document {
+  background: var(--reading-bg, #f0f2f5);
+  padding: 32px 16px 80px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+.doc-viewport.is-word-document .doc-body {
+  max-width: none;
+  width: 100%;
+  padding: 0;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+.word-page-card {
+  width: min(816px, calc(100vw - 32px));
+  min-height: 1056px;
+  background: #ffffff;
+  color: #111827;
+  padding: 64px 56px 48px;
+  margin: 0 auto 24px;
+  border-radius: 3px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  page-break-after: always;
+}
+.word-page-content {
+  flex: 1;
+  width: 100%;
+}
+.word-page-content p {
+  margin-bottom: 0.85em;
+  line-height: 1.5;
+  text-align: left;
+}
+.word-page-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: #9ca3af;
+  user-select: none;
+}
+[data-theme="dark"] .doc-viewport.is-word-document {
+  background: #0f1218;
+}
+[data-theme="dark"] .word-page-card {
+  background: #181d26;
+  color: #f1f3f7;
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+[data-theme="dark"] .word-page-footer {
+  color: #6b7280;
+}
+[data-theme="oled"] .doc-viewport.is-word-document {
+  background: #000000;
+}
+[data-theme="oled"] .word-page-card {
+  background: #0d0f14;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 28px rgba(0, 0, 0, 0.6);
 }
 .doc-body img,
 .doc-body svg,
@@ -754,12 +856,14 @@ body.focus-mode .focus-toc-btn {
 .pdf-viewport {
   width: 100%;
   height: 100%;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: auto;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: var(--sp-6);
+  flex-direction: column;
+  align-items: center;
+  padding: var(--sp-6) var(--sp-4);
   background: var(--reading-bg);
+  gap: var(--sp-5);
 }
 .pdf-page {
   background: #ffffff;
@@ -767,8 +871,19 @@ body.focus-mode .focus-toc-btn {
   border-radius: 2px;
   overflow: hidden;
   flex: 0 0 auto;
+  margin-bottom: var(--sp-4);
 }
 .pdf-canvas { display: block; }
+.pdf-viewport.is-paginated {
+  justify-content: center;
+  gap: 0;
+}
+.pdf-viewport.is-paginated .pdf-page:not(.is-active) {
+  display: none !important;
+}
+.pdf-viewport.is-paginated .pdf-page.is-active {
+  margin-bottom: 0;
+}
 
 /* Comic archives */
 .cbz-viewport {

@@ -110,6 +110,10 @@ const Reader = (() => {
     showOnly(host);
 
     const settings = ReaderSettings.getSettings();
+    const isScrollByDefault = ['pdf', 'docx', 'doc'].includes(format.id);
+    if (isScrollByDefault && !bookRecord.flowOverride) {
+      settings.flow = 'scrolled';
+    }
     const AdapterClass = ADAPTERS[format.id]().Adapter;
     const instance = new AdapterClass(host, bookRecord);
 
@@ -375,7 +379,7 @@ const Reader = (() => {
 
     // Layout controls are format-specific: flowing text has flow/spread,
     // fixed-layout and image formats have fit mode instead.
-    const flowing = capabilities.typography === true;
+    const flowing = capabilities.typography === true || format.id === 'pdf';
     const flowRow = document.getElementById('flow-control-row');
     const spreadRow = document.getElementById('spread-control-row');
     const spreadHeading = document.getElementById('spread-subheading');

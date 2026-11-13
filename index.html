@@ -598,16 +598,16 @@
         </div>
         <div class="setting-row setting-control-row">
           <div class="setting-label">Active profile<span>Switch or manage reading configurations</span></div>
-          <select id="reading-profile-select" class="glass-select" style="min-width:140px; padding:6px 10px; border-radius:var(--radius-sm); border:1px solid var(--border-soft); background:var(--surface-input); color:var(--text-main);">
-            <option value="default">Default</option>
-            <option value="compact">Compact</option>
-            <option value="night">Night Focus</option>
-            <option value="legibility">High Legibility</option>
-          </select>
-        </div>
-        <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
-          <button class="btn btn-ghost" id="save-profile-btn" type="button" style="font-size:12px; padding:4px 10px;">Save Profile</button>
-          <button class="btn btn-ghost" id="delete-profile-btn" type="button" style="font-size:12px; padding:4px 10px;">Delete Profile</button>
+          <div class="profile-control-cluster" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+            <select id="reading-profile-select" class="glass-select" style="min-width:130px; padding:6px 10px; border-radius:var(--radius-sm); border:1px solid var(--border-soft); background:var(--surface-input); color:var(--text-main);">
+              <option value="default">Default</option>
+              <option value="compact">Compact</option>
+              <option value="night">Night Focus</option>
+              <option value="legibility">High Legibility</option>
+            </select>
+            <button class="btn btn-ghost" id="save-profile-btn" type="button" style="font-size:12px; padding:6px 10px; border-radius:var(--radius-sm);">Save Profile</button>
+            <button class="btn btn-ghost" id="delete-profile-btn" type="button" style="font-size:12px; padding:6px 10px; border-radius:var(--radius-sm);">Delete Profile</button>
+          </div>
         </div>
         <div class="setting-row" style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border-soft);">
           <div class="setting-label">Book override<span>Save reading preferences for this book only</span></div>

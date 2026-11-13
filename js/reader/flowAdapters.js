@@ -23,6 +23,12 @@ const TextAdapter = (() => {
       this.formatLabel = 'Plain text';
     }
 
+    _mount() {
+      super._mount();
+      this.element?.classList.add('is-txt');
+      this.viewport?.classList.add('is-txt');
+    }
+
     async buildSections() {
       const bytes = await this.loadBytes();
       // Windows line endings are normalised first. A CRLF paragraph break is

@@ -323,8 +323,8 @@ const ThemeManager = (() => {
         '--reader-panel-segment-active-bg': mixHex(surfaceHex, '#FFFFFF', dark ? 0.16 : 0.65),
         '--reader-panel-segment-active-fg': textHex,
         '--reader-panel-dropdown-bg': rgbaFromHex(mixHex(surfaceHex, bgHex, 0.25), 0.96),
-        '--reader-panel-group-bg': rgbaFromHex(textHex, dark ? 0.045 : 0.035),
-        '--reader-panel-btn-bg': rgbaFromHex(textHex, dark ? 0.065 : 0.045),
+        '--reader-panel-group-bg': dark ? rgbaFromHex(textHex, 0.045) : 'var(--bg-surface)',
+        '--reader-panel-btn-bg': dark ? rgbaFromHex(textHex, 0.065) : 'var(--bg-elevated)',
         'accent-color': appAccent
       }
     };

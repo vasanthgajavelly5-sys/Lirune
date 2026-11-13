@@ -189,8 +189,10 @@ const DocumentAdapter = (() => {
 
       if (this.flow === 'paginated' && this.capabilities.paginate) {
         const width = this.viewport.clientWidth || 800;
-        const usable = Math.max(240, width - (width * marginPercent * 2) / 100);
-        this.element.style.setProperty('--doc-page-width', `${usable}px`);
+        const isSpread = (s.spread === 'auto' && width >= 1200);
+        const colWidth = isSpread ? Math.floor(width / 2) : width;
+        this.element.style.setProperty('--doc-column-step', `${colWidth}px`);
+        this.element.style.setProperty('--doc-page-width', `${colWidth}px`);
       }
     }
 
@@ -218,10 +220,13 @@ const DocumentAdapter = (() => {
     }
 
     _pageMetrics() {
-      if (!this.element || !this.viewport) return { width: 0, gap: 48, step: 48 };
+      if (!this.element || !this.viewport) return { width: 0, gap: 0, step: 0, colWidth: 0 };
       const width = this.viewport.clientWidth || 1;
-      const gap = parseFloat(getComputedStyle(this.element).getPropertyValue('--doc-page-gap')) || 48;
-      return { width, gap, step: width + gap };
+      const s = this.settings || {};
+      const isSpread = (s.spread === 'auto' && width >= 1200);
+      const colWidth = isSpread ? Math.floor(width / 2) : width;
+      const step = isSpread ? colWidth * 2 : width;
+      return { width, gap: 0, step, colWidth };
     }
 
     _contentSize() {
@@ -232,9 +237,10 @@ const DocumentAdapter = (() => {
 
     _maxPage() {
       if (this.flow !== 'paginated' || !this.capabilities.paginate) return 0;
-      // Derived from the real scroll range so a short document never reports
-      // pages it cannot actually show.
-      return Math.max(0, Math.round((this._scrollRange() + 1) / this._pageMetrics().step));
+      const { step } = this._pageMetrics();
+      if (step <= 0) return 0;
+      const range = this._scrollRange();
+      return Math.max(0, Math.ceil(range / step));
     }
 
     _scrollRange() {

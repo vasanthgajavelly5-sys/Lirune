@@ -123,7 +123,14 @@ const DocxAdapter = (() => {
       } else if (tag === 't') {
         html += escapeHtml(child.textContent || '');
       } else if (tag === 'br') {
-        html += '<br>';
+        const brType = getAttr(child, 'type');
+        if (brType === 'page') {
+          html += '<!--PAGE_BREAK-->';
+        } else {
+          html += '<br>';
+        }
+      } else if (tag === 'lastRenderedPageBreak') {
+        html += '<!--PAGE_BREAK-->';
       } else if (tag === 'tab') {
         html += '&emsp;';
       } else if (tag === 'drawing') {
@@ -253,6 +260,13 @@ const DocxAdapter = (() => {
       super(host, record);
       this.format = 'docx';
       this.formatLabel = 'Word document';
+      this.flow = 'scrolled';
+    }
+
+    _mount() {
+      super._mount();
+      this.element?.classList.add('is-word-document');
+      this.viewport?.classList.add('is-word-document');
     }
 
     async buildSections() {
@@ -279,26 +293,20 @@ const DocxAdapter = (() => {
 
       const { imageMap, linkMap } = await loadImageRelationships(zip);
 
-      const sections = [];
-      let currentSection = null;
-      let paragraphCount = 0;
-      const defaultTitle = this.record.title || 'Document';
+      const pages = [];
+      let currentPageHtml = '';
+      let currentPageChars = 0;
+      let pageNum = 1;
 
-      function pushCurrentSection() {
-        if (currentSection && currentSection.html.trim()) {
-          sections.push(currentSection);
-          currentSection = null;
-        }
-      }
-
-      function ensureCurrentSection(label = defaultTitle, depth = 0) {
-        if (!currentSection) {
-          currentSection = {
-            id: `sec-${sections.length + 1}`,
-            label,
-            depth: Math.max(0, depth),
-            html: ''
-          };
+      function startNewPage() {
+        if (currentPageHtml.trim()) {
+          pages.push({
+            num: pageNum,
+            html: `<article class="word-page-card" data-page-number="${pageNum}"><div class="word-page-content">${currentPageHtml}</div><div class="word-page-footer">Page ${pageNum}</div></article>`
+          });
+          pageNum++;
+          currentPageHtml = '';
+          currentPageChars = 0;
         }
       }
 
@@ -308,45 +316,58 @@ const DocxAdapter = (() => {
           const res = parseParagraph(node, imageMap, linkMap);
           if (!res.contentHtml && !res.plainText) continue;
 
+          let paraHtml = '';
           if (res.level > 0) {
-            pushCurrentSection();
-            const label = res.plainText || `Section ${sections.length + 1}`;
-            currentSection = {
-              id: `sec-${sections.length + 1}`,
-              label,
-              depth: res.level - 1,
-              html: `<h${res.level}>${res.contentHtml}</h${res.level}>`
-            };
-            paragraphCount = 0;
+            paraHtml = `<h${res.level}>${res.contentHtml}</h${res.level}>`;
+          } else if (res.isListItem) {
+            const indent = res.listLevel * 1.5 + 1.2;
+            paraHtml = `<p class="doc-list-item" style="padding-left:${indent}em;margin:0.35em 0;">• ${res.contentHtml}</p>`;
           } else {
-            ensureCurrentSection();
-            paragraphCount++;
-            if (paragraphCount > 75 && currentSection.html.length > 25000) {
-              pushCurrentSection();
-              ensureCurrentSection(`Part ${sections.length + 1}`, 0);
-              paragraphCount = 0;
+            const alignStyle = res.align ? ` style="text-align:${res.align};"` : '';
+            paraHtml = `<p${alignStyle}>${res.contentHtml}</p>`;
+          }
+
+          if (paraHtml.includes('<!--PAGE_BREAK-->')) {
+            const parts = paraHtml.split('<!--PAGE_BREAK-->');
+            for (let i = 0; i < parts.length; i++) {
+              if (parts[i]) {
+                currentPageHtml += parts[i];
+                currentPageChars += parts[i].length;
+              }
+              if (i < parts.length - 1) {
+                startNewPage();
+              }
             }
-            if (res.isListItem) {
-              const indent = res.listLevel * 1.5 + 1.2;
-              currentSection.html += `<p class="doc-list-item" style="padding-left:${indent}em;margin:0.35em 0;">• ${res.contentHtml}</p>`;
-            } else {
-              const alignStyle = res.align ? ` style="text-align:${res.align};"` : '';
-              currentSection.html += `<p${alignStyle}>${res.contentHtml}</p>`;
+          } else {
+            // Budget typical page height: ~2400 chars or when page gets full
+            if (currentPageChars > 2400) {
+              startNewPage();
             }
+            currentPageHtml += paraHtml;
+            currentPageChars += (res.plainText || '').length + 50;
           }
         } else if (tag === 'tbl') {
           const tblHtml = parseTable(node, imageMap, linkMap);
           if (tblHtml) {
-            ensureCurrentSection();
-            currentSection.html += tblHtml;
+            if (currentPageChars > 1600) {
+              startNewPage();
+            }
+            currentPageHtml += tblHtml;
+            currentPageChars += 800;
           }
         }
       }
 
-      pushCurrentSection();
+      startNewPage();
 
-      if (!sections.length) throw new Error('This Word document has no readable content.');
-      return sections;
+      if (!pages.length) throw new Error('This Word document has no readable content.');
+
+      return pages.map(p => ({
+        id: `page-${p.num}`,
+        label: `Page ${p.num}`,
+        depth: 0,
+        html: p.html
+      }));
     }
   }
 

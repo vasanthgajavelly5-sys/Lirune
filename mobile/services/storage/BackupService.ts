@@ -3,8 +3,7 @@
  * Exports the full library state (books metadata, settings, annotations) as JSON.
  * Does NOT export binary book files — only metadata and preferences.
  */
-import { getBookRepository } from '@/repositories';
-import { logger } from '@/utils/logger';
+import { logger } from '../../utils/logger.ts';
 
 const TAG = 'BackupService';
 const BACKUP_VERSION = 1;
@@ -22,8 +21,12 @@ export const BackupService = {
   /**
    * Collect all library data and return a JSON string ready to write to a file.
    */
-  async exportLibrary(): Promise<string> {
-    const repo = getBookRepository() as any;
+  async exportLibrary(customRepo?: any): Promise<string> {
+    let repo = customRepo;
+    if (!repo) {
+      const { getBookRepository } = await import('../../repositories/index.ts');
+      repo = getBookRepository();
+    }
     try {
       const [books, collections, annotations] = await Promise.all([
         repo.getBooks?.() ?? [],
@@ -59,7 +62,7 @@ export const BackupService = {
    * Parse a backup JSON string and restore data into the repository.
    * Returns a summary of what was restored.
    */
-  async importLibrary(json: string): Promise<{ books: number; annotations: number }> {
+  async importLibrary(json: string, customRepo?: any): Promise<{ books: number; annotations: number }> {
     let backup: LiruneBackup;
     try {
       backup = JSON.parse(json);
@@ -70,7 +73,12 @@ export const BackupService = {
       throw new Error(`Unsupported backup version: ${backup.version}`);
     }
 
-    const repo = getBookRepository() as any;
+    let repo = customRepo;
+    if (!repo) {
+      const { getBookRepository } = await import('../../repositories/index.ts');
+      repo = getBookRepository();
+    }
+
     let restoredBooks = 0;
     let restoredAnnotations = 0;
 

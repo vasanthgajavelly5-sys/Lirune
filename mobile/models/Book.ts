@@ -359,7 +359,13 @@ export type ReaderThemeName =
   | 'contrast1'
   | 'contrast2'
   | 'contrast3'
-  | 'contrast4';
+  | 'contrast4'
+  | 'nord'
+  | 'gruvbox'
+  | 'solarized'
+  | 'rosepine'
+  | 'dracula'
+  | 'mocha';
 
 export interface ReaderSettings {
   theme: ReaderThemeName;
@@ -415,7 +421,7 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
 };
 
 const VALID_THEMES = new Set([
-  'neutral', 'sepia', 'night', 'paper', 'contrast1', 'contrast2', 'contrast3', 'contrast4'
+  'neutral', 'sepia', 'night', 'paper', 'contrast1', 'contrast2', 'contrast3', 'contrast4', 'nord', 'gruvbox', 'solarized', 'rosepine', 'dracula', 'mocha'
 ]);
 const VALID_FLOWS = new Set(['paginated', 'scrolled']);
 const VALID_ALIGNMENTS = new Set(['left', 'center', 'right', 'justify']);

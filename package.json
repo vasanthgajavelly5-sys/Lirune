@@ -17,6 +17,7 @@
     "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e:smoke && npm run test:e2e:formats && npm run test:perf",
     "postinstall": "node node_modules/electron/install.js",
     "audit": "npm audit",
+    "audit:prod": "node scripts/audit-prod.js",
     "pack": "node -r ./scripts/builder-env-hook.js ./node_modules/electron-builder/cli.js --dir",
     "validate:corpus": "node scripts/validate-corpus.js",
     "dist": "node scripts/build-win.js",

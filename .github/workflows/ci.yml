@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   validate-desktop:
-    name: Desktop Validation (Node 20 / Windows)
+    name: Desktop Validation (Node 22 / Windows)
     runs-on: windows-latest
     timeout-minutes: 25
     if: github.ref_name != 'android'
@@ -27,7 +27,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Clean install dependencies

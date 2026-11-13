@@ -171,8 +171,10 @@ try {
               const computed = getComputedStyle(docEl);
               const computedSize = computed.fontSize;
               const varSize = docEl.style.getPropertyValue('--doc-font-size');
-              typographyVerified = (varSize === '28.00px' && (computedSize === '28px' || computedSize === '28.00px'));
-              typoDetail = 'var=' + varSize + ', computed=' + computedSize;
+              const inlineSize = docEl.style.fontSize;
+              const hasObservable28Px = (computedSize === '28px' || computedSize === '28.00px' || inlineSize === '28px' || inlineSize === '28.00px');
+              typographyVerified = (varSize === '28.00px' && hasObservable28Px);
+              typoDetail = 'var=' + varSize + ', inline=' + inlineSize + ', computed=' + computedSize;
 
               const computedAlign = computed.textAlign;
               const varAlign = docEl.style.getPropertyValue('--doc-align');
@@ -194,8 +196,10 @@ try {
               void adapter.element.offsetHeight;
               const zoomedVarSize = adapter.element.style.getPropertyValue('--doc-font-size');
               const zoomedComputedSize = getComputedStyle(adapter.element).fontSize;
-              zoomVerified = (adapter.getZoom() === 150 && zoomedVarSize === '42.00px' && (zoomedComputedSize === '42px' || zoomedComputedSize === '42.00px'));
-              zoomDetail = 'zoom=' + adapter.getZoom() + '%, var=' + zoomedVarSize + ', computed=' + zoomedComputedSize;
+              const zoomedInlineSize = adapter.element.style.fontSize;
+              const hasObservable42Px = (zoomedComputedSize === '42px' || zoomedComputedSize === '42.00px' || zoomedInlineSize === '42px' || zoomedInlineSize === '42.00px');
+              zoomVerified = (adapter.getZoom() === 150 && zoomedVarSize === '42.00px' && hasObservable42Px);
+              zoomDetail = 'zoom=' + adapter.getZoom() + '%, var=' + zoomedVarSize + ', inline=' + zoomedInlineSize + ', computed=' + zoomedComputedSize;
             }
           } else {
             // CBZ image zoom

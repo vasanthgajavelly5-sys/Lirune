@@ -5,7 +5,7 @@ set ELECTRON_NO_ASAR=
 title Lirune Reader - A calm home for your books
 cd /d "%~dp0"
 
-set "APP_VERSION=5.6.4"
+set "APP_VERSION=5.6.5"
 where node >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     for /f "delims=" %%v in ('node -p "require('./package.json').version" 2^>nul') do set "APP_VERSION=%%v"

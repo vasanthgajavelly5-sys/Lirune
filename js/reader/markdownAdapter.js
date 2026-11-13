@@ -13,6 +13,13 @@ const MarkdownAdapter = (() => {
       super(host, record);
       this.format = 'md';
       this.formatLabel = 'Markdown';
+      this.flow = 'scrolled';
+    }
+
+    _mount() {
+      super._mount();
+      this.element?.classList.add('is-page-document');
+      this.viewport?.classList.add('is-page-document');
     }
 
     async buildSections() {
@@ -73,21 +80,49 @@ const MarkdownAdapter = (() => {
     let currentSection = null;
     let sectionLines = [];
     let inCodeBlock = false;
+    let globalPageNum = 1;
 
     function commitSection() {
       if (!currentSection && sectionLines.length === 0) return;
-      const html = renderMarkdownToHtml(sectionLines.join('\n'));
-      if (!currentSection) {
-        sections.push({
-          id: 'sec-1',
-          label: defaultTitle,
-          depth: 0,
-          html
-        });
-      } else {
-        currentSection.html = html;
-        sections.push(currentSection);
+      const blocks = renderMarkdownBlocks(sectionLines.join('\n'));
+      if (!blocks.length) {
+        currentSection = null;
+        sectionLines = [];
+        return;
       }
+
+      // Chunk blocks into ~2400 char page cards
+      const CHARS_PER_PAGE = 2400;
+      let pageBlocks = [];
+      let pageChars = 0;
+      const label = currentSection?.label || (globalPageNum === 1 ? defaultTitle : `Page ${globalPageNum}`);
+      const depth = currentSection?.depth ?? 0;
+      let isFirstPageOfSection = true;
+
+      const flushCard = () => {
+        if (!pageBlocks.length) return;
+        const pageNum = globalPageNum++;
+        const cardHtml = `<article class="doc-page-card" data-page-number="${pageNum}"><div class="doc-page-content">${pageBlocks.join('\n')}</div><div class="doc-page-footer">Page ${pageNum}</div></article>`;
+        sections.push({
+          id: `page-${pageNum}`,
+          label: isFirstPageOfSection ? label : `${label} (p. ${pageNum})`,
+          depth: isFirstPageOfSection ? depth : Math.min(2, depth + 1),
+          html: cardHtml
+        });
+        isFirstPageOfSection = false;
+        pageBlocks = [];
+        pageChars = 0;
+      };
+
+      for (const block of blocks) {
+        if (pageChars + block.length > CHARS_PER_PAGE && pageChars > 0) {
+          flushCard();
+        }
+        pageBlocks.push(block);
+        pageChars += block.length;
+      }
+      flushCard();
+
       currentSection = null;
       sectionLines = [];
     }
@@ -125,10 +160,10 @@ const MarkdownAdapter = (() => {
     commitSection();
     if (!sections.length) {
       sections.push({
-        id: 'sec-1',
+        id: 'page-1',
         label: defaultTitle,
         depth: 0,
-        html: renderMarkdownToHtml(text)
+        html: `<article class="doc-page-card" data-page-number="1"><div class="doc-page-content">${renderMarkdownToHtml(text)}</div><div class="doc-page-footer">Page 1</div></article>`
       });
     }
 
@@ -136,6 +171,10 @@ const MarkdownAdapter = (() => {
   }
 
   function renderMarkdownToHtml(markdown) {
+    return renderMarkdownBlocks(markdown).join('\n');
+  }
+
+  function renderMarkdownBlocks(markdown) {
     const lines = markdown.split('\n');
     const out = [];
     let i = 0;
@@ -241,7 +280,7 @@ const MarkdownAdapter = (() => {
       }
     }
 
-    return out.join('\n');
+    return out;
   }
 
   function renderInlineMarkdown(text) {

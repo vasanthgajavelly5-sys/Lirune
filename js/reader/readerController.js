@@ -110,7 +110,7 @@ const Reader = (() => {
     showOnly(host);
 
     const settings = ReaderSettings.getSettings();
-    const isScrollByDefault = ['pdf', 'docx', 'doc'].includes(format.id);
+    const isScrollByDefault = ['pdf', 'docx', 'doc', 'txt', 'md', 'html', 'htm'].includes(format.id);
     if (isScrollByDefault && !bookRecord.flowOverride) {
       settings.flow = 'scrolled';
     }

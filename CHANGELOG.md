@@ -1,3 +1,18 @@
+## 5.6.5 - 2026-11-14
+
+### Fixed
+- Kindle & MOBI Decompression: Fixed PalmDOC LZ77 distance formula calculation and stripped trailing metadata records so books decompress cleanly without garbled text, mangled words, or misaligned columns.
+- Word Layout: Enforced `overflow: hidden` on `.word-page-card` and word-break on paragraph content to prevent unbroken separator lines from bleeding past page card margins.
+- HTML Reading: Preserved heading elements in chunks, rendered button and form controls inert without deleting their text, and added graceful SPA fallback notice.
+- Column Break Alignment: Enforced column breaking on multi-column document sections to eliminate horizontal page offsets and centered clipping.
+
+### Added
+- Authentic Paged Document Cards: Added `.doc-page-card` page sheets with margins, shadows, and `Page X` footers for Plain Text (`.txt`) and Markdown (`.md`) files.
+- Default Continuous Scroll Mode: Plain Text, Markdown, and HTML files now default to continuous vertical Scroll Mode matching Word and PDF documents.
+
+### Legal & Documentation
+- Refined TRADEMARK.md, README.md, and COPYRIGHT.md to align canonical project ownership, licensing (GPL-3.0-only), and Microsoft Store publisher identity.
+
 ## 5.6.4 - 2026-11-12
 
 ### Fixed

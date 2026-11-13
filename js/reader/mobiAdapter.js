@@ -79,6 +79,7 @@ const MobiAdapter = (() => {
     const textLength = rec0.getUint32(4);
     const textRecordCount = rec0.getUint16(8);
     const encryptionType = rec0.getUint16(12);
+    const extraFlags = rec0Length >= 0xF4 ? rec0.getUint16(0xF2) : 0;
 
     if (encryptionType !== 0) {
       throw new Error('This Kindle book is protected by Amazon DRM and cannot be opened.');
@@ -191,7 +192,13 @@ const MobiAdapter = (() => {
       const end = recordOffsets[r + 1];
       if (end <= start || end > bytes.length) continue;
 
-      const recBytes = bytes.subarray(start, end);
+      let recBytes = bytes.subarray(start, end);
+      if (extraFlags > 0) {
+        const trailingSize = getSizeOfTrailingDataEntries(recBytes, recBytes.length, extraFlags);
+        if (trailingSize > 0 && trailingSize <= recBytes.length) {
+          recBytes = recBytes.subarray(0, recBytes.length - trailingSize);
+        }
+      }
       if (compression === 1) {
         decompressedChunks.push(recBytes);
       } else if (compression === 2) {
@@ -242,6 +249,34 @@ const MobiAdapter = (() => {
     };
   }
 
+  function getSizeOfTrailingDataEntries(ptr, size, flags) {
+    function getSizeOfTrailingDataEntry(p, s) {
+      let bitpos = 0;
+      let result = 0;
+      if (s <= 0) return result;
+      while (true) {
+        const v = p[s - 1];
+        result |= (v & 0x7F) << bitpos;
+        bitpos += 7;
+        s -= 1;
+        if ((v & 0x80) !== 0 || bitpos >= 28 || s === 0) return result;
+      }
+    }
+
+    let num = 0;
+    let testflags = flags >> 1;
+    while (testflags) {
+      if (testflags & 1) {
+        num += getSizeOfTrailingDataEntry(ptr, size - num);
+      }
+      testflags >>= 1;
+    }
+    if (flags & 1) {
+      num += (ptr[size - num - 1] & 0x3) + 1;
+    }
+    return num;
+  }
+
   function decompressPalmDocLz77(input) {
     const out = [];
     let i = 0;
@@ -260,7 +295,7 @@ const MobiAdapter = (() => {
       } else if (b <= 0xBF) {
         if (i >= len) break;
         const b2 = input[i++];
-        const distance = (((b << 8) | b2) >> 3) & 0x07FF;
+        const distance = (((b & 0x3F) << 8) | b2) >> 3;
         const copyLen = (b2 & 0x07) + 3;
         const start = out.length - distance;
         for (let j = 0; j < copyLen; j++) {

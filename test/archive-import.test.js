@@ -12,7 +12,7 @@ const mockApp = {
   quit: () => {},
   getPath: (name) => path.join(os.tmpdir(), 'lirune-archive-test', name),
   whenReady: () => new Promise(() => {}),
-  getVersion: () => '5.6.4'
+  getVersion: () => '5.6.5'
 };
 
 require.cache[require.resolve('electron')] = {

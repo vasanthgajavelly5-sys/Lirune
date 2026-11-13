@@ -21,12 +21,13 @@ const TextAdapter = (() => {
       super(host, record);
       this.format = 'txt';
       this.formatLabel = 'Plain text';
+      this.flow = 'scrolled';
     }
 
     _mount() {
       super._mount();
-      this.element?.classList.add('is-txt');
-      this.viewport?.classList.add('is-txt');
+      this.element?.classList.add('is-txt', 'is-page-document');
+      this.viewport?.classList.add('is-txt', 'is-page-document');
     }
 
     async buildSections() {
@@ -53,10 +54,44 @@ const TextAdapter = (() => {
         }
       }
 
-      const html = blocks
-        .map(block => `<p>${Utils.escapeHTML(block).replace(/\n/g, '<br>')}</p>`)
-        .join('');
-      return [{ id: 'text', label: this.record.title || 'Document', depth: 0, html }];
+      const CHARS_PER_PAGE = 2400;
+      const pages = [];
+      let currentPageHtml = '';
+      let currentPageChars = 0;
+      let pageNum = 1;
+
+      const flushPage = () => {
+        if (!currentPageHtml.trim()) return;
+        pages.push({
+          num: pageNum,
+          html: `<article class="doc-page-card" data-page-number="${pageNum}"><div class="doc-page-content is-txt">${currentPageHtml}</div><div class="doc-page-footer">Page ${pageNum}</div></article>`
+        });
+        pageNum++;
+        currentPageHtml = '';
+        currentPageChars = 0;
+      };
+
+      for (const block of blocks) {
+        const subBlocks = block.length > CHARS_PER_PAGE ? block.split(/\n/) : [block];
+        for (const sub of subBlocks) {
+          const paraHtml = `<p>${Utils.escapeHTML(sub).replace(/\n/g, '<br>')}</p>`;
+          if (currentPageChars + sub.length > CHARS_PER_PAGE && currentPageChars > 0) {
+            flushPage();
+          }
+          currentPageHtml += paraHtml;
+          currentPageChars += sub.length;
+        }
+      }
+      flushPage();
+
+      if (!pages.length) throw new Error('This text file has no readable content.');
+
+      return pages.map(p => ({
+        id: `page-${p.num}`,
+        label: p.num === 1 && this.record.title ? this.record.title : `Page ${p.num}`,
+        depth: 0,
+        html: p.html
+      }));
     }
 
     async loadBytes() {
@@ -83,13 +118,14 @@ const TextAdapter = (() => {
 })();
 
 const HtmlAdapter = (() => {
-  const BLOCKED_TAGS = new Set(['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'APPLET', 'FRAME', 'FRAMESET', 'BASE', 'FORM', 'INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'LINK', 'META', 'NOSCRIPT', 'TEMPLATE']);
+  const SCRIPT_TAGS = new Set(['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'APPLET', 'FRAME', 'FRAMESET', 'BASE', 'TEMPLATE']);
 
   class Adapter extends DocumentAdapter.Adapter {
     constructor(host, record) {
       super(host, record);
       this.format = 'html';
       this.formatLabel = 'HTML document';
+      this.flow = 'scrolled';
     }
 
     async buildSections() {
@@ -100,11 +136,27 @@ const HtmlAdapter = (() => {
 
       const title = parsed.querySelector('title')?.textContent?.trim() || this.record.title || 'HTML document';
       const body = parsed.body;
-      if (!body || !body.textContent.trim()) throw new Error('This HTML file has no readable content.');
+      const metaDesc = parsed.querySelector('meta[name="description"]')?.getAttribute('content')?.trim() || '';
+
+      if (!body || (!body.textContent.trim() && !body.querySelector('img, svg, canvas'))) {
+        // If the webpage was saved as a client-side SPA (like Microsoft Store or Twitter)
+        return [{
+          id: 'sec-1',
+          label: title,
+          depth: 0,
+          html: `<div class="doc-spa-notice" style="padding: 40px 24px; text-align: center; max-width: 600px; margin: 40px auto; font-family: var(--font-sans, system-ui, sans-serif);">
+            <h2 style="font-size: 1.5rem; margin-bottom: 1rem; color: var(--color-text-primary, currentColor);">${Utils.escapeHTML(title)}</h2>
+            ${metaDesc ? `<p style="color: var(--color-text-secondary, #666); margin-bottom: 1.5rem; line-height: 1.6;">${Utils.escapeHTML(metaDesc)}</p>` : ''}
+            <div style="background: rgba(0, 0, 0, 0.04); border-radius: 8px; padding: 20px; font-size: 0.95rem; color: var(--color-text-secondary, #555); line-height: 1.6;">
+              This web page was saved as dynamic client-side HTML (Single Page Application). Its readable content is rendered dynamically by external JavaScript scripts which cannot be executed in this reader.
+            </div>
+          </div>`
+        }];
+      }
 
       // Split on the document's own top-level headings so navigation mirrors
       // the source file rather than an invented chapter list.
-      const blocks = [...body.children].filter(node => !BLOCKED_TAGS.has(node.tagName));
+      const blocks = [...body.children];
       const sections = [];
       let current = null;
       const push = (label) => {
@@ -120,6 +172,7 @@ const HtmlAdapter = (() => {
         if (heading === node) {
           push(node.textContent.trim() || `Section ${autoIndex++}`);
           current.depth = Math.min(2, Number(node.tagName.slice(1)) - 1);
+          current.chunks.push(node.outerHTML);
           continue;
         }
         if (!current) push(title);
@@ -130,7 +183,15 @@ const HtmlAdapter = (() => {
         current.chunks.push(node.outerHTML);
       }
       if (!current) push(title);
-      return sections.map(section => ({ ...section, html: section.chunks.join('\n') }));
+
+      const mapped = sections
+        .filter(s => s.chunks && s.chunks.length > 0)
+        .map(section => ({ ...section, html: section.chunks.join('\n') }));
+
+      if (!mapped.length) {
+        return [{ id: 'sec-1', label: title, depth: 0, html: body.innerHTML }];
+      }
+      return mapped;
     }
 
     _sanitize(parsed) {
@@ -138,11 +199,33 @@ const HtmlAdapter = (() => {
         while (node.firstChild) node.removeChild(node.firstChild);
         node.remove?.();
       };
+
+      // 1. Unwrap NOSCRIPT so readable fallback content is preserved
+      parsed.querySelectorAll('noscript').forEach(ns => {
+        const span = parsed.createElement('span');
+        span.textContent = ns.textContent || '';
+        ns.replaceWith(span);
+      });
+
+      // 2. Remove executable/dangerous script and embedded tags
       parsed.querySelectorAll('*').forEach(node => {
-        if (BLOCKED_TAGS.has(node.tagName)) {
+        const tag = node.tagName.toUpperCase();
+        if (SCRIPT_TAGS.has(tag)) {
           kill(node);
           return;
         }
+
+        // 3. Make interactive form controls inert without destroying their text
+        if (tag === 'BUTTON') {
+          node.setAttribute('disabled', 'true');
+          node.setAttribute('type', 'button');
+          node.style.pointerEvents = 'none';
+        } else if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+          node.setAttribute('disabled', 'true');
+          node.style.pointerEvents = 'none';
+        }
+
+        // 4. Clean attributes
         [...node.attributes].forEach(attr => {
           const name = attr.name.toLowerCase();
           const value = attr.value || '';
@@ -154,6 +237,7 @@ const HtmlAdapter = (() => {
             node.removeAttribute(attr.name);
           }
         });
+
         if (node.tagName === 'A') {
           node.removeAttribute('target');
           node.addEventListener?.('click', event => event.preventDefault());

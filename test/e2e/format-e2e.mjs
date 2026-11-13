@@ -167,10 +167,11 @@ try {
               adapter._applyTypography();
 
               const docEl = adapter.element;
+              void docEl.offsetHeight;
               const computed = getComputedStyle(docEl);
               const computedSize = computed.fontSize;
               const varSize = docEl.style.getPropertyValue('--doc-font-size');
-              typographyVerified = (varSize === '28.00px' && computedSize === '28px');
+              typographyVerified = (varSize === '28.00px' && (computedSize === '28px' || computedSize === '28.00px'));
               typoDetail = 'var=' + varSize + ', computed=' + computedSize;
 
               const computedAlign = computed.textAlign;
@@ -190,9 +191,10 @@ try {
             } else {
               // At fontSize=28 and zoom=150, font size should scale to 28 * 1.5 = 42.00px
               adapter.setZoom(150);
+              void adapter.element.offsetHeight;
               const zoomedVarSize = adapter.element.style.getPropertyValue('--doc-font-size');
               const zoomedComputedSize = getComputedStyle(adapter.element).fontSize;
-              zoomVerified = (adapter.getZoom() === 150 && zoomedVarSize === '42.00px' && zoomedComputedSize === '42px');
+              zoomVerified = (adapter.getZoom() === 150 && zoomedVarSize === '42.00px' && (zoomedComputedSize === '42px' || zoomedComputedSize === '42.00px'));
               zoomDetail = 'zoom=' + adapter.getZoom() + '%, var=' + zoomedVarSize + ', computed=' + zoomedComputedSize;
             }
           } else {

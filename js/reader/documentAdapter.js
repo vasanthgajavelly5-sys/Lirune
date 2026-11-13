@@ -170,13 +170,20 @@ const DocumentAdapter = (() => {
       const alignment = s.alignment || 'left';
       const pageGap = 48 * scale;
 
-      this.element.style.setProperty('--doc-font-size', `${(baseSize * scale).toFixed(2)}px`);
+      const fontSizePx = `${(baseSize * scale).toFixed(2)}px`;
+      const textAlignVal = alignment === 'auto' ? 'start' : alignment;
+
+      this.element.style.fontSize = fontSizePx;
+      this.element.style.textAlign = textAlignVal;
+      this.element.style.lineHeight = String(lineHeight);
+
+      this.element.style.setProperty('--doc-font-size', fontSizePx);
       this.element.style.setProperty('--doc-font-family', fontFamily);
       this.element.style.setProperty('--doc-line-height', String(lineHeight));
       this.element.style.setProperty('--doc-para-spacing', `${paraSpacing}em`);
       this.element.style.setProperty('--doc-word-spacing', `${wordSpacing}em`);
       this.element.style.setProperty('--doc-letter-spacing', `${letterSpacing}em`);
-      this.element.style.setProperty('--doc-align', alignment === 'auto' ? 'start' : alignment);
+      this.element.style.setProperty('--doc-align', textAlignVal);
       this.element.style.setProperty('--doc-margin', `${marginPercent}%`);
       this.element.style.setProperty('--doc-page-gap', `${pageGap}px`);
 

@@ -152,8 +152,16 @@ const ChmAdapter = (() => {
       if (headings.length > 1) {
         const parts = parsed.html.split(/(?=<h[1-3][^>]*>)/i).filter(Boolean);
         return parts.map((part, idx) => {
-          const hMatch = part.match(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i);
-          const rawLabel = hMatch ? hMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+          let rawLabel = '';
+          if (hMatch) {
+            let text = hMatch[1];
+            let prev;
+            do {
+              prev = text;
+              text = text.replace(/<[^>]+>/g, '');
+            } while (text !== prev);
+            rawLabel = text.trim();
+          }
           return {
             id: `sec-${idx + 1}`,
             label: rawLabel || `Topic ${idx + 1}`,

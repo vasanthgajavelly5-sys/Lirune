@@ -8,6 +8,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -196,10 +197,19 @@ const KEY_INFO = {
 };
 
 export async function launch({ freshUserData = false, extraArgs = [] } = {}) {
-  const userDataDir = process.env.LIRUNE_USER_DATA
-    || path.join(ROOT, '.qa-userdata');
-  if (freshUserData && fs.existsSync(userDataDir)) {
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+  let userDataDir = process.env.LIRUNE_USER_DATA;
+  let tempUserDataDir = null;
+
+  if (freshUserData) {
+    // Isolate this test run in its own unique temporary profile.
+    // NEVER delete or mutate .qa-userdata or a user-specified LIRUNE_USER_DATA directory.
+    tempUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-qa-profile-'));
+    userDataDir = tempUserDataDir;
+  } else if (!userDataDir) {
+    userDataDir = path.join(ROOT, '.qa-userdata');
+    if (!fs.existsSync(userDataDir)) {
+      fs.mkdirSync(userDataDir, { recursive: true });
+    }
   }
   const isPackaged = Boolean(process.env.LIRUNE_BIN);
   const electron = process.env.LIRUNE_BIN
@@ -218,9 +228,32 @@ export async function launch({ freshUserData = false, extraArgs = [] } = {}) {
   child.stdout.on('data', d => { stdout += d.toString(); });
   child.stderr.on('data', d => { stdout += d.toString(); });
 
-  const targets = await fetchJson(`http://127.0.0.1:${PORT}/json/list`);
-  const page = targets.find(t => t.type === 'page' && t.url.includes('index.html')) || targets.find(t => t.type === 'page');
-  if (!page) throw new Error('No page target found');
+  let earlyExit = null;
+  const onExit = (code, signal) => {
+    earlyExit = { code, signal };
+  };
+  child.once('exit', onExit);
+
+  let page = null;
+  for (let i = 0; i < 40; i++) {
+    if (earlyExit) {
+      throw new Error(`Electron exited prematurely before CDP connection (code=${earlyExit.code}, signal=${earlyExit.signal}). Diagnostics output:\n${stdout.slice(-2000)}`);
+    }
+    try {
+      const targets = await fetchJson(`http://127.0.0.1:${PORT}/json/list`, 5);
+      page = targets.find(t => t.type === 'page' && t.url && t.url.includes('index.html'));
+      if (page) break;
+    } catch {}
+    await sleep(300);
+  }
+  child.removeListener('exit', onExit);
+
+  if (!page && earlyExit) {
+    throw new Error(`Electron terminated during launch (code=${earlyExit.code}). Diagnostics output:\n${stdout.slice(-2000)}`);
+  }
+  if (!page) {
+    throw new Error(`CDP connection failed: No page target found on port ${PORT}. Running: ${!child.killed}. Diagnostics output:\n${stdout.slice(-2000)}`);
+  }
 
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
@@ -232,6 +265,7 @@ export async function launch({ freshUserData = false, extraArgs = [] } = {}) {
   await cdp.send('Page.enable');
   await cdp.send('Log.enable');
   cdp.child = child;
+  cdp.tempUserDataDir = tempUserDataDir;
   cdp.output = () => stdout;
 
   try {
@@ -245,8 +279,7 @@ export async function launch({ freshUserData = false, extraArgs = [] } = {}) {
 
 export async function shutdown(cdp) {
   try {
-    await cdp.eval(`window.closeAllWindows && window.closeAllWindows(); return true;`).catch(() => {});
-    await cdp.send('Browser.close').catch(() => {});
+    cdp.send('Browser.close', {}, 1000).catch(() => {});
   } catch {
     /* ignore */
   }
@@ -270,8 +303,17 @@ export async function shutdown(cdp) {
       }
     } else {
       cdp.child.kill();
-      await sleep(600);
+      await sleep(300);
       if (!cdp.child.killed) cdp.child.kill('SIGKILL');
+    }
+  }
+
+  // Clean up isolated temporary profile created for this test run
+  if (cdp.tempUserDataDir && fs.existsSync(cdp.tempUserDataDir)) {
+    try {
+      fs.rmSync(cdp.tempUserDataDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
     }
   }
 }

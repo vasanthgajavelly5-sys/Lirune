@@ -54,6 +54,7 @@ function loadThemeManagerHarness() {
   const documentElement = makeElementMock('html');
   const store = new Map();
   const prefs = new Map();
+  const listeners = new Map();
 
   const context = {
     window: {
@@ -83,15 +84,34 @@ function loadThemeManagerHarness() {
       getElementById(id) { return elements.get(id) || null; },
       querySelectorAll() { return []; },
       querySelector() { return null; },
-      addEventListener() {}
+      addEventListener(type, listener) { listeners.set(type, listener); }
     },
     setTimeout,
     clearTimeout
   };
   vm.createContext(context);
   const ThemeManager = vm.runInContext(`${code}\nThemeManager;`, context);
-  return { ThemeManager, elements, body, documentElement, prefs };
+  return { ThemeManager, elements, body, documentElement, prefs, listeners };
 }
+
+test('custom app accent is applied to reader panels and updates live', async () => {
+  const { ThemeManager, elements, body, documentElement, prefs, listeners } = loadThemeManagerHarness();
+  prefs.set('accentColor', '#919325');
+  await ThemeManager.init();
+  body.classList.add('reader-open');
+  ThemeManager.setReaderTheme('sepia', false);
+
+  const panel = elements.get('settings-panel');
+  assert.equal(panel.style.getPropertyValue('--accent'), '#919325');
+  assert.equal(panel.style.getPropertyValue('--reader-panel-switch-active-bg'), '#919325');
+  assert.equal(panel.style.getPropertyValue('--bg-surface'), '#FAF3E4');
+
+  listeners.get('input')({ target: { id: 'app-accent-color', value: '#E57373', closest: () => null } });
+  assert.equal(documentElement.style.getPropertyValue('--accent'), '#E57373');
+  assert.equal(panel.style.getPropertyValue('--accent'), '#E57373');
+  assert.equal(panel.style.getPropertyValue('--reader-panel-switch-active-bg'), '#E57373');
+  assert.equal(panel.style.getPropertyValue('--bg-surface'), '#FAF3E4');
+});
 
 test('Reader panels stay un-overridden in Library view and follow reader theme in Reader view', async () => {
   const { ThemeManager, elements, body, documentElement } = loadThemeManagerHarness();

@@ -213,3 +213,8 @@ const BookFormat = (() => {
     IMAGE_EXT
   };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = BookFormat;
+}
+

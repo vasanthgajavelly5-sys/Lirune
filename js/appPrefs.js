@@ -156,6 +156,7 @@ const AppPrefs = (() => {
         ('dyslexicFont' in patch || 'underlineLinks' in patch || 'autoHyphenation' in patch || 'smoothScroll' in patch)) {
       Reader.applySettings();
     }
+    if ('windowTitleProgress' in patch && typeof Reader !== 'undefined') Reader.updateProgressUI?.();
     clearTimeout(persistTimer);
     persistTimer = setTimeout(() => NoveraDB.setPref('appPrefs', { ...current }), 200);
     return getAll();

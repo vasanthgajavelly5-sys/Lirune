@@ -1,6 +1,7 @@
 @echo off
 setlocal
-set "ELECTRON_RUN_AS_NODE="
+set ELECTRON_RUN_AS_NODE=
+set ELECTRON_NO_ASAR=
 title Lirune Reader - A calm home for your books
 cd /d "%~dp0"
 
@@ -12,6 +13,7 @@ if %ERRORLEVEL% equ 0 (
 
 echo ========================================================
 echo Launching Lirune Reader v%APP_VERSION% (Desktop)...
+echo Fix: Instant settings apply, no flicker, column spread phase-lock (Auto 2-up / Single 1-up)
 echo ========================================================
 
 REM 1. Verify Node.js environment
@@ -47,25 +49,32 @@ if /i "%~1"=="--clean" (
 
 REM 4. Launch packaged binary if --packaged is passed, otherwise live workspace
 if /i "%~1"=="--packaged" (
-    if not exist "dist\win-unpacked\Lirune Reader.exe" (
+    if not exist "%~dp0dist\win-unpacked\Lirune Reader.exe" (
         echo [ERROR] Packaged build not found at dist\win-unpacked\Lirune Reader.exe
-        echo Run npm run pack or npm run dist:store first.
+        echo Run npm run pack first.
         pause
         exit /b 1
     )
     echo Starting packaged Lirune Reader v%APP_VERSION%...
-    "dist\win-unpacked\Lirune Reader.exe" %EXTRA_FLAGS%
+    "%~dp0dist\win-unpacked\Lirune Reader.exe" %EXTRA_FLAGS%
+    if %ERRORLEVEL% neq 0 (
+        echo [ERROR] Packaged application exited with code %ERRORLEVEL%.
+        pause
+    )
     goto :done
 )
 
 echo Starting Lirune Reader v%APP_VERSION% desktop client from live workspace...
-if exist "node_modules\.bin\electron.cmd" (
-    call "node_modules\.bin\electron.cmd" . %EXTRA_FLAGS% %*
+if exist "%~dp0node_modules\electron\dist\electron.exe" (
+    "%~dp0node_modules\electron\dist\electron.exe" "%~dp0." %EXTRA_FLAGS% %*
+) else if exist "%~dp0node_modules\.bin\electron.cmd" (
+    call "%~dp0node_modules\.bin\electron.cmd" . %EXTRA_FLAGS% %*
 ) else (
     call npx electron . %EXTRA_FLAGS% %*
 )
 if %ERRORLEVEL% neq 0 (
-    echo [WARN] Electron process exited with code %ERRORLEVEL%.
+    echo [ERROR] Electron exited with code %ERRORLEVEL%.
+    pause
 )
 
 :done

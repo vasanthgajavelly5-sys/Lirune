@@ -9,12 +9,93 @@ const ReaderSettings = (() => {
     alignment: 'left',
     lineHeight: 1.6,
     paragraphSpacing: 1.0,
+    wordSpacing: 0.0,
+    letterSpacing: 0.0,
     margin: 10,
     flow: 'paginated',
-    spread: 'auto'
+    spread: 'auto',
+    progressShowChapter: true,
+    progressShowPage: true,
+    progressShowPercent: true,
+    perBookOverride: false
   };
 
+  const BUILTIN_PROFILES = [
+    {
+      id: 'default',
+      name: 'Default (Classic)',
+      theme: 'neutral',
+      settings: {
+        fontSize: 18,
+        fontFamily: 'Cormorant Garamond',
+        alignment: 'left',
+        lineHeight: 1.6,
+        paragraphSpacing: 1.0,
+        wordSpacing: 0.0,
+        letterSpacing: 0.0,
+        margin: 10,
+        flow: 'paginated',
+        spread: 'auto'
+      }
+    },
+    {
+      id: 'compact',
+      name: 'Compact Reading',
+      theme: 'paper',
+      settings: {
+        fontSize: 15,
+        fontFamily: 'Inter',
+        alignment: 'justify',
+        lineHeight: 1.4,
+        paragraphSpacing: 0.6,
+        wordSpacing: -0.05,
+        letterSpacing: 0.0,
+        margin: 6,
+        flow: 'paginated',
+        spread: 'auto'
+      }
+    },
+    {
+      id: 'night',
+      name: 'Night Focus',
+      theme: 'night',
+      settings: {
+        fontSize: 19,
+        fontFamily: 'Literata',
+        alignment: 'left',
+        lineHeight: 1.8,
+        paragraphSpacing: 1.2,
+        wordSpacing: 0.0,
+        letterSpacing: 0.02,
+        margin: 12,
+        flow: 'paginated',
+        spread: 'auto'
+      }
+    },
+    {
+      id: 'legibility',
+      name: 'High Legibility',
+      theme: 'contrast1',
+      settings: {
+        fontSize: 20,
+        fontFamily: 'OpenDyslexic',
+        alignment: 'left',
+        lineHeight: 2.0,
+        paragraphSpacing: 1.4,
+        wordSpacing: 0.1,
+        letterSpacing: 0.04,
+        margin: 14,
+        flow: 'paginated',
+        spread: 'auto'
+      }
+    }
+  ];
+
   let currentSettings = { ...DEFAULT_SETTINGS };
+  let customProfiles = [];
+  let activeProfileId = 'default';
+  let currentBookId = null;
+  let globalSavedSettings = null;
   let persistTimer = null;
 
   const READER_FONTS = [
@@ -168,24 +249,232 @@ const ReaderSettings = (() => {
     ];
     merged.fontSize = Math.min(36, Math.max(12, Number(merged.fontSize) || DEFAULT_SETTINGS.fontSize));
     merged.fontFamily = allowedFonts.includes(merged.fontFamily) ? merged.fontFamily : DEFAULT_SETTINGS.fontFamily;
-    merged.alignment = ['left', 'center', 'right', 'justify'].includes(merged.alignment) ? merged.alignment : DEFAULT_SETTINGS.alignment;
+    merged.alignment = ['auto', 'left', 'center', 'right', 'justify'].includes(merged.alignment) ? merged.alignment : DEFAULT_SETTINGS.alignment;
     merged.lineHeight = Math.min(2.4, Math.max(1.2, Number(merged.lineHeight) || DEFAULT_SETTINGS.lineHeight));
     merged.paragraphSpacing = Math.min(3.0, Math.max(0, Number(merged.paragraphSpacing) !== undefined && !isNaN(Number(merged.paragraphSpacing)) ? Number(merged.paragraphSpacing) : DEFAULT_SETTINGS.paragraphSpacing));
+    merged.wordSpacing = Math.min(0.5, Math.max(-0.1, Number(merged.wordSpacing) !== undefined && !isNaN(Number(merged.wordSpacing)) ? Number(merged.wordSpacing) : DEFAULT_SETTINGS.wordSpacing));
+    merged.letterSpacing = Math.min(0.3, Math.max(-0.05, Number(merged.letterSpacing) !== undefined && !isNaN(Number(merged.letterSpacing)) ? Number(merged.letterSpacing) : DEFAULT_SETTINGS.letterSpacing));
     merged.margin = Math.min(24, Math.max(2, Number(merged.margin) || DEFAULT_SETTINGS.margin));
     merged.flow = ['paginated', 'scrolled'].includes(merged.flow) ? merged.flow : DEFAULT_SETTINGS.flow;
     merged.spread = ['auto', 'none'].includes(merged.spread) ? merged.spread : DEFAULT_SETTINGS.spread;
+    merged.progressShowChapter = Boolean(merged.progressShowChapter !== false);
+    merged.progressShowPage = Boolean(merged.progressShowPage !== false);
+    merged.progressShowPercent = Boolean(merged.progressShowPercent !== false);
+    merged.perBookOverride = Boolean(merged.perBookOverride === true);
     return merged;
   }
 
   async function init() {
     const saved = await NoveraDB.getPref('readerSettings', DEFAULT_SETTINGS);
     currentSettings = normalizeSettings(saved);
+    customProfiles = await NoveraDB.getPref('customReadingProfiles', []);
+    activeProfileId = await NoveraDB.getPref('activeReadingProfileId', 'default');
     updateUI();
     bindEvents();
   }
 
   function getSettings() {
     return { ...currentSettings };
+  }
+
+  function getProfiles() {
+    return [...BUILTIN_PROFILES, ...customProfiles];
+  }
+
+  function getActiveProfileId() {
+    return activeProfileId;
+  }
+
+  async function applyProfile(profileId) {
+    const profiles = getProfiles();
+    const p = profiles.find(item => item.id === profileId);
+    if (!p) return false;
+    activeProfileId = profileId;
+    await NoveraDB.setPref('activeReadingProfileId', profileId);
+
+    // Merge settings
+    currentSettings = normalizeSettings({ ...currentSettings, ...p.settings });
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(async () => {
+      if (currentSettings.perBookOverride && currentBookId) {
+        const overrideKey = `perBookSettings_${currentBookId}`;
+        const theme = typeof ThemeManager !== 'undefined' ? ThemeManager.getReaderTheme() : 'neutral';
+        await NoveraDB.setPref(overrideKey, {
+          enabled: true,
+          settings: currentSettings,
+          theme
+        });
+      } else {
+        await NoveraDB.setPref('readerSettings', currentSettings);
+      }
+    }, 100);
+
+    // Apply theme if specified
+    if (p.theme && typeof ThemeManager !== 'undefined') {
+      ThemeManager.setReaderTheme(p.theme);
+    }
+
+    updateUI();
+    if (typeof Reader !== 'undefined') {
+      Reader.applySettings(getSettings());
+      if (p.settings.flow || p.settings.spread) Reader.reRender?.();
+    }
+    if (typeof SettingsUI !== 'undefined') {
+      SettingsUI.syncQuickControls?.();
+      SettingsUI.syncFullControls?.();
+    }
+    if (typeof Utils !== 'undefined' && Utils.toast) {
+      Utils.toast(`Applied reading profile: ${p.name}`, 'success');
+    }
+    return true;
+  }
+
+  async function saveProfile(name) {
+    if (!name || !name.trim()) return null;
+    const cleanName = name.trim();
+    const id = 'custom_' + Date.now();
+    const theme = typeof ThemeManager !== 'undefined' ? ThemeManager.getReaderTheme() : 'neutral';
+    const profile = {
+      id,
+      name: cleanName,
+      theme,
+      isCustom: true,
+      settings: {
+        fontSize: currentSettings.fontSize,
+        fontFamily: currentSettings.fontFamily,
+        alignment: currentSettings.alignment,
+        lineHeight: currentSettings.lineHeight,
+        paragraphSpacing: currentSettings.paragraphSpacing,
+        wordSpacing: currentSettings.wordSpacing,
+        letterSpacing: currentSettings.letterSpacing,
+        margin: currentSettings.margin,
+        flow: currentSettings.flow,
+        spread: currentSettings.spread
+      }
+    };
+    customProfiles.push(profile);
+    await NoveraDB.setPref('customReadingProfiles', customProfiles);
+    activeProfileId = id;
+    await NoveraDB.setPref('activeReadingProfileId', id);
+    updateUI();
+    if (typeof SettingsUI !== 'undefined') {
+      SettingsUI.refresh?.();
+    }
+    if (typeof Utils !== 'undefined' && Utils.toast) {
+      Utils.toast(`Saved profile: ${cleanName}`, 'success');
+    }
+    return profile;
+  }
+
+  async function deleteProfile(id) {
+    const idx = customProfiles.findIndex(p => p.id === id);
+    if (idx === -1) return false;
+    const deletedName = customProfiles[idx].name;
+    customProfiles.splice(idx, 1);
+    await NoveraDB.setPref('customReadingProfiles', customProfiles);
+    if (activeProfileId === id) {
+      await applyProfile('default');
+    } else {
+      updateUI();
+      if (typeof SettingsUI !== 'undefined') SettingsUI.refresh?.();
+    }
+    if (typeof Utils !== 'undefined' && Utils.toast) {
+      Utils.toast(`Deleted profile: ${deletedName}`, 'info');
+    }
+    return true;
+  }
+
+  async function loadBookSettings(bookId) {
+    if (!bookId) return;
+    currentBookId = bookId;
+    const overrideKey = `perBookSettings_${bookId}`;
+    const override = await NoveraDB.getPref(overrideKey, null);
+    if (override && override.enabled && override.settings) {
+      if (!globalSavedSettings) {
+        const globalSaved = await NoveraDB.getPref('readerSettings', null);
+        globalSavedSettings = globalSaved ? normalizeSettings(globalSaved) : { ...currentSettings, perBookOverride: false };
+      }
+      currentSettings = normalizeSettings({ ...override.settings, perBookOverride: true });
+      if (override.theme && typeof ThemeManager !== 'undefined') {
+        ThemeManager.setReaderTheme(override.theme);
+      }
+    } else {
+      if (globalSavedSettings) {
+        currentSettings = normalizeSettings({ ...globalSavedSettings, perBookOverride: false });
+      } else {
+        const globalSaved = await NoveraDB.getPref('readerSettings', null);
+        if (globalSaved) {
+          currentSettings = normalizeSettings({ ...globalSaved, perBookOverride: false });
+        } else {
+          currentSettings.perBookOverride = false;
+        }
+      }
+    }
+    updateUI();
+    if (typeof SettingsUI !== 'undefined') {
+      SettingsUI.syncQuickControls?.();
+      SettingsUI.syncFullControls?.();
+    }
+  }
+
+  async function unloadBookSettings() {
+    clearTimeout(persistTimer);
+    if (currentSettings.perBookOverride || globalSavedSettings) {
+      if (!globalSavedSettings) {
+        const globalSaved = await NoveraDB.getPref('readerSettings', null);
+        globalSavedSettings = globalSaved ? normalizeSettings(globalSaved) : null;
+      }
+      if (globalSavedSettings) {
+        currentSettings = normalizeSettings({ ...globalSavedSettings, perBookOverride: false });
+      } else {
+        currentSettings = normalizeSettings({ ...DEFAULT_SETTINGS, perBookOverride: false });
+      }
+      globalSavedSettings = null;
+      updateUI();
+    }
+    currentBookId = null;
+  }
+
+  async function setPerBookOverride(enabled) {
+    currentSettings.perBookOverride = Boolean(enabled);
+    if (!currentBookId) {
+      updateUI();
+      return;
+    }
+    const overrideKey = `perBookSettings_${currentBookId}`;
+    if (enabled) {
+      if (!globalSavedSettings) {
+        const globalSaved = await NoveraDB.getPref('readerSettings', null);
+        globalSavedSettings = globalSaved ? normalizeSettings(globalSaved) : { ...currentSettings, perBookOverride: false };
+      }
+      const theme = typeof ThemeManager !== 'undefined' ? ThemeManager.getReaderTheme() : 'neutral';
+      await NoveraDB.setPref(overrideKey, {
+        enabled: true,
+        settings: { ...currentSettings, perBookOverride: true },
+        theme
+      });
+      if (typeof Utils !== 'undefined' && Utils.toast) {
+        Utils.toast('Saved custom settings for this book', 'success');
+      }
+    } else {
+      await NoveraDB.setPref(overrideKey, null);
+      if (!globalSavedSettings) {
+        const globalSaved = await NoveraDB.getPref('readerSettings', null);
+        globalSavedSettings = globalSaved ? normalizeSettings(globalSaved) : null;
+      }
+      if (globalSavedSettings) {
+        currentSettings = normalizeSettings({ ...globalSavedSettings, perBookOverride: false });
+        if (typeof Reader !== 'undefined') Reader.applySettings(getSettings());
+      }
+      if (typeof Utils !== 'undefined' && Utils.toast) {
+        Utils.toast('Restored default reading settings', 'info');
+      }
+    }
+    updateUI();
+    if (typeof SettingsUI !== 'undefined') {
+      SettingsUI.syncQuickControls?.();
+      SettingsUI.syncFullControls?.();
+    }
   }
 
   function updateUI() {
@@ -198,6 +487,7 @@ const ReaderSettings = (() => {
       opt.classList.toggle('active', opt.dataset.font === currentSettings.fontFamily);
     });
 
+    // Alignment buttons (including auto)
     document.querySelectorAll('[data-alignment]').forEach(option => {
       const isActive = option.dataset.alignment === currentSettings.alignment;
       option.classList.toggle('active', isActive);
@@ -217,13 +507,27 @@ const ReaderSettings = (() => {
     if (paraSpacingSlider) paraSpacingSlider.value = curParaSpacing;
     if (paraSpacingVal) paraSpacingVal.textContent = `${curParaSpacing.toFixed(1)}em`;
 
+    // Word spacing slider & value
+    const wordSpacingSlider = document.getElementById('word-spacing-slider');
+    const wordSpacingVal = document.getElementById('word-spacing-val');
+    const curWordSpacing = currentSettings.wordSpacing ?? 0.0;
+    if (wordSpacingSlider) wordSpacingSlider.value = curWordSpacing;
+    if (wordSpacingVal) wordSpacingVal.textContent = `${curWordSpacing >= 0 ? '+' : ''}${curWordSpacing.toFixed(2)}em`;
+
+    // Letter spacing slider & value
+    const letterSpacingSlider = document.getElementById('letter-spacing-slider');
+    const letterSpacingVal = document.getElementById('letter-spacing-val');
+    const curLetterSpacing = currentSettings.letterSpacing ?? 0.0;
+    if (letterSpacingSlider) letterSpacingSlider.value = curLetterSpacing;
+    if (letterSpacingVal) letterSpacingVal.textContent = `${curLetterSpacing >= 0 ? '+' : ''}${curLetterSpacing.toFixed(2)}em`;
+
     // Margin slider & value
     const marginSlider = document.getElementById('margin-slider');
     const marginVal = document.getElementById('margin-val');
     if (marginSlider) marginSlider.value = currentSettings.margin;
     if (marginVal) marginVal.textContent = `${currentSettings.margin}%`;
 
-    // Zoom readout (runtime only, owned by the reader's ZoomControl)
+    // Zoom readout
     const zoomDisplay = document.getElementById('zoom-display');
     if (zoomDisplay && typeof Reader !== 'undefined') zoomDisplay.textContent = `${Reader.getZoom()}%`;
 
@@ -238,22 +542,63 @@ const ReaderSettings = (() => {
     const spreadSingle = document.getElementById('spread-single-btn');
     if (spreadAuto) spreadAuto.classList.toggle('active', currentSettings.spread === 'auto');
     if (spreadSingle) spreadSingle.classList.toggle('active', currentSettings.spread === 'none');
+
+    // Progress display switches
+    const swChapter = document.getElementById('fs-progress-chapter');
+    const swPage = document.getElementById('fs-progress-page');
+    const swPercent = document.getElementById('fs-progress-percent');
+    if (swChapter) swChapter.setAttribute('aria-checked', currentSettings.progressShowChapter !== false ? 'true' : 'false');
+    if (swPage) swPage.setAttribute('aria-checked', currentSettings.progressShowPage !== false ? 'true' : 'false');
+    if (swPercent) swPercent.setAttribute('aria-checked', currentSettings.progressShowPercent !== false ? 'true' : 'false');
+
+    // Per-book override switch
+    const swPerBook = document.getElementById('fs-per-book-override');
+    if (swPerBook) swPerBook.setAttribute('aria-checked', currentSettings.perBookOverride ? 'true' : 'false');
+
+    // Profiles dropdown in Full Settings
+    const profileSelect = document.getElementById('reading-profile-select');
+    if (profileSelect) {
+      const all = getProfiles();
+      profileSelect.innerHTML = all.map(p => `
+        <option value="${p.id}"${p.id === activeProfileId ? ' selected' : ''}>${Utils.escapeHTML(p.name)}</option>
+      `).join('');
+      profileSelect._customDropdownSync?.();
+    }
+
+    // Immediately reflect progress display changes in reader header
+    if (typeof Reader !== 'undefined') {
+      Reader.updateProgressUI?.();
+    }
   }
 
   function setSetting(key, val, shouldApply = true) {
     if (!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) return;
     currentSettings = normalizeSettings({ ...currentSettings, [key]: val });
     clearTimeout(persistTimer);
-    persistTimer = setTimeout(() => NoveraDB.setPref('readerSettings', currentSettings), 250);
+    persistTimer = setTimeout(async () => {
+      if (currentSettings.perBookOverride && currentBookId) {
+        const overrideKey = `perBookSettings_${currentBookId}`;
+        const theme = typeof ThemeManager !== 'undefined' ? ThemeManager.getReaderTheme() : 'neutral';
+        await NoveraDB.setPref(overrideKey, {
+          enabled: true,
+          settings: currentSettings,
+          theme
+        });
+      } else {
+        await NoveraDB.setPref('readerSettings', currentSettings);
+      }
+    }, 250);
     updateUI();
 
     if (shouldApply && typeof Reader !== 'undefined') {
       Reader.applySettings(getSettings());
     }
+    if (typeof SettingsUI !== 'undefined') {
+      SettingsUI.syncQuickControls?.();
+      SettingsUI.syncFullControls?.();
+    }
   }
 
-  // Zoom is owned by the reader's ZoomControl so the keyboard shortcuts, the
-  // floating control and the settings readout all read one value.
   function adjustZoom(delta) {
     if (typeof Reader !== 'undefined') Reader.adjustZoom(delta);
   }
@@ -316,6 +661,24 @@ const ReaderSettings = (() => {
       });
     }
 
+    // Word spacing slider
+    const wordSpacingSlider = document.getElementById('word-spacing-slider');
+    if (wordSpacingSlider) {
+      wordSpacingSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        setSetting('wordSpacing', val);
+      });
+    }
+
+    // Letter spacing slider
+    const letterSpacingSlider = document.getElementById('letter-spacing-slider');
+    if (letterSpacingSlider) {
+      letterSpacingSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        setSetting('letterSpacing', val);
+      });
+    }
+
     // Margin slider
     const marginSlider = document.getElementById('margin-slider');
     if (marginSlider) {
@@ -324,7 +687,6 @@ const ReaderSettings = (() => {
         setSetting('margin', val);
       });
     }
-
 
     // Flow mode buttons
     const flowPaginated = document.getElementById('flow-paginated-btn');
@@ -366,23 +728,76 @@ const ReaderSettings = (() => {
       });
     }
 
+    // Progress display toggles
+    ['fs-progress-chapter', 'fs-progress-page', 'fs-progress-percent'].forEach(id => {
+      const sw = document.getElementById(id);
+      if (sw) {
+        sw.addEventListener('click', () => {
+          const key = id === 'fs-progress-chapter' ? 'progressShowChapter' : (id === 'fs-progress-page' ? 'progressShowPage' : 'progressShowPercent');
+          setSetting(key, !currentSettings[key]);
+        });
+      }
+    });
+
+    // Profile selector change
+    const profileSelect = document.getElementById('reading-profile-select');
+    if (profileSelect) {
+      profileSelect.addEventListener('change', (e) => {
+        applyProfile(e.target.value);
+      });
+    }
+
+    // Save profile button
+    const saveProfileBtn = document.getElementById('save-profile-btn');
+    if (saveProfileBtn) {
+      saveProfileBtn.addEventListener('click', async () => {
+        const name = prompt('Enter a name for this reading profile:', 'My Reading Profile');
+        if (name) {
+          await saveProfile(name);
+        }
+      });
+    }
+
+    // Delete profile button
+    const deleteProfileBtn = document.getElementById('delete-profile-btn');
+    if (deleteProfileBtn) {
+      deleteProfileBtn.addEventListener('click', async () => {
+        const cur = activeProfileId;
+        const p = getProfiles().find(item => item.id === cur);
+        if (p && !p.isCustom) {
+          Utils.toast('Built-in profiles cannot be deleted', 'info');
+          return;
+        }
+        if (p && confirm(`Delete profile "${p.name}"?`)) {
+          await deleteProfile(cur);
+        }
+      });
+    }
+
+    // Per-book override switch
+    const swPerBook = document.getElementById('fs-per-book-override');
+    if (swPerBook) {
+      swPerBook.addEventListener('click', () => {
+        setPerBookOverride(!currentSettings.perBookOverride);
+      });
+    }
+
     const resetButton = document.getElementById('reset-reader-settings-btn');
     if (resetButton) {
       resetButton.addEventListener('click', reset);
     }
   }
 
-  /**
-   * Restores every reading preference to its default, persists the result and
-   * re-renders the open document so the reader never shows stale values.
-   * Runtime zoom is deliberately untouched: it is not a stored setting.
-   */
   function reset() {
     currentSettings = { ...DEFAULT_SETTINGS };
     clearTimeout(persistTimer);
     persistTimer = setTimeout(() => NoveraDB.setPref('readerSettings', { ...currentSettings }), 0);
     updateUI();
     Reader.reRender?.();
+    if (typeof SettingsUI !== 'undefined') {
+      SettingsUI.syncQuickControls?.();
+      SettingsUI.syncFullControls?.();
+    }
     return getSettings();
   }
 
@@ -396,6 +811,20 @@ const ReaderSettings = (() => {
     setZoom,
     getZoom,
     getFonts: () => [...READER_FONTS],
-    getFontCssStack
+    getFontCssStack,
+    getProfiles,
+    getActiveProfileId,
+    applyProfile,
+    saveProfile,
+    deleteProfile,
+    loadBookSettings,
+    unloadBookSettings,
+    setPerBookOverride,
+    getCurrentBookId: () => currentBookId
   };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ReaderSettings;
+}
+

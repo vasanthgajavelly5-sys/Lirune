@@ -5,6 +5,7 @@ on:
     branches: [ lirune-store-home, main, master, android ]
   pull_request:
     branches: [ lirune-store-home, main, master, android ]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,6 +18,7 @@ jobs:
   validate-desktop:
     name: Desktop Validation (Node 20 / Windows)
     runs-on: windows-latest
+    timeout-minutes: 25
     if: github.ref_name != 'android'
     steps:
       - name: Checkout repository
@@ -34,21 +36,40 @@ jobs:
       - name: Lint and syntax checks
         run: npm run lint
 
-      - name: Run test suite
-        run: npm test
+      - name: Unit test suite
+        run: npm run test:unit
+
+      - name: Integration test suite
+        run: npm run test:integration
+
+      - name: E2E Smoke test (CDP / Electron)
+        run: npm run test:e2e:smoke
+
+      - name: Adapter-level format & settings tests
+        run: npm run test:e2e:formats
+
+      - name: Settings × Format capability matrix inspection
+        run: npm run test:e2e:matrix
+
+      - name: Performance benchmark regression checks
+        run: npm run test:perf
+
+      - name: Full dependency security audit
+        run: npm audit
 
       - name: Validate corpus (if available)
         run: npm run validate:corpus
 
-      - name: Production dependency audit
-        run: npm audit --omit=dev
-
       - name: Release configuration validation
         run: npm run validate:release:config
+
+      - name: Windows packaging assembly check (unsigned directory)
+        run: npm run pack
 
   validate-mobile:
     name: Mobile Validation (Node 22 / Ubuntu)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.ref_name != 'lirune-store-home'
     steps:
       - name: Checkout repository

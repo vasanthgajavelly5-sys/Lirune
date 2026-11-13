@@ -105,12 +105,23 @@ test('extractArchiveBuffer refuses Zip Slip path traversal extraction', async ()
 
 test('Live in-place test against Downloads/Villain_Young_Master_Novels.zip (read-only)', async () => {
   const targetZip = path.join(process.env.USERPROFILE || '', 'Downloads', 'Villain_Young_Master_Novels.zip');
-  if (!fs.existsSync(targetZip)) {
-    return;
+  let fd;
+  let buffer;
+  let initialStat;
+  try {
+    fd = fs.openSync(targetZip, 'r');
+    initialStat = fs.fstatSync(fd);
+    buffer = fs.readFileSync(fd);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return;
+    }
+    throw err;
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch {}
+    }
   }
-
-  const initialStat = fs.statSync(targetZip);
-  const buffer = fs.readFileSync(targetZip);
 
   // 1. Inspect
   const books = await mainModule.inspectArchiveBuffer(buffer, 'Villain_Young_Master_Novels.zip');

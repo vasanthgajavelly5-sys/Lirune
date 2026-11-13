@@ -110,8 +110,12 @@ const App = (() => {
 
   async function openLibrary() {
     activeView = 'library';
+    document.title = 'Lirune Reader — A calm home for your books';
     closeAllPanels();
     if (typeof ReadAloud !== 'undefined') ReadAloud.stop();
+    if (typeof ReaderSettings !== 'undefined') {
+      await ReaderSettings.unloadBookSettings();
+    }
 
     try {
       await Reader.close();
@@ -150,6 +154,9 @@ const App = (() => {
     activeView = 'reader';
     closeAllPanels();
     document.body.classList.add('reader-open');
+    if (typeof ReaderSettings !== 'undefined') {
+      await ReaderSettings.loadBookSettings(bookId);
+    }
     if (typeof ThemeManager !== 'undefined') ThemeManager.syncReaderPanels?.(true);
 
     const libView = document.getElementById('library-view');

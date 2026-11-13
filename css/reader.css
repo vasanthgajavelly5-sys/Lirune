@@ -189,7 +189,6 @@
 
 /* Override epub.js styles */
 #epub-container:not(.flow-scrolled) iframe {
-  width: 100% !important;
   height: 100% !important;
   border: none !important;
 }
@@ -713,6 +712,8 @@ body.focus-mode .focus-toc-btn {
   font-size: var(--doc-font-size, 18px);
   line-height: var(--doc-line-height, 1.6);
   text-align: var(--doc-align, left);
+  word-spacing: var(--doc-word-spacing, 0);
+  letter-spacing: var(--doc-letter-spacing, 0);
   padding: var(--sp-6) var(--doc-margin, 10%);
   padding-bottom: 40vh;
   margin: 0 auto;
@@ -738,7 +739,12 @@ body.focus-mode .focus-toc-btn {
 .doc-body blockquote { margin: 1em 0; padding-left: 1em; border-left: 2px solid var(--border-default); }
 .doc-body table { border-collapse: collapse; max-width: 100%; }
 .doc-body td, .doc-body th { border: 1px solid var(--border-subtle); padding: 0.35em 0.6em; }
-.doc-body p { margin-bottom: var(--doc-para-spacing, 1em); }
+.doc-body p {
+  margin-bottom: var(--doc-para-spacing, 1em);
+  text-align: var(--doc-align, inherit);
+  word-spacing: var(--doc-word-spacing, inherit);
+  letter-spacing: var(--doc-letter-spacing, inherit);
+}
 .doc-body pre { overflow-x: auto; background: var(--bg-hover); padding: 0.8em; border-radius: 6px; }
 .doc-section { scroll-margin-top: var(--sp-6); }
 .doc-search-hit { background: var(--hl-yellow); color: var(--text-primary); border-radius: 2px; }

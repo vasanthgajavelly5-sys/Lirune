@@ -275,26 +275,65 @@ const Reader = (() => {
     const percent = Number.isFinite(progress.percent) ? progress.percent : 0;
     const chapter = progress.chapter || '';
     const locationLabel = progress.locationLabel || '';
+    const settings = typeof ReaderSettings !== 'undefined' ? ReaderSettings.getSettings() : {};
+
+    const showChapter = settings.progressShowChapter !== false;
+    const showPage = settings.progressShowPage !== false;
+    const showPercent = settings.progressShowPercent !== false;
 
     const chapterEl = document.getElementById('progress-chapter');
     const pageInfoEl = document.getElementById('page-info');
+    const sepEl = document.querySelector('.toolbar-progress-info .toolbar-sep');
     const fillEl = document.getElementById('reading-stripe-fill');
     const stripe = document.getElementById('reading-stripe');
     const statusChapter = document.getElementById('status-chapter-name');
     const statusPct = document.getElementById('status-progress-pct');
     const statusPage = document.getElementById('status-page');
 
-    if (chapterEl) chapterEl.textContent = chapter || 'Reading';
-    if (pageInfoEl) pageInfoEl.textContent = locationLabel || '';
+    if (chapterEl) {
+      chapterEl.textContent = chapter || 'Reading';
+      chapterEl.style.display = showChapter ? '' : 'none';
+    }
+    if (sepEl) {
+      sepEl.style.display = (showChapter && (showPage || showPercent)) ? '' : 'none';
+    }
+    if (pageInfoEl) {
+      let label = '';
+      if (showPage && showPercent) {
+        label = locationLabel || `${Math.round(percent)}%`;
+      } else if (showPage && locationLabel) {
+        label = locationLabel.replace(/·\s*\d+%/g, '').trim();
+      } else if (showPercent) {
+        label = `${Math.round(percent)}%`;
+      }
+      pageInfoEl.textContent = label;
+      pageInfoEl.style.display = (showPage || showPercent) ? '' : 'none';
+    }
+
     if (fillEl) fillEl.style.width = `${percent}%`;
     if (stripe) stripe.setAttribute('aria-valuenow', String(percent));
-    if (statusChapter) statusChapter.textContent = chapter || 'Reading';
-    if (statusPct) statusPct.textContent = `${percent}% read`;
-    if (statusPage) statusPage.textContent = locationLabel;
+    if (statusChapter) {
+      statusChapter.textContent = chapter || 'Reading';
+      statusChapter.style.display = showChapter ? '' : 'none';
+    }
+    if (statusPct) {
+      statusPct.textContent = `${Math.round(percent)}% read`;
+      statusPct.style.display = showPercent ? '' : 'none';
+    }
+    if (statusPage) {
+      statusPage.textContent = locationLabel;
+      statusPage.style.display = showPage ? '' : 'none';
+    }
+    const appPrefs = typeof AppPrefs !== 'undefined' ? AppPrefs.getAll() : {};
+    if (appPrefs.windowTitleProgress && currentRecord?.title) {
+      document.title = `${currentRecord.title} — ${Math.round(percent)}% — Lirune Reader`;
+    } else {
+      document.title = 'Lirune Reader — A calm home for your books';
+    }
   }
 
   async function persistProgress() {
-    if (!currentRecord?.id || !adapter) return;
+    if (!currentRecord?.id || !adapter || AppPrefs.getAll().saveProgress === false) return;
     try {
       const progress = getProgress();
       const location = getLocation();

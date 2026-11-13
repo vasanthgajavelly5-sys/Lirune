@@ -16,6 +16,8 @@ downloads/
 # Scratch material from development sessions. None of this belongs in the
 # repository, and none of it should ever reach a build; these entries exist so
 # an accidental `git add -A` cannot commit them.
+scratch/
+artifacts/
 Batch1-Fixes/
 Batch2-Fixes/
 Batch3-Fixes/

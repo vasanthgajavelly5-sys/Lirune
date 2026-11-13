@@ -116,6 +116,11 @@ const SettingsUI = (() => {
     'fs-reading-bar': () => AppPrefs.set({ readingFooterBar: !AppPrefs.getAll().readingFooterBar }),
     'fs-smooth-scroll': () => AppPrefs.set({ smoothScroll: !AppPrefs.getAll().smoothScroll }),
     'fs-auto-hyphenation': () => AppPrefs.set({ autoHyphenation: !AppPrefs.getAll().autoHyphenation }),
+    'fs-progress-chapter': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setSetting('progressShowChapter', ReaderSettings.getSettings().progressShowChapter === false),
+    'fs-progress-page': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setSetting('progressShowPage', ReaderSettings.getSettings().progressShowPage === false),
+    'fs-progress-percent': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setSetting('progressShowPercent', ReaderSettings.getSettings().progressShowPercent === false),
+    'fs-per-book-override': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setPerBookOverride(!ReaderSettings.getSettings().perBookOverride),
+    'qs-per-book': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setPerBookOverride(!ReaderSettings.getSettings().perBookOverride),
     // Read Aloud (TTS)
     'fs-tts-highlight': () => typeof ReadAloud !== 'undefined' && ReadAloud.updatePrefs({ highlight: !ReadAloud.getPrefs().highlight }),
     'fs-tts-autoadvance': () => typeof ReadAloud !== 'undefined' && ReadAloud.updatePrefs({ autoAdvance: !ReadAloud.getPrefs().autoAdvance }),
@@ -188,6 +193,34 @@ const SettingsUI = (() => {
     const reader = ReaderSettings.getSettings();
     const theme = ThemeManager.getReaderTheme();
 
+    const profileSel = document.getElementById('qs-profile-select');
+    const activeProf = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getActiveProfileId)
+      ? ReaderSettings.getActiveProfileId()
+      : 'default';
+    if (profileSel && profileSel.value !== activeProf) {
+      profileSel.value = activeProf;
+      profileSel._customDropdownSync?.();
+    }
+
+    const perBookSwitch = document.getElementById('qs-per-book');
+    if (perBookSwitch) {
+      perBookSwitch.setAttribute('aria-checked', reader.perBookOverride ? 'true' : 'false');
+    }
+
+    const syncSlider = (id, val, format) => {
+      const slider = document.getElementById(`${id}-range`);
+      const valEl = document.getElementById(`${id}-value`);
+      if (slider && Number(slider.value) !== Number(val)) slider.value = val;
+      if (valEl) valEl.textContent = format(val);
+    };
+
+    syncSlider('qs-font-size', reader.fontSize, v => `${v}px`);
+    syncSlider('qs-line-height', reader.lineHeight, v => Number(v).toFixed(1));
+    syncSlider('qs-para-spacing', reader.paragraphSpacing ?? 1.0, v => `${Number(v).toFixed(1)}em`);
+    syncSlider('qs-word-spacing', reader.wordSpacing ?? 0.0, v => `${Number(v).toFixed(2)}em`);
+    syncSlider('qs-letter-spacing', reader.letterSpacing ?? 0.0, v => `${Number(v).toFixed(2)}em`);
+    syncSlider('qs-margin', reader.margin, v => `${v}%`);
+
     const themeSel = document.getElementById('qs-theme-select');
     if (themeSel && themeSel.value !== theme) {
       themeSel.value = theme;
@@ -250,11 +283,20 @@ const SettingsUI = (() => {
   function readerQuickMarkup() {
     const reader = ReaderSettings.getSettings();
     const theme = ThemeManager.getReaderTheme();
+    const profiles = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getProfiles)
+      ? ReaderSettings.getProfiles()
+      : [];
+    const activeProf = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getActiveProfileId)
+      ? ReaderSettings.getActiveProfileId()
+      : 'default';
+
     return `
       <div class="quick-settings-heading">
         <span class="quick-settings-context">Reader</span>
         <span class="quick-settings-hint">Settings for the book you are reading</span>
       </div>
+      ${selectRow('qs-profile', 'Profile', profiles.map(p => ({ value: p.id, label: p.name })), activeProf)}
+      ${switchRow('qs-per-book', 'Book override', 'Save settings for this book only', reader.perBookOverride === true)}
       <div class="quick-theme-group">
         <div class="quick-row">
           <label class="quick-row-label" for="qs-theme-select">Theme</label>
@@ -285,8 +327,11 @@ const SettingsUI = (() => {
       ${sliderRow('qs-font-size', 'Size', reader.fontSize, 12, 36, 1, `${reader.fontSize}px`, 'px')}
       ${sliderRow('qs-line-height', 'Line height', reader.lineHeight, 1.2, 2.4, 0.1, reader.lineHeight.toFixed(1), '')}
       ${sliderRow('qs-para-spacing', 'Paragraph spacing', reader.paragraphSpacing ?? 1.0, 0, 3.0, 0.2, `${(reader.paragraphSpacing ?? 1.0).toFixed(1)}em`, 'em')}
+      ${sliderRow('qs-word-spacing', 'Word spacing', reader.wordSpacing ?? 0.0, -0.1, 0.5, 0.05, `${(reader.wordSpacing ?? 0.0).toFixed(2)}em`, 'em')}
+      ${sliderRow('qs-letter-spacing', 'Letter spacing', reader.letterSpacing ?? 0.0, -0.05, 0.3, 0.02, `${(reader.letterSpacing ?? 0.0).toFixed(2)}em`, 'em')}
       ${sliderRow('qs-margin', 'Margins', reader.margin, 2, 24, 2, `${reader.margin}%`, '%')}
       ${segmentRow('qs-alignment', 'Alignment', [
+        { value: 'auto', label: 'Auto' },
         { value: 'left', label: 'Left' },
         { value: 'center', label: 'Center' },
         { value: 'right', label: 'Right' },
@@ -477,8 +522,8 @@ const SettingsUI = (() => {
     const prefs = AppPrefs.getAll();
     host.innerHTML = `
       <div class="settings-group-header">
-        <div class="setting-section-title">Interface &amp; styling</div>
-        <p class="setting-hint">Control visual effects, cover styling, and automatic theme adaptation.</p>
+        <div class="setting-section-title">Interface &amp; Visual Effects</div>
+        <p class="setting-hint">Control visual effects, window blur, and book card styling.</p>
       </div>
       ${switchRow('fs-follow-system', 'Follow system theme', 'Automatically match light or dark mode to operating system appearance', prefs.followSystemTheme)}
       ${switchRow('fs-glass-effect', 'Glassmorphism blur effects', 'Enable frosted translucent blur on sidebars, modals, and panel headers', prefs.glassEffect)}
@@ -497,6 +542,7 @@ const SettingsUI = (() => {
         <p class="setting-hint">Fine-tune page-turning, reading progress bars, and scrolling behavior.</p>
       </div>
       ${switchRow('fs-tap-to-turn', 'Tap edges to turn pages', 'Tap left or right screen borders to advance or go back in paginated mode', prefs.tapToTurn)}
+      ${switchRow('fs-reading-bar', 'Reading progress bar', 'Show the progress strip at the top of the reader', prefs.readingFooterBar)}
       ${switchRow('fs-smooth-scroll', 'Smooth momentum scrolling', 'Enable fluid continuous motion when scrolling through chapters', prefs.smoothScroll)}
       ${switchRow('fs-auto-hyphenation', 'Automatic text hyphenation', 'Balance text margins with automatic word breaking at line ends', prefs.autoHyphenation)}
     `;
@@ -521,6 +567,10 @@ const SettingsUI = (() => {
     if (!host) return;
     const prefs = AppPrefs.getAll();
     host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Shelf layout &amp; density</div>
+        <p class="setting-hint">Configure grid arrangement, sort ordering, and card density.</p>
+      </div>
       ${segmentRow('fs-view', 'Default view', [
         { value: 'grid', label: 'Grid' },
         { value: 'list', label: 'List' }
@@ -534,15 +584,19 @@ const SettingsUI = (() => {
         { value: 'comfortable', label: 'Comfortable' },
         { value: 'compact', label: 'Compact' }
       ], Library.getViewState().density)}
+      ${segmentRow('fs-cover-fit', 'Cover image presentation', [
+        { value: 'cover', label: 'Fill card' },
+        { value: 'contain', label: 'Fit book' }
+      ], prefs.coverFit)}
+      <div class="settings-group-header" style="margin-top:var(--sp-4);">
+        <div class="setting-section-title">Book information &amp; badges</div>
+        <p class="setting-hint">Control metadata chips, progress indicators, and shelves.</p>
+      </div>
       ${switchRow('fs-metadata', 'Show book metadata', 'Author and file format on every cover', Library.getViewState().showMetadata)}
       ${switchRow('fs-group-by-type', 'Group by type', 'Visually group books by file format (EPUB, PDF, TXT, CBZ, FB2, HTML)', Library.getViewState().groupByType)}
       ${switchRow('fs-progress-badges', 'Show reading progress badges', 'Display completion percentage indicators on book cards', prefs.showProgressBadge)}
       ${switchRow('fs-format-badges', 'Show format indicator chips', 'Display format tags (EPUB, PDF, etc.) on cover cards', prefs.showFormatBadge)}
       ${switchRow('fs-continue-reading', 'Show Continue Reading shelf', 'Display recently opened books carousel at the top of the shelf', prefs.showContinueReading)}
-      ${segmentRow('fs-cover-fit', 'Cover image presentation', [
-        { value: 'cover', label: 'Fill card' },
-        { value: 'contain', label: 'Fit book' }
-      ], prefs.coverFit)}
     `;
     if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
       Utils.enhanceAllSelects(host);
@@ -554,11 +608,19 @@ const SettingsUI = (() => {
     if (!host) return;
     const prefs = AppPrefs.getAll();
     host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Reading accommodations</div>
+        <p class="setting-hint">High legibility typefaces, contrast, and sizing adaptations.</p>
+      </div>
+      ${switchRow('fs-dyslexic-font', 'Dyslexic-friendly typeface', 'Override reading text with high-legibility letterforms', prefs.dyslexicFont)}
+      ${switchRow('fs-high-contrast', 'High contrast mode', 'Increases text contrast and sharpens border dividers', prefs.highContrast)}
+      ${switchRow('fs-large-controls', 'Larger UI controls', 'Increases touch and click target sizes for buttons and menus', prefs.largeControls)}
+      <div class="settings-group-header" style="margin-top:var(--sp-4);">
+        <div class="setting-section-title">Navigation &amp; motion</div>
+        <p class="setting-hint">Focus visibility, motion reduction, and keyboard cues.</p>
+      </div>
       ${switchRow('fs-reduce-motion', 'Reduce motion', 'Turns off interface animations and transitions', prefs.reduceMotion)}
       ${switchRow('fs-focus-outlines', 'Stronger focus visibility', 'Highlights active keyboard focus outlines prominently', prefs.focusOutlines)}
-      ${switchRow('fs-large-controls', 'Larger UI controls', 'Increases touch and click target sizes for buttons and menus', prefs.largeControls)}
-      ${switchRow('fs-high-contrast', 'High contrast mode', 'Increases text contrast and sharpens border dividers', prefs.highContrast)}
-      ${switchRow('fs-dyslexic-font', 'Dyslexic-friendly typeface', 'Override reading text with high-legibility letterforms', prefs.dyslexicFont)}
       ${switchRow('fs-underline-links', 'Underline all hyperlinks', 'Enforce distinct visible underlines on every link and button', prefs.underlineLinks)}
       ${switchRow('fs-keyboard-cues', 'Keyboard navigation cues', 'Display prominent shortcut badges and focus hints', prefs.keyboardNavCues)}
     `;
@@ -1004,6 +1066,75 @@ const SettingsUI = (() => {
     setSwitch('fs-underline-links', prefs.underlineLinks);
     setSwitch('fs-keyboard-cues', prefs.keyboardNavCues);
 
+    if (typeof ReaderSettings !== 'undefined') {
+      const reader = ReaderSettings.getSettings();
+      // Flow & spread buttons
+      const flowPag = document.getElementById('flow-paginated-btn');
+      const flowScr = document.getElementById('flow-scrolled-btn');
+      if (flowPag) flowPag.classList.toggle('active', reader.flow !== 'scrolled');
+      if (flowScr) flowScr.classList.toggle('active', reader.flow === 'scrolled');
+
+      const spreadAuto = document.getElementById('spread-auto-btn');
+      const spreadSing = document.getElementById('spread-single-btn');
+      if (spreadAuto) spreadAuto.classList.toggle('active', reader.spread !== 'none');
+      if (spreadSing) spreadSing.classList.toggle('active', reader.spread === 'none');
+
+      // Alignment options
+      document.querySelectorAll('[data-alignment]').forEach(btn => {
+        const active = btn.dataset.alignment === reader.alignment;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+
+      // Typeface
+      document.querySelectorAll('.font-opt').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.font === reader.fontFamily);
+      });
+
+      // Typography displays & sliders
+      const fontDisp = document.getElementById('font-size-display');
+      if (fontDisp) fontDisp.textContent = `${reader.fontSize}px`;
+
+      const spacingSlider = document.getElementById('spacing-slider');
+      const spacingVal = document.getElementById('spacing-val');
+      if (spacingSlider) spacingSlider.value = reader.lineHeight;
+      if (spacingVal) spacingVal.textContent = reader.lineHeight.toFixed(1);
+
+      const paraSlider = document.getElementById('para-spacing-slider');
+      const paraVal = document.getElementById('para-spacing-val');
+      if (paraSlider) paraSlider.value = reader.paragraphSpacing ?? 1.0;
+      if (paraVal) paraVal.textContent = `${(reader.paragraphSpacing ?? 1.0).toFixed(1)}em`;
+
+      const wordSlider = document.getElementById('word-spacing-slider');
+      const wordVal = document.getElementById('word-spacing-val');
+      if (wordSlider) wordSlider.value = reader.wordSpacing ?? 0.0;
+      if (wordVal) wordVal.textContent = `${(reader.wordSpacing ?? 0.0).toFixed(2)}em`;
+
+      const letterSlider = document.getElementById('letter-spacing-slider');
+      const letterVal = document.getElementById('letter-spacing-val');
+      if (letterSlider) letterSlider.value = reader.letterSpacing ?? 0.0;
+      if (letterVal) letterVal.textContent = `${(reader.letterSpacing ?? 0.0).toFixed(2)}em`;
+
+      const marginSlider = document.getElementById('margin-slider');
+      const marginVal = document.getElementById('margin-val');
+      if (marginSlider) marginSlider.value = reader.margin ?? 10;
+      if (marginVal) marginVal.textContent = `${reader.margin ?? 10}%`;
+
+      // Status display switches
+      setSwitch('fs-progress-chapter', reader.progressShowChapter !== false);
+      setSwitch('fs-progress-page', reader.progressShowPage !== false);
+      setSwitch('fs-progress-percent', reader.progressShowPercent !== false);
+
+      // Per-book override
+      setSwitch('fs-per-book-override', reader.perBookOverride === true);
+
+      // Profile selector
+      const profSelect = document.getElementById('reading-profile-select');
+      if (profSelect && ReaderSettings.getActiveProfileId) {
+        profSelect.value = ReaderSettings.getActiveProfileId();
+      }
+    }
+
     document.querySelectorAll('#app-theme-grid [data-app-theme]').forEach(button => {
       const isActive = button.dataset.appTheme === ThemeManager.getAppTheme();
       button.classList.toggle('active', isActive);
@@ -1240,6 +1371,14 @@ const SettingsUI = (() => {
         if (expanded) syncFullControls();
         return;
       }
+      if (id === 'qs-profile') {
+        if (typeof ReaderSettings !== 'undefined' && ReaderSettings.applyProfile) {
+          ReaderSettings.applyProfile(select.value);
+        }
+        syncQuickControls();
+        if (expanded) syncFullControls();
+        return;
+      }
       if (id === 'fs-tts-voice') {
         if (typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ voiceURI: select.value });
         return;
@@ -1254,11 +1393,18 @@ const SettingsUI = (() => {
       const unit = slider.dataset.unit || '';
 
       const readout = document.getElementById(`${id}-value`);
-      if (readout) readout.textContent = `${(id === 'qs-line-height' || id === 'qs-para-spacing') ? value.toFixed(1) : value}${unit}`;
+      if (readout) {
+        const formatted = (id === 'qs-word-spacing' || id === 'qs-letter-spacing')
+          ? value.toFixed(2)
+          : ((id === 'qs-line-height' || id === 'qs-para-spacing') ? value.toFixed(1) : value);
+        readout.textContent = `${formatted}${unit}`;
+      }
 
       if (id === 'qs-font-size') ReaderSettings.setSetting('fontSize', value);
       if (id === 'qs-line-height') ReaderSettings.setSetting('lineHeight', value);
       if (id === 'qs-para-spacing') ReaderSettings.setSetting('paragraphSpacing', value);
+      if (id === 'qs-word-spacing') ReaderSettings.setSetting('wordSpacing', value);
+      if (id === 'qs-letter-spacing') ReaderSettings.setSetting('letterSpacing', value);
       if (id === 'qs-margin') ReaderSettings.setSetting('margin', value);
       if (id === 'fs-tts-rate' && typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ rate: value });
       if (id === 'fs-tts-pitch' && typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ pitch: value });

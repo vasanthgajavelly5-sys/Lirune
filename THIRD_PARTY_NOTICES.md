@@ -10,7 +10,7 @@ Lirune Reader distributes the following runtime and build dependencies. Their li
   under the SIL Open Font License 1.1 (`epubjs/documentation/html/assets/fonts/`). Lirune Reader
   does not use that font; it is included only because it is part of the
   upstream package. Its OFL license text ships alongside it.
-- `jszip` 3.10.1: Dual-licensed under MIT OR GPL-3.0-or-later. Lirune Reader
+- `jszip` 3.10.2: Dual-licensed under MIT OR GPL-3.0-or-later. Lirune Reader
   uses it under the MIT option.
   Copyright (c) 2009-2016 Stuart Knightley, David Duponchel,
   Franz Buchinger, António Afonso.

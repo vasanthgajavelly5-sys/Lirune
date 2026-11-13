@@ -15,7 +15,7 @@ const ThemeManager = (() => {
   let currentReaderTheme = 'neutral';
   let customColors = null;
   let persistTimer = null;
-  const DEFAULT_ACCENT = '#EEECF8';
+  const DEFAULT_ACCENT = '#426F86';
 
   const THEME_COLORS = {
     neutral: {
@@ -191,14 +191,16 @@ const ThemeManager = (() => {
     // of an accent-coloured surface; it is never the raw accent hex.
     root.style.setProperty('--accent-text', foreground);
     root.style.setProperty('--text-on-accent', foreground);
-    root.style.setProperty('--gradient-accent', `linear-gradient(135deg, ${accent}, ${active})`);
+    root.style.setProperty('--gradient-accent', accent);
+    root.style.setProperty('--gradient-accent-soft', `rgba(${red},${green},${blue},0.08)`);
     root.style.setProperty('--border-accent', `rgba(${red},${green},${blue},0.48)`);
     root.style.setProperty('--accent-subtle', `rgba(${red},${green},${blue},0.13)`);
     root.style.setProperty('--accent-subtle-h', `rgba(${red},${green},${blue},0.22)`);
-    root.style.setProperty('--accent-glow', `rgba(${red},${green},${blue},0.18)`);
-    root.style.setProperty('--accent-glow-strong', `rgba(${red},${green},${blue},0.3)`);
+    root.style.setProperty('--accent-glow', `rgba(${red},${green},${blue},0.08)`);
+    root.style.setProperty('--accent-glow-strong', `rgba(${red},${green},${blue},0.12)`);
     const input = document.getElementById('app-accent-color');
     if (input) input.value = accent;
+    syncReaderPanels();
     if (shouldPersist) persist('accentColor', accent);
   }
 
@@ -276,10 +278,12 @@ const ThemeManager = (() => {
     const surfaceHex = normalizeHex(colors.surface || colors.bg, bgHex);
     const textHex = normalizeHex(colors.text, '#1A1410');
     const mutedHex = normalizeHex(colors.muted, '#6B6055');
-    const linkHex = normalizeHex(colors.link, '#245A8D');
+    const appAccent = normalizeAccent(document.documentElement.style.getPropertyValue('--accent') || DEFAULT_ACCENT);
     const dark = isDarkColor(surfaceHex);
-    const accentFg = pickReadableForeground(linkHex);
-    const accentActive = mixHex(linkHex, '#000000', 0.16);
+    const accentFg = pickReadableForeground(appAccent);
+    const accentStyle = document.documentElement.style;
+    const accentToken = (name, fallback) => accentStyle.getPropertyValue(name).trim() || fallback;
+    const accentActive = accentToken('--accent-active', mixHex(appAccent, '#000000', 0.16));
 
     return {
       isDark: dark,
@@ -303,25 +307,25 @@ const ThemeManager = (() => {
         '--border-subtle': rgbaFromHex(textHex, dark ? 0.13 : 0.1),
         '--border-default': rgbaFromHex(textHex, dark ? 0.22 : 0.16),
         '--border-strong': rgbaFromHex(textHex, dark ? 0.34 : 0.26),
-        '--border-accent': rgbaFromHex(linkHex, 0.54),
-        '--accent': linkHex,
-        '--accent-hover': mixHex(linkHex, dark ? '#FFFFFF' : '#000000', 0.12),
+        '--border-accent': accentToken('--border-accent', rgbaFromHex(appAccent, 0.54)),
+        '--accent': appAccent,
+        '--accent-hover': accentToken('--accent-hover', mixHex(appAccent, dark ? '#FFFFFF' : '#000000', 0.12)),
         '--accent-active': accentActive,
-        '--accent-text': linkHex,
-        '--gradient-accent': `linear-gradient(135deg, ${linkHex}, ${accentActive})`,
-        '--accent-subtle': rgbaFromHex(linkHex, dark ? 0.18 : 0.14),
-        '--accent-subtle-h': rgbaFromHex(linkHex, dark ? 0.26 : 0.22),
-        '--accent-glow': rgbaFromHex(linkHex, 0.2),
-        '--accent-glow-strong': rgbaFromHex(linkHex, 0.32),
+        '--accent-text': appAccent,
+        '--gradient-accent': accentToken('--gradient-accent', appAccent),
+        '--accent-subtle': accentToken('--accent-subtle', rgbaFromHex(appAccent, dark ? 0.18 : 0.14)),
+        '--accent-subtle-h': accentToken('--accent-subtle-h', rgbaFromHex(appAccent, dark ? 0.26 : 0.22)),
+        '--accent-glow': accentToken('--accent-glow', rgbaFromHex(appAccent, 0.2)),
+        '--accent-glow-strong': accentToken('--accent-glow-strong', rgbaFromHex(appAccent, 0.32)),
         '--reader-panel-switch-bg': rgbaFromHex(textHex, dark ? 0.16 : 0.14),
-        '--reader-panel-switch-active-bg': linkHex,
+        '--reader-panel-switch-active-bg': appAccent,
         '--reader-panel-segment-bg': rgbaFromHex(textHex, dark ? 0.08 : 0.055),
         '--reader-panel-segment-active-bg': mixHex(surfaceHex, '#FFFFFF', dark ? 0.16 : 0.65),
         '--reader-panel-segment-active-fg': textHex,
         '--reader-panel-dropdown-bg': rgbaFromHex(mixHex(surfaceHex, bgHex, 0.25), 0.96),
         '--reader-panel-group-bg': rgbaFromHex(textHex, dark ? 0.045 : 0.035),
         '--reader-panel-btn-bg': rgbaFromHex(textHex, dark ? 0.065 : 0.045),
-        'accent-color': linkHex
+        'accent-color': appAccent
       }
     };
   }
@@ -491,8 +495,14 @@ const ThemeManager = (() => {
     getAppTheme,
     getReaderTheme,
     getThemeColors,
+    applyAccent,
     APP_THEMES,
     READER_THEMES
     ,DEFAULT_ACCENT
   };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ThemeManager;
+}
+

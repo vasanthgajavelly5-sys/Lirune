@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="css/library.css">
   <link rel="stylesheet" href="css/reader.css">
   <link rel="stylesheet" href="css/panels.css">
+  <link rel="stylesheet" href="css/design-system.css">
 
   <!-- EPUB.js & JSZip Dependencies (bundled for offline packaged use) -->
   <script src="node_modules/jszip/dist/jszip.min.js"></script>
@@ -541,7 +542,7 @@
             <div class="setting-section-title" id="app-accent-title">Application accent</div>
             <p>Choose the color used for controls and focus states.</p>
           </div>
-          <label class="color-control">Accent color<input type="color" id="app-accent-color" aria-label="Application accent color" value="#EEECF8"></label>
+          <label class="color-control">Accent color<input type="color" id="app-accent-color" aria-label="Application accent color" value="#426F86"></label>
           <button class="btn btn-ghost reset-settings-btn" id="reset-accent-btn" type="button">Reset to Lirune default</button>
         </section>
         <section class="settings-group" id="appearance-advanced-controls" aria-label="Interface display preferences"></section>
@@ -586,12 +587,43 @@
           <section class="full-settings-pane" data-section="reading" hidden>
             <div class="settings-section-heading">
               <div class="setting-section-title">Reading</div>
-              <p>Typography, spacing and page layout for every book you open.</p>
+              <p>Typography, spacing, layout and display preferences for your books.</p>
             </div>
+
+      <!-- Subcategory: Reading Profiles & Per-Book Settings -->
+      <section class="settings-group" aria-labelledby="reading-profiles-title">
+        <div class="settings-group-header">
+          <div class="setting-section-title" id="reading-profiles-title">Reading profiles &amp; overrides</div>
+          <p class="setting-hint">Save reusable font and layout profiles or isolate preferences to this book.</p>
+        </div>
+        <div class="setting-row setting-control-row">
+          <div class="setting-label">Active profile<span>Switch or manage reading configurations</span></div>
+          <select id="reading-profile-select" class="glass-select" style="min-width:140px; padding:6px 10px; border-radius:var(--radius-sm); border:1px solid var(--border-soft); background:var(--surface-input); color:var(--text-main);">
+            <option value="default">Default</option>
+            <option value="compact">Compact</option>
+            <option value="night">Night Focus</option>
+            <option value="legibility">High Legibility</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+          <button class="btn btn-ghost" id="save-profile-btn" type="button" style="font-size:12px; padding:4px 10px;">Save Profile</button>
+          <button class="btn btn-ghost" id="delete-profile-btn" type="button" style="font-size:12px; padding:4px 10px;">Delete Profile</button>
+        </div>
+        <div class="setting-row" style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border-soft);">
+          <div class="setting-label">Book override<span>Save reading preferences for this book only</span></div>
+          <button class="setting-switch" id="fs-per-book-override" type="button" role="switch" aria-checked="false" aria-label="Save reading preferences for this book only">
+            <span class="setting-switch-thumb"></span>
+          </button>
+        </div>
+      </section>
+
+      <div class="full-settings-spacer"></div>
+
+      <!-- Subcategory: Text & Spacing -->
       <section class="settings-group" aria-labelledby="reading-text-title">
-        <div class="settings-section-heading">
-          <div class="setting-section-title" id="reading-text-title">Reading text</div>
-          <p>Choose a comfortable typeface and text size.</p>
+        <div class="settings-group-header">
+          <div class="setting-section-title" id="reading-text-title">Text &amp; spacing</div>
+          <p class="setting-hint">Choose typeface, sizing, alignment, and fine-grained character spacing.</p>
         </div>
         <div class="setting-row setting-control-row">
           <div class="setting-label">Font size<span>Adjust the size of the page text.</span></div>
@@ -633,6 +665,10 @@
         </div>
         <div class="setting-subheading">Text alignment</div>
         <div class="alignment-grid" role="group" aria-label="Text alignment">
+          <button class="alignment-opt" data-alignment="auto" type="button" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 10h12M4 14h16M4 18h8"/></svg>
+            <span>Auto</span>
+          </button>
           <button class="alignment-opt active" data-alignment="left" type="button" aria-pressed="true">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 10h11M4 14h16M4 18h11"/></svg>
             <span>Left</span>
@@ -650,12 +686,39 @@
             <span>Justify</span>
           </button>
         </div>
+        <div class="setting-slider-row">
+          <div class="setting-row">
+            <div class="setting-label">Line spacing<span id="spacing-val">1.6</span></div>
+          </div>
+          <input type="range" id="spacing-slider" min="1.2" max="2.4" step="0.1" value="1.6" class="glass-slider" aria-label="Line spacing">
+        </div>
+        <div class="setting-slider-row">
+          <div class="setting-row">
+            <div class="setting-label">Paragraph spacing<span id="para-spacing-val">1.0em</span></div>
+          </div>
+          <input type="range" id="para-spacing-slider" min="0" max="3" step="0.2" value="1.0" class="glass-slider" aria-label="Paragraph spacing">
+        </div>
+        <div class="setting-slider-row">
+          <div class="setting-row">
+            <div class="setting-label">Word spacing<span id="word-spacing-val">0.00em</span></div>
+          </div>
+          <input type="range" id="word-spacing-slider" min="-0.1" max="0.5" step="0.05" value="0.0" class="glass-slider" aria-label="Word spacing">
+        </div>
+        <div class="setting-slider-row">
+          <div class="setting-row">
+            <div class="setting-label">Letter spacing<span id="letter-spacing-val">0.00em</span></div>
+          </div>
+          <input type="range" id="letter-spacing-slider" min="-0.05" max="0.3" step="0.02" value="0.0" class="glass-slider" aria-label="Letter spacing">
+        </div>
       </section>
-            <div class="full-settings-spacer"></div>
+
+      <div class="full-settings-spacer"></div>
+
+      <!-- Subcategory: Page Layout & Margins -->
       <section class="settings-group" id="flow-control-row" aria-labelledby="layout-title">
-        <div class="settings-section-heading">
-          <div class="setting-section-title" id="layout-title">Page layout</div>
-          <p>Control how pages flow and how much space they use.</p>
+        <div class="settings-group-header">
+          <div class="setting-section-title" id="layout-title">Page layout &amp; margins</div>
+          <p class="setting-hint">Control pagination mode, column spreads, margins, and page zoom.</p>
         </div>
         <div class="layout-grid">
           <button class="layout-opt active" data-flow="paginated" id="flow-paginated-btn">
@@ -691,41 +754,49 @@
         </div>
         <div class="setting-slider-row">
           <div class="setting-row">
-          <div class="setting-label">
-            Zoom
-            <span id="zoom-display">100%</span>
-          </div>
-          </div>
-          <p class="setting-hint">Use <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> or the floating control. Zoom applies to this document only and is not saved.</p>
-        </div>
-        <div class="setting-slider-row">
-          <div class="setting-row">
-          <div class="setting-label">
-            Line spacing
-            <span id="spacing-val">1.6</span>
-          </div>
-          </div>
-          <input type="range" id="spacing-slider" min="1.2" max="2.4" step="0.1" value="1.6" class="glass-slider" aria-label="Line spacing">
-        </div>
-        <div class="setting-slider-row">
-          <div class="setting-row">
-          <div class="setting-label">
-            Paragraph spacing
-            <span id="para-spacing-val">1.0em</span>
-          </div>
-          </div>
-          <input type="range" id="para-spacing-slider" min="0" max="3" step="0.2" value="1.0" class="glass-slider" aria-label="Paragraph spacing">
-        </div>
-        <div class="setting-slider-row">
-          <div class="setting-row">
-          <div class="setting-label">
-            Page margins
-            <span id="margin-val">10%</span>
-          </div>
+            <div class="setting-label">Page margins<span id="margin-val">10%</span></div>
           </div>
           <input type="range" id="margin-slider" min="2" max="24" step="2" value="10" class="glass-slider" aria-label="Page margins">
         </div>
+        <div class="setting-slider-row">
+          <div class="setting-row">
+            <div class="setting-label">Zoom<span id="zoom-display">100%</span></div>
+          </div>
+          <p class="setting-hint">Use <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> or floating control. Zoom applies to this document only and is not saved.</p>
+        </div>
       </section>
+
+      <div class="full-settings-spacer"></div>
+
+      <!-- Subcategory: Header & Status Display -->
+      <section class="settings-group" aria-labelledby="reading-status-title">
+        <div class="settings-group-header">
+          <div class="setting-section-title" id="reading-status-title">Header &amp; status display</div>
+          <p class="setting-hint">Configure reading information visible in the reader top bar.</p>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">Chapter title in header<span>Show current chapter name in reader top bar</span></div>
+          <button class="setting-switch" id="fs-progress-chapter" type="button" role="switch" aria-checked="true" aria-label="Show current chapter in reader header">
+            <span class="setting-switch-thumb"></span>
+          </button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">Page numbers in header<span>Display current page number and section total</span></div>
+          <button class="setting-switch" id="fs-progress-page" type="button" role="switch" aria-checked="true" aria-label="Show page number in reader header">
+            <span class="setting-switch-thumb"></span>
+          </button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">Reading percentage in header<span>Display progress percentage indicator</span></div>
+          <button class="setting-switch" id="fs-progress-percent" type="button" role="switch" aria-checked="true" aria-label="Show progress percentage in reader header">
+            <span class="setting-switch-thumb"></span>
+          </button>
+        </div>
+      </section>
+
+      <div class="full-settings-spacer"></div>
+
+      <!-- Subcategory: Reading Interaction & Comfort -->
       <section class="settings-group" id="reading-advanced-controls" aria-label="Reading comfort controls"></section>
       <div class="full-settings-spacer"></div>
       <button class="btn btn-ghost reset-settings-btn" id="reset-reader-settings-btn" type="button">Reset reading preferences</button>
@@ -847,7 +918,7 @@
               <p class="about-copy">Created by <strong>Vasanth Gajavelly</strong><br>Lirune Reader is a free, open-source EPUB reader designed to make digital reading beautiful, comfortable, and distraction-free.</p>
               <div class="about-meta">Version <span id="about-version">…</span> · Licensed under GNU GPL v3.0</div>
               <div class="about-actions">
-                <a href="https://buymeacoffee.com/vasanthgajavelly" target="_blank" rel="noopener noreferrer" class="btn btn-glow" aria-label="Support Lirune Reader on Buy Me a Coffee">☕ Buy Me a Coffee</a>
+                <a href="https://buymeacoffee.com/vasanthgajavelly" target="_blank" rel="noopener noreferrer" class="btn btn-glow" aria-label="Support Lirune Reader on Buy Me a Coffee"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v2M14 3v2M5 8h14l-1.2 10.1A3.3 3.3 0 0 1 14.5 21h-5a3.3 3.3 0 0 1-3.3-2.9L5 8Z"/><path d="M19 10h1a2 2 0 0 1 0 4h-1M8 11v4M12 11v4M16 11v4"/></svg>Buy Me a Coffee</a>
               </div>
             </section>
           </section>

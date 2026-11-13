@@ -286,7 +286,8 @@ const MobiAdapter = (() => {
         html: i === 0 ? html : ''
       }));
     }
-    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const safeHtml = typeof DocumentAdapter !== 'undefined' && DocumentAdapter.sanitizeHtml ? DocumentAdapter.sanitizeHtml(html) : html;
+    const parsed = new DOMParser().parseFromString(safeHtml, 'text/html');
     const body = parsed.body;
     if (!body || !body.textContent.trim()) {
       return [{ id: 'sec-1', label: fallbackTitle, depth: 0, html }];

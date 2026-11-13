@@ -381,3 +381,77 @@
   --z-modal: 200;
   --z-toast: 300;
 }
+
+/* Application chrome: quiet neutrals and one accessible accent. Reader page
+   colours and typography remain controlled by the reading settings. */
+:root,
+[data-theme="dark"] {
+  --accent: #8DB7CC;
+  --accent-hover: #A7C9D9;
+  --accent-active: #709DB4;
+  --accent-subtle: rgba(141, 183, 204, 0.14);
+  --accent-subtle-h: rgba(141, 183, 204, 0.22);
+  --accent-glow: rgba(141, 183, 204, 0.1);
+  --accent-glow-strong: rgba(141, 183, 204, 0.16);
+  --accent-text: #A7C9D9;
+  --accent-dim: #8DB7CC;
+  --border-accent: rgba(141, 183, 204, 0.42);
+  --gradient-accent: var(--accent);
+  --gradient-accent-soft: var(--accent-subtle);
+  --shadow-glow: var(--shadow-xs);
+  --shadow-glow-lg: var(--shadow-sm);
+}
+
+[data-theme="light"] {
+  --bg-base: #F3F5F6;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #F8FAFB;
+  --bg-card: #FFFFFF;
+  --bg-overlay: #E9EEF1;
+  --bg-glass-nav: rgba(248, 250, 251, 0.96);
+  --text-primary: #202A31;
+  --text-on-accent: #FFFFFF;
+  --text-secondary: #53616B;
+  --text-tertiary: #6F7D86;
+  --text-disabled: #AEB8BE;
+  --accent: #426F86;
+  --accent-hover: #365D71;
+  --accent-active: #2D5062;
+  --accent-subtle: rgba(66, 111, 134, 0.12);
+  --accent-subtle-h: rgba(66, 111, 134, 0.18);
+  --accent-glow: rgba(66, 111, 134, 0.1);
+  --accent-glow-strong: rgba(66, 111, 134, 0.16);
+  --accent-text: #365D71;
+  --accent-dim: #426F86;
+  --border-accent: rgba(66, 111, 134, 0.42);
+  --gradient-accent: var(--accent);
+  --gradient-accent-soft: var(--accent-subtle);
+  --shadow-glow: var(--shadow-xs);
+  --shadow-glow-lg: var(--shadow-sm);
+}
+
+[data-theme="oled"] {
+  --accent: #8DB7CC;
+  --accent-hover: #A7C9D9;
+  --accent-active: #709DB4;
+  --accent-subtle: rgba(141, 183, 204, 0.14);
+  --accent-subtle-h: rgba(141, 183, 204, 0.22);
+  --accent-glow: rgba(141, 183, 204, 0.1);
+  --accent-glow-strong: rgba(141, 183, 204, 0.16);
+  --accent-text: #A7C9D9;
+  --accent-dim: #8DB7CC;
+  --border-accent: rgba(141, 183, 204, 0.42);
+  --gradient-accent: var(--accent);
+  --gradient-accent-soft: var(--accent-subtle);
+  --shadow-glow: var(--shadow-xs);
+  --shadow-glow-lg: var(--shadow-sm);
+}
+
+:root {
+  --font-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-2xl: 20px;
+}

@@ -3379,7 +3379,7 @@ a { color: inherit; text-decoration: underline; }
   <h3>Application Accent vs. Reader Theme</h3>
   <p>It is important to distinguish between the two color customization systems in Lirune:</p>
   <ul>
-    <li><strong>Application Accent Color:</strong> This governs the user interface elements of the Lirune desktop window—such as buttons, tab highlights, slider tracks, and keyboard focus outlines. The default Lirune accent is <code>#EEECF8</code> (RGB 238, 236, 248). You can pick a custom accent in Settings or reset it to the default at any time.</li>
+    <li><strong>Application Accent Color:</strong> This governs the user interface elements of the Lirune desktop window—such as buttons, tab highlights, slider tracks, and keyboard focus outlines. The default Lirune accent is <code>#426F86</code> (RGB 66, 111, 134). You can pick a custom accent in Settings or reset it to the default at any time.</li>
     <li><strong>Reader Themes:</strong> These control the reading canvas itself—including the book page background, typography color, link styling, and text selection highlights.</li>
   </ul>
   <p>These two systems operate independently: adjusting your application accent keeps your reading page undisturbed, while changing your reading theme leaves your desktop application controls intact.</p>
@@ -3703,7 +3703,7 @@ a { color: inherit; text-decoration: underline; }
 
     // Minimalist open book symbol
     ctx.save();
-    ctx.strokeStyle = '#EEECF8';
+    ctx.strokeStyle = '#426F86';
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -3747,7 +3747,7 @@ a { color: inherit; text-decoration: underline; }
     ctx.letterSpacing = '1px';
     ctx.fillText('WELCOME TO', 200, 315);
     ctx.font = 'bold 36px "Playfair Display", Georgia, serif';
-    ctx.fillStyle = '#EEECF8';
+    ctx.fillStyle = '#426F86';
     ctx.fillText('LIRUNE', 200, 360);
 
     // Divider line

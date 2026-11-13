@@ -1,4 +1,21 @@
-const { app, BrowserWindow, dialog, shell, ipcMain, session } = require('electron');
+const electron = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain, session } = electron;
+
+// If invoked as the primary script while ELECTRON_RUN_AS_NODE is active in the environment,
+// strip the flag and re-spawn cleanly into standard Electron runtime.
+if (require.main === module && (!app || typeof app.whenReady !== 'function')) {
+  const { spawn } = require('child_process');
+  const electronExe = typeof electron === 'string' ? electron : process.execPath;
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.ELECTRON_RUN_AS_NODE;
+  delete cleanEnv.ELECTRON_NO_ASAR;
+  const child = spawn(electronExe, [__dirname, ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: cleanEnv
+  });
+  child.on('exit', (code) => process.exit(code || 0));
+  return;
+}
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -985,15 +1002,25 @@ ipcMain.handle('archive:inspect', async (event, filePathOrDescriptor) => {
 
     if (filePath) {
       const resolved = path.resolve(filePath);
-      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
-        return { success: false, error: 'Archive file does not exist' };
+      let fd;
+      try {
+        fd = fs.openSync(resolved, 'r');
+        const stats = fs.fstatSync(fd);
+        if (!stats.isFile()) {
+          return { success: false, error: 'Archive file does not exist' };
+        }
+        if (stats.size > MAX_BOOK_FILE_SIZE) {
+          return { success: false, error: `Archive exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)` };
+        }
+        authorizeBookPath(resolved);
+        fileBuffer = fs.readFileSync(fd);
+      } catch (err) {
+        return { success: false, error: err.code === 'ENOENT' ? 'Archive file does not exist' : (err.message || 'Failed to read archive') };
+      } finally {
+        if (fd !== undefined) {
+          try { fs.closeSync(fd); } catch {}
+        }
       }
-      const stats = fs.statSync(resolved);
-      if (stats.size > MAX_BOOK_FILE_SIZE) {
-        return { success: false, error: `Archive exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)` };
-      }
-      authorizeBookPath(resolved);
-      fileBuffer = fs.readFileSync(resolved);
     } else if (fileBuffer) {
       if (fileBuffer.byteLength > MAX_BOOK_FILE_SIZE) {
         return { success: false, error: `Archive exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)` };
@@ -1024,16 +1051,26 @@ ipcMain.handle('archive:extract', async (event, { filePath, buffer, selectedPath
     let resolvedName = archiveName;
     if (filePath) {
       const resolved = path.resolve(filePath);
-      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
-        return { success: false, error: 'Archive file does not exist' };
+      let fd;
+      try {
+        fd = fs.openSync(resolved, 'r');
+        const stats = fs.fstatSync(fd);
+        if (!stats.isFile()) {
+          return { success: false, error: 'Archive file does not exist' };
+        }
+        if (stats.size > MAX_BOOK_FILE_SIZE) {
+          return { success: false, error: 'Archive exceeds maximum supported size' };
+        }
+        authorizeBookPath(resolved);
+        fileBuffer = fs.readFileSync(fd);
+        if (!resolvedName) resolvedName = path.basename(resolved);
+      } catch (err) {
+        return { success: false, error: err.code === 'ENOENT' ? 'Archive file does not exist' : (err.message || 'Failed to read archive') };
+      } finally {
+        if (fd !== undefined) {
+          try { fs.closeSync(fd); } catch {}
+        }
       }
-      const stats = fs.statSync(resolved);
-      if (stats.size > MAX_BOOK_FILE_SIZE) {
-        return { success: false, error: 'Archive exceeds maximum supported size' };
-      }
-      authorizeBookPath(resolved);
-      fileBuffer = fs.readFileSync(resolved);
-      if (!resolvedName) resolvedName = path.basename(resolved);
     }
     if (!fileBuffer) {
       return { success: false, error: 'No archive content provided' };

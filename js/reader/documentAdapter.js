@@ -164,6 +164,8 @@ const DocumentAdapter = (() => {
         : (!s.fontFamily || s.fontFamily === 'Original' ? 'inherit' : `'${s.fontFamily}', Georgia, serif`);
       const lineHeight = Number(s.lineHeight) || 1.6;
       const paraSpacing = Number(s.paragraphSpacing ?? 1.0);
+      const wordSpacing = Number(s.wordSpacing ?? 0.0);
+      const letterSpacing = Number(s.letterSpacing ?? 0.0);
       const marginPercent = Number.isFinite(Number(s.margin)) ? Number(s.margin) : 10;
       const alignment = s.alignment || 'left';
       const pageGap = 48 * scale;
@@ -172,7 +174,9 @@ const DocumentAdapter = (() => {
       this.element.style.setProperty('--doc-font-family', fontFamily);
       this.element.style.setProperty('--doc-line-height', String(lineHeight));
       this.element.style.setProperty('--doc-para-spacing', `${paraSpacing}em`);
-      this.element.style.setProperty('--doc-align', alignment);
+      this.element.style.setProperty('--doc-word-spacing', `${wordSpacing}em`);
+      this.element.style.setProperty('--doc-letter-spacing', `${letterSpacing}em`);
+      this.element.style.setProperty('--doc-align', alignment === 'auto' ? 'start' : alignment);
       this.element.style.setProperty('--doc-margin', `${marginPercent}%`);
       this.element.style.setProperty('--doc-page-gap', `${pageGap}px`);
 
@@ -744,3 +748,8 @@ const DocumentAdapter = (() => {
 
   return { Adapter, escapeAttr, sanitizeHtml };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = DocumentAdapter;
+}
+

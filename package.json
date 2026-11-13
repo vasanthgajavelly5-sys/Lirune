@@ -7,9 +7,16 @@
   "scripts": {
     "start": "electron .",
     "lint": "node scripts/lint.js",
-    "test": "node --test test/audit-fixes.test.js test/currently-reading.test.js test/hardening.test.js test/storage-contract.test.js test/remediation-suite.test.js test/typography-themes.test.js test/toc-fixes.test.js test/ui-enhancements-12-items.test.js test/archive-import.test.js test/reader-panel-theme.test.js",
-    "audit": "npm audit --omit=dev",
-    "pack": "electron-builder --dir",
+    "test": "node --test test/unit/*.test.js test/integration/*.test.js test/*.test.js",
+    "test:unit": "node --test test/unit/*.test.js test/*.test.js",
+    "test:integration": "node --test test/integration/*.test.js",
+    "test:e2e:smoke": "node test/e2e/smoke.mjs",
+    "test:e2e:formats": "node test/e2e/format-e2e.mjs",
+    "test:e2e:matrix": "node test/e2e/format-matrix.mjs",
+    "test:perf": "node test/perf/benchmark.mjs",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e:smoke && npm run test:e2e:formats && npm run test:perf",
+    "audit": "npm audit",
+    "pack": "node -r ./scripts/builder-env-hook.js ./node_modules/electron-builder/cli.js --dir",
     "validate:corpus": "node scripts/validate-corpus.js",
     "dist": "node scripts/build-win.js",
     "dist:win": "node scripts/build-win.js",
@@ -128,6 +135,7 @@
     "pdfjs-dist": "^4.10.38"
   },
   "overrides": {
-    "@xmldom/xmldom": "^0.8.15"
+    "@xmldom/xmldom": "^0.8.15",
+    "minimatch": "^11.0.8"
   }
 }

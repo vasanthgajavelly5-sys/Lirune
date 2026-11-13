@@ -1,0 +1,208 @@
+/* Shared finish for library, reader chrome, settings, and dialogs. */
+button,
+input,
+select,
+textarea { font-family: var(--font-ui); }
+
+.ambient-bg { display: none; }
+
+.glass-nav {
+  background: var(--bg-glass-nav);
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 3px rgba(20, 30, 38, 0.04);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.btn-accent,
+.btn-glow {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: transparent;
+  box-shadow: none;
+}
+.btn-accent:hover,
+.btn-glow:hover {
+  background: var(--accent-hover);
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+.btn-glow::before { display: none; }
+.glass-select { border-radius: var(--r-md); }
+.icon-btn,
+.btn-icon { min-width: 36px; min-height: 36px; }
+
+#drop-zone {
+  gap: var(--sp-4);
+  padding: clamp(var(--sp-5), 3vw, var(--sp-8));
+}
+.home-layout {
+  width: min(1040px, 100%);
+  border-radius: var(--r-xl);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+.home-intro { padding: clamp(var(--sp-6), 4vw, var(--sp-10)); }
+.home-title {
+  max-width: 12ch;
+  font-size: clamp(2rem, 3.5vw, 3rem);
+  line-height: 1.08;
+}
+.home-title span { color: var(--text-secondary); }
+.home-copy { max-width: 44ch; line-height: 1.6; }
+.home-actions { margin-top: var(--sp-5); }
+.home-primary-action,
+.home-secondary-action { min-height: 42px; border-radius: var(--r-md); }
+.home-primary-action { box-shadow: none; }
+.home-assurances { margin-top: var(--sp-5); padding-top: var(--sp-4); }
+.home-visual {
+  min-height: 340px;
+  background: var(--bg-elevated);
+}
+.home-visual-halo { display: none; }
+.home-book-art {
+  width: min(82%, 360px);
+  filter: none;
+}
+.home-visual-caption {
+  left: var(--sp-4);
+  right: var(--sp-4);
+  bottom: var(--sp-4);
+  background: var(--bg-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.home-drop-note {
+  width: min(640px, 100%);
+  background: transparent;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+#lib-header { padding: var(--sp-6) clamp(var(--sp-5), 4vw, var(--sp-10)) var(--sp-3); }
+.lib-title { font-family: var(--font-ui); font-size: 1.45rem; font-weight: 650; }
+#books-grid { padding: var(--sp-4) clamp(var(--sp-5), 4vw, var(--sp-10)) var(--sp-8); }
+.book-card { animation: none; }
+.card-cover-wrap { border-radius: var(--r-md); box-shadow: var(--shadow-sm); }
+.book-card:hover .card-cover-wrap { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.card-cover-fallback { background: var(--bg-elevated); }
+
+.panel {
+  background: var(--bg-surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: var(--border-subtle);
+}
+#panel-overlay {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+#settings-panel { box-shadow: var(--shadow-lg); }
+.settings-body { gap: var(--sp-4); }
+.settings-group {
+  padding: var(--sp-2) 0 var(--sp-4);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  font-family: var(--font-ui);
+}
+.settings-section-heading p,
+.setting-hint,
+.setting-label span,
+.settings-group-header .setting-hint {
+  font-family: var(--font-ui);
+  text-align: left;
+  text-justify: auto;
+  hyphens: none;
+  -webkit-hyphens: none;
+}
+.setting-section-title,
+.setting-label { font-family: var(--font-ui); }
+.setting-label { font-size: 0.875rem; }
+.setting-hint,
+.setting-label span { line-height: 1.45; }
+.quick-row,
+.settings-group > .quick-row,
+.settings-group > .setting-row { min-height: 46px; }
+.panel:not([data-reader-panel-theme]) .setting-switch[aria-checked="true"],
+.panel:not([data-reader-panel-theme]) .quick-expand-btn,
+.panel:not([data-reader-panel-theme]) .full-settings-nav-item.active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: transparent;
+  box-shadow: none;
+}
+.panel:not([data-reader-panel-theme]) .quick-expand-btn:hover,
+.panel:not([data-reader-panel-theme]) .full-settings-nav-item.active:hover {
+  background: var(--accent-hover);
+  transform: none;
+  filter: none;
+}
+
+.modal-box {
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.empty-state { color: var(--text-secondary); }
+.empty-state h3 { color: var(--text-primary); }
+
+#reader-toolbar {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+#reader-loading { backdrop-filter: none; }
+
+@media (max-width: 900px) {
+  .home-layout { grid-template-columns: 1fr; }
+  .home-visual { min-height: 260px; }
+}
+@media (max-width: 600px) {
+  .home-intro { padding: var(--sp-6) var(--sp-5); }
+  .home-title { font-size: clamp(1.9rem, 9vw, 2.5rem); }
+  .home-visual { min-height: 220px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .book-card,
+  .card-cover-wrap,
+  .nav-arrow,
+  .panel { transition: none !important; animation: none !important; }
+}
+
+/* App preferences are mirrored to these root data attributes by AppPrefs. */
+html[data-rounded-covers="off"] .card-cover-wrap { border-radius: 0; }
+html[data-card-shadows="off"] .card-cover-wrap,
+html[data-card-shadows="off"] .book-card:hover .card-cover-wrap { box-shadow: none; }
+html[data-progress-badges="off"] .card-progress-bar,
+html[data-progress-badges="off"] .card-badge:not(.card-badge-warning),
+html[data-progress-badges="off"] .card-progress-list { display: none !important; }
+html[data-format-badges="off"] .card-format-badge,
+html[data-format-badges="off"] .card-format-pill { display: none !important; }
+html[data-continue-reading="off"] #continue-section { display: none !important; }
+html[data-cover-fit="contain"] .card-cover { object-fit: contain; }
+html[data-cover-fit="cover"] .card-cover { object-fit: cover; }
+html[data-footer-bar="off"] #reading-stripe { display: none !important; }
+html[data-smooth-scroll="on"] #reader-content-wrap,
+html[data-smooth-scroll="on"] .doc-viewport { scroll-behavior: smooth; }
+html[data-smooth-scroll="off"] #reader-content-wrap,
+html[data-smooth-scroll="off"] .doc-viewport { scroll-behavior: auto; }
+html[data-keyboard-cues="on"] :focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 3px;
+}
+html[data-glass-effect="on"] .glass-nav,
+html[data-glass-effect="on"] .panel,
+html[data-glass-effect="on"] .settings-group,
+html[data-glass-effect="on"] .modal-box,
+html[data-glass-effect="on"] #reader-toolbar,
+html[data-glass-effect="on"] #reader-loading {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}

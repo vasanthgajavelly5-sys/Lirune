@@ -12,6 +12,7 @@ const EpubLoader = (() => {
   let searchResults = [];
   let currentSearchIdx = -1;
   let searchGeneration = 0;
+  let containerResizeObserver = null;
   let activeSelection = null; // { cfiRange, text, chapter }
   let annotationCache = [];
   let lastNavigationAt = 0;
@@ -239,6 +240,10 @@ const EpubLoader = (() => {
         bookToDestroy.resources = dummyResources;
       }
     } catch { /* already gone */ }
+    if (containerResizeObserver) {
+      containerResizeObserver.disconnect();
+      containerResizeObserver = null;
+    }
     rendition = null;
     currentBook = null;
     currentBookData = null;
@@ -282,7 +287,11 @@ const EpubLoader = (() => {
     try {
       if (rendition) {
         rendition.destroy();
-        rendition = null;
+        if (containerResizeObserver) {
+      containerResizeObserver.disconnect();
+      containerResizeObserver = null;
+    }
+    rendition = null;
       }
       if (currentBook) {
         const dummyResources = { replaceCss: () => Promise.resolve([]), replacements: () => Promise.resolve([]), substitute: () => '' };
@@ -299,8 +308,21 @@ const EpubLoader = (() => {
     // Clear previous rendition DOM container
     lastAppliedThemeFontSize = null;
     lastAppliedThemeFontFamily = null;
+    lastDefaultThemeKey = null;
     const container = document.getElementById('epub-container');
-    if (container) container.innerHTML = '';
+    // Paint the container with the current reader theme background BEFORE clearing
+    // its contents so there is no white flash between the old rendition being
+    // removed and the new one loading (visible during flow/column reRender).
+    const themeColorForLoad = (() => {
+      try {
+        const tn = ThemeManager.getReaderTheme();
+        return ThemeManager.getThemeColors(tn)?.bg || '';
+      } catch { return ''; }
+    })();
+    if (container) {
+      if (themeColorForLoad) container.style.backgroundColor = themeColorForLoad;
+      container.innerHTML = '';
+    }
 
     try {
       let epubData = bookRecord.fileData;
@@ -334,12 +356,14 @@ const EpubLoader = (() => {
       document.getElementById('reader-main')?.classList.toggle('flow-scrolled', isScrolled);
 
       // Render book into container using continuous manager when scrolled
+      const gapVal = isScrolled ? 0 : Math.max(20, Math.round((settings.margin || 10) * 3));
       rendition = currentBook.renderTo('epub-container', {
         width: '100%',
         height: '100%',
         flow: isScrolled ? 'scrolled' : (settings.flow || 'paginated'),
         manager: isScrolled ? 'continuous' : 'default',
         spread: isScrolled ? 'none' : (settings.spread || 'auto'),
+        gap: gapVal,
         allowScriptedContent: false
       });
 
@@ -350,6 +374,29 @@ const EpubLoader = (() => {
 
       // Bind rendition lifecycle events
       bindRenditionEvents();
+
+      // Recalculate layout dynamically when reader container resizes (window resize, settings panel toggle)
+      if (typeof ResizeObserver !== 'undefined' && container) {
+        if (containerResizeObserver) containerResizeObserver.disconnect();
+        let lastW = container.clientWidth;
+        let lastH = container.clientHeight;
+        containerResizeObserver = new ResizeObserver(entries => {
+          if (!rendition || !isBookLoaded) return;
+          const entry = entries[0];
+          const w = Math.round(entry.contentRect.width);
+          const h = Math.round(entry.contentRect.height);
+          if (w > 0 && h > 0 && (Math.abs(w - lastW) > 3 || Math.abs(h - lastH) > 3)) {
+            lastW = w;
+            lastH = h;
+            try {
+              rendition.resize(w, h);
+            } catch (err) {
+              console.warn('Rendition resize warning:', err);
+            }
+          }
+        });
+        containerResizeObserver.observe(container);
+      }
 
       // Update toolbar metadata
       document.getElementById('reader-title').textContent = bookRecord.title || 'Untitled';
@@ -487,6 +534,7 @@ const EpubLoader = (() => {
     const themeName = ThemeManager.getReaderTheme();
     const colors = ThemeManager.getThemeColors(themeName);
     const settings = ReaderSettings.getSettings();
+    const isScrolled = settings.flow === 'scrolled';
     const appPrefs = (typeof AppPrefs !== 'undefined' && typeof AppPrefs.getAll === 'function')
       ? AppPrefs.getAll()
       : {};
@@ -503,14 +551,20 @@ const EpubLoader = (() => {
     const alignment = settings.alignment || 'left';
     const lineHeight = settings.lineHeight || 1.6;
     const paraSpacing = Number(settings.paragraphSpacing ?? 1.0);
+    const wordSpacing = Number(settings.wordSpacing ?? 0.0);
+    const letterSpacing = Number(settings.letterSpacing ?? 0.0);
     const margin = settings.margin ? `${settings.margin * 3}px` : '30px';
     const hyphensVal = appPrefs.autoHyphenation === false ? 'none' : 'auto';
     const underlineCss = appPrefs.underlineLinks === true ? 'text-decoration: underline !important;' : '';
+    const alignCss = alignment === 'auto'
+      ? '/* natural publisher alignment */'
+      : `text-align: ${alignment} !important;`;
 
-    if (doc.body && doc.body.style) {
-      // epub.js sets inline padding-left/right on body in paginated mode, which
-      // would otherwise override stylesheet rules. Force our margin directly and
-      // guard against epub.js re-applying column padding after layout.
+    // In scrolled mode, apply left and right body padding for reader margins.
+    // In paginated mode, epub.js manages body padding (gap / 2) and column width
+    // geometrically; overriding padding-left/right in paginated mode desynchronizes
+    // column phase-lock with horizontal scroll delta, causing multi-column drift.
+    if (isScrolled && doc.body && doc.body.style) {
       doc._noveraTargetMargin = margin;
       if (doc.body.style.getPropertyValue('padding-left') !== margin ||
           doc.body.style.getPropertyPriority('padding-left') !== 'important') {
@@ -520,30 +574,22 @@ const EpubLoader = (() => {
           doc.body.style.getPropertyPriority('padding-right') !== 'important') {
         doc.body.style.setProperty('padding-right', margin, 'important');
       }
-      if (!doc._noveraBodyStyleObserver && typeof MutationObserver !== 'undefined') {
-        doc._noveraBodyStyleObserver = new MutationObserver(() => {
-          const target = doc._noveraTargetMargin;
-          if (!target || !doc.body?.style) return;
-          if (doc.body.style.getPropertyValue('padding-left') !== target ||
-              doc.body.style.getPropertyPriority('padding-left') !== 'important') {
-            doc.body.style.setProperty('padding-left', target, 'important');
-          }
-          if (doc.body.style.getPropertyValue('padding-right') !== target ||
-              doc.body.style.getPropertyPriority('padding-right') !== 'important') {
-            doc.body.style.setProperty('padding-right', target, 'important');
-          }
-        });
-        doc._noveraBodyStyleObserver.observe(doc.body, {
-          attributes: true,
-          attributeFilter: ['style']
-        });
+    } else if (doc.body && doc.body.style) {
+      doc._noveraTargetMargin = null;
+      if (doc._noveraBodyStyleObserver) {
+        doc._noveraBodyStyleObserver.disconnect();
+        doc._noveraBodyStyleObserver = null;
       }
     }
 
+    // Ensure #novera-page-custom-style is always the very last element in head
+    // so its !important rules cascade over every author stylesheet in the EPUB.
     let styleEl = doc.getElementById('novera-page-custom-style');
     if (!styleEl) {
       styleEl = doc.createElement('style');
       styleEl.id = 'novera-page-custom-style';
+      doc.head.appendChild(styleEl);
+    } else if (styleEl.nextElementSibling) {
       doc.head.appendChild(styleEl);
     }
 
@@ -556,15 +602,23 @@ const EpubLoader = (() => {
         font-family: ${fontFam} !important;
         font-size: ${fontSize}px !important;
         line-height: ${lineHeight} !important;
-        padding-left: ${margin} !important;
-        padding-right: ${margin} !important;
+        word-spacing: ${wordSpacing}em !important;
+        letter-spacing: ${letterSpacing}em !important;
+        ${isScrolled ? `padding-left: ${margin} !important;\n        padding-right: ${margin} !important;` : ''}
+        ${alignCss}
       }
-      p, div, li, blockquote, dd, dt, span {
+      p, div, li, blockquote, dd, dt, span, article, section, main {
         font-family: ${fontFam} !important;
         color: ${colors.text} !important;
         line-height: ${lineHeight} !important;
-        text-align: ${alignment} !important;
+        word-spacing: ${wordSpacing}em !important;
+        letter-spacing: ${letterSpacing}em !important;
+        ${alignCss}
       }
+      ${alignment !== 'auto' ? `/* Maximize specificity against stubborn EPUB stylesheets (.calibre, #id, etc.) */
+      body *[class], body *[id], body p, body div, body span {
+        text-align: ${alignment} !important;
+      }` : ''}
       p, div, li, blockquote {
         hyphens: ${hyphensVal} !important;
         -webkit-hyphens: ${hyphensVal} !important;
@@ -591,6 +645,15 @@ const EpubLoader = (() => {
         color: ${colors.selectionText} !important;
       }
     `;
+
+    // Strip inline text-align only if non-empty, and do it on body + block elements
+    if (doc.body) {
+      if (doc.body.style?.textAlign) doc.body.style.removeProperty('text-align');
+      const styledElements = doc.body.querySelectorAll('[style*="text-align"], [style*="text-align"]');
+      styledElements.forEach(el => {
+        el.style.removeProperty('text-align');
+      });
+    }
   }
 
   function bindIframeKeyboard(doc) {
@@ -845,7 +908,7 @@ const EpubLoader = (() => {
     checkBookmarkStatus(currentCfi);
 
     // Persist reading progress to NoveraDB
-    if (currentBookData && currentBookData.id) {
+    if (currentBookData && currentBookData.id && AppPrefs.getAll().saveProgress !== false) {
       NoveraDB.updateProgress(currentBookData.id, {
         currentCfi,
         progressPercent: percent,
@@ -1004,6 +1067,8 @@ const EpubLoader = (() => {
     });
   }
 
+  let lastDefaultThemeKey = null;
+
   function registerDefaultTheme() {
     if (!rendition) return;
 
@@ -1014,6 +1079,10 @@ const EpubLoader = (() => {
     const fontFam = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getFontCssStack)
       ? ReaderSettings.getFontCssStack(settings.fontFamily)
       : (settings.fontFamily === 'Original' ? 'inherit' : `'${settings.fontFamily}', "Georgia", serif`);
+
+    const key = `${themeName}:${colors.bg}:${colors.text}:${fontFam}:${settings.fontSize}:${settings.lineHeight}`;
+    if (key === lastDefaultThemeKey) return;
+    lastDefaultThemeKey = key;
 
     rendition.themes.default({
       body: {
@@ -1029,8 +1098,14 @@ const EpubLoader = (() => {
   function applyTheme(themeName) {
     if (!rendition) return;
 
-    // Apply theme colors directly to the live iframe DOM immediately so there
-    // is no visible flash between the old and new background colors.
+    // 1. Update epub.js's own injected default theme so it always matches the
+    //    current reader theme. Without this, epub.js re-applies the stale initial
+    //    colors on every page turn / layout event, causing a visible background
+    //    color flash (e.g. white flash when in Sepia / Night themes).
+    registerDefaultTheme();
+
+    // 2. Apply theme colors directly to the live iframe DOM immediately so there
+    //    is no visible flash between the old and new background colors.
     scheduleLiveStyleRefresh(true);
   }
 
@@ -1039,6 +1114,21 @@ const EpubLoader = (() => {
       settings = (typeof ReaderSettings !== 'undefined') ? ReaderSettings.getSettings?.() : {};
     }
     if (!settings || !rendition) return;
+
+    // Dynamically update column spread (auto vs single) on the live rendition
+    if (typeof rendition.spread === 'function' && settings.spread) {
+      try {
+        rendition.spread(settings.spread);
+      } catch (err) {
+        console.warn('Rendition spread update warning:', err);
+      }
+    }
+
+    // Keep epub.js's own injected default theme rule in sync with the current
+    // reader theme + settings so that any epub.js-internal re-paint (page turn,
+    // layout, resize) uses the correct background/text colors and never flickers
+    // back to the stale initial values.
+    registerDefaultTheme();
 
     // Apply typography directly to the iframe DOM via injectPageStyles instead of
     // going through rendition.themes.fontSize / rendition.themes.font, which
@@ -1475,7 +1565,7 @@ const EpubLoader = (() => {
         card.innerHTML = `
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div>
-              <div class="bookmark-label">🔖 ${Utils.escapeHTML(item.chapter)}</div>
+              <div class="bookmark-label"><svg class="bookmark-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4.75A1.75 1.75 0 0 1 7.75 3h8.5A1.75 1.75 0 0 1 18 4.75V21l-6-3.8L6 21V4.75Z"/></svg>${Utils.escapeHTML(item.chapter)}</div>
               <div class="bookmark-date">${Utils.formatDate(item.dateAdded)}</div>
             </div>
             <button class="btn btn-ghost icon-btn btn-sm delete-ann-btn" title="Delete bookmark">✕</button>
@@ -1612,7 +1702,18 @@ const EpubLoader = (() => {
   function showLoading(show, text = 'Loading...') {
     const loader = document.getElementById('reader-loading');
     const label = document.getElementById('reader-loading-text');
-    if (loader) loader.classList.toggle('hidden', !show);
+    if (loader) {
+      loader.classList.toggle('hidden', !show);
+      if (show) {
+        // Paint the overlay with the current reader theme background so the
+        // loading screen never shows white during a flow / column re-render.
+        try {
+          const tn = ThemeManager.getReaderTheme();
+          const bg = ThemeManager.getThemeColors(tn)?.bg;
+          if (bg) loader.style.backgroundColor = bg;
+        } catch { /* ThemeManager may not be ready on first load */ }
+      }
+    }
     if (label && text) label.textContent = text;
   }
 

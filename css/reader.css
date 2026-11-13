@@ -769,7 +769,7 @@ body.focus-mode .focus-toc-btn {
   overflow-y: auto;
   overflow-x: auto;
 }
-.doc-viewport.is-word-document .doc-body {
+.doc-viewport.is-word-document:not(.is-paginated) .doc-body {
   max-width: none;
   width: 100%;
   padding: 0;

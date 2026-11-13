@@ -13,7 +13,7 @@ if %ERRORLEVEL% equ 0 (
 
 echo ========================================================
 echo Launching Lirune Reader v%APP_VERSION% (Desktop)...
-echo Fix: Instant settings apply, no flicker, column spread phase-lock (Auto 2-up / Single 1-up)
+echo Fix: Authentic Word page sheets, PDF/Word scroll mode defaults, left-aligned text, layout fixes
 echo ========================================================
 
 REM 1. Verify Node.js environment

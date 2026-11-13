@@ -1,7 +1,7 @@
 # Overnight Mission Status — Lirune Reader (Android)
 
 Monitoring/recovery agent log. Append-only. One checkpoint every ~25 minutes.
-Project: `C:\Users\vasanth\Desktop\Programs\Epub reader` — package `com.lirune.reader`
+Project: `<workspace>/Epub reader` — package `com.lirune.reader`
 Branch: `origin/android` (local `android`)
 Main agent session: `ses_f06bac146ffeC5UXDy60kO3oau` ("Maestro MCP setup for Lirune Android project")
 Monitoring agent session: `ses_f06a59e84ffejaJ7KMSIt8vOSB`
@@ -16,11 +16,11 @@ Monitoring agent session: `ses_f06a59e84ffejaJ7KMSIt8vOSB`
 - Source-only work; no further live EPUB/storage/format QA has been run. Still need final `npm test`, `npm run typecheck`, `npm run lint`, native release build/package audit, review, commit, push/tag, and release creation. Do not claim a release until remote publication is confirmed.
 
 Toolchain paths:
-- JDK: `C:\Users\vasanth\jdk17`
-- Android SDK: `C:\Users\vasanth\android-sdk`
-- adb: `C:\Users\vasanth\android-sdk\platform-tools\adb.exe`
+- JDK: `$JAVA_HOME`
+- Android SDK: `$ANDROID_HOME`
+- adb: `$ANDROID_HOME\platform-tools\adb.exe`
 - Maestro: `C:\maestro\maestro\bin\maestro.bat`
-- Emulator: `C:\Users\vasanth\android-sdk\emulator\emulator.exe`
+- Emulator: `$ANDROID_HOME\emulator\emulator.exe`
 - AVD: `qa_android` (Android 15 / API 35, 1080x2400 @420dpi, NVIDIA host GPU)
 
 ---
@@ -40,7 +40,7 @@ Formats completed: 18-format support claimed in commit `dab006c` message (unveri
 Formats remaining: Unknown — needs main agent's format matrix confirmation
 Issues fixed: Commit message claims issues 1-15 fixed (unverified by this checkpoint)
 Issues remaining: Unknown
-Current defect: Emulator `qa_android` is down with a **stale lock file** at `C:\Users\vasanth\.android\avd\qa_android.avd\multiinstance.lock` (last written 02:43:06). This will block a clean emulator restart if not cleared.
+Current defect: Emulator `qa_android` is down with a **stale lock file** at `~/.android\avd\qa_android.avd\multiinstance.lock` (last written 02:43:06). This will block a clean emulator restart if not cleared.
 Current blocker: Emulator offline — any further live QA is blocked until it is restarted
 Recovery action taken: Observation only — no recovery action taken yet. Main agent is `busy` and may already be handling the restart; a stale-lock clear plus emulator relaunch is queued for the next checkpoint if the device is still offline.
 Git commit: `dab006c` (HEAD)
@@ -1046,7 +1046,7 @@ Automated gates:
 pm run typecheck PASS; 
 pm test 52/52 PASS; 
 px eslint . --ext .ts,.tsx 0 errors / 19 warnings (root cause of the earlier lint failure was stray debug JS bundles in mobile/internal, now deleted).
-Signed release APK built with the release keystore from C:\Users\vasanth\.gradle\gradle.properties (keystore stays outside the repository): 70,368,481 bytes / 67.11 MiB, SHA-256 2DBE3A5E3BE033CE19F05328743604B19876A7C42AD1382AB51BCE8498CFE8B8. apksigner verifies the APK Signature Scheme v2 signature from CN=Lirune Reader Release. Installed on emulator-5554 as versionName 4.0.5 / versionCode 2 / targetSdk 36.
+Signed release APK built with the release keystore from ~/.gradle\gradle.properties (keystore stays outside the repository): 70,368,481 bytes / 67.11 MiB, SHA-256 2DBE3A5E3BE033CE19F05328743604B19876A7C42AD1382AB51BCE8498CFE8B8. apksigner verifies the APK Signature Scheme v2 signature from CN=Lirune Reader Release. Installed on emulator-5554 as versionName 4.0.5 / versionCode 2 / targetSdk 36.
 Emulator evidence on the installed release APK: onboarding -> library loads; drawer footer shows Lirune Reader . v4.0.5; Scan Phone completes without crash (0 direct-path results on Android 15 scoped storage); Scan Folder via SAF grants access and discovers 71 files in /sdcard/Download/lirune-qa-corpus; bulk import of all 71 files succeeds and the library reports 70 books with correct per-format metadata (title/author extracted for all 18 formats).
 Format matrix on the signed release APK: all 18 formats open their reader with no Display Error state.
 Reader-session defect found and fixed: switching books in one app process made the newly mounted engine receive the previous book's resolved file path (e.g. DocxReaderView handed a .djvu path). reader.tsx now binds the resolved source to the book id it was resolved for and drops stale resolutions.
@@ -1136,7 +1136,7 @@ Action: none - monitoring concludes, mission deliverables verified complete
 | Size | 70,368,661 bytes / 67.11 MiB |
 | SHA-256 | E2AC70C021E6B61A1D78139A6D8C345F1BBD32076D9E8310F175EBB356F1DE4B |
 | Signing | APK Signature Scheme v2, RSA 4096, DN CN=Lirune Reader Release, OU=Android, cert SHA-256 ef68ec8a...516d1; verified with pksigner verify --print-certs |
-| Keystore | C:\Users\vasanth\.android\keystores\lirune-release.jks, alias lirune-release; credentials live in C:\Users\vasanth\.gradle\gradle.properties, outside the repository |
+| Keystore | ~/.android\keystores\lirune-release.jks, alias lirune-release; credentials live in ~/.gradle\gradle.properties, outside the repository |
 | Version | versionName 4.0.5, versionCode 2, minSdk 24, targetSdk 36 |
 | ABIs | arm64-v8a, x86_64 |
 | Debug reference | app-debug.apk 111,921,390 bytes; release is ~41 MB smaller |

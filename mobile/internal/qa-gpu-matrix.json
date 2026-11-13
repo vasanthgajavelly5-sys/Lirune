@@ -44,7 +44,7 @@
       "thumbnails_tested": false,
       "appearance_tested": true,
       "tts_tested": true,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_epub_1.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_epub_1.png"
     },
     {
       "index": 2,
@@ -125,7 +125,7 @@
       "thumbnails_tested": true,
       "appearance_tested": false,
       "tts_tested": false,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_pdf_4.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_pdf_4.png"
     },
     {
       "index": 5,
@@ -233,7 +233,7 @@
       "thumbnails_tested": false,
       "appearance_tested": true,
       "tts_tested": true,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_txt_8.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_txt_8.png"
     },
     {
       "index": 9,
@@ -314,7 +314,7 @@
       "thumbnails_tested": false,
       "appearance_tested": true,
       "tts_tested": true,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_html_11.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_html_11.png"
     },
     {
       "index": 12,
@@ -395,7 +395,7 @@
       "thumbnails_tested": false,
       "appearance_tested": true,
       "tts_tested": true,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_fb2_14.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_fb2_14.png"
     },
     {
       "index": 15,
@@ -476,7 +476,7 @@
       "thumbnails_tested": true,
       "appearance_tested": false,
       "tts_tested": false,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_cbz_17.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_cbz_17.png"
     },
     {
       "index": 18,
@@ -557,7 +557,7 @@
       "thumbnails_tested": true,
       "appearance_tested": false,
       "tts_tested": false,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_cbr_20.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_cbr_20.png"
     },
     {
       "index": 21,
@@ -719,7 +719,7 @@
       "thumbnails_tested": false,
       "appearance_tested": true,
       "tts_tested": true,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_azw_26.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_azw_26.png"
     },
     {
       "index": 27,
@@ -962,7 +962,7 @@
       "thumbnails_tested": false,
       "appearance_tested": true,
       "tts_tested": true,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_doc_35.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_doc_35.png"
     },
     {
       "index": 36,
@@ -1151,7 +1151,7 @@
       "thumbnails_tested": false,
       "appearance_tested": true,
       "tts_tested": true,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_rtf_42.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_rtf_42.png"
     },
     {
       "index": 43,
@@ -1286,7 +1286,7 @@
       "thumbnails_tested": false,
       "appearance_tested": true,
       "tts_tested": true,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_chm_47.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_chm_47.png"
     },
     {
       "index": 48,
@@ -1394,7 +1394,7 @@
       "thumbnails_tested": false,
       "appearance_tested": false,
       "tts_tested": false,
-      "screenshot": "C:\\Users\\vasanth\\Desktop\\Programs\\Epub reader\\mobile\\internal\\gpu_qa_screenshots\\gpu_render_zip_51.png"
+      "screenshot": "mobile/internal/gpu_qa_screenshots/gpu_render_zip_51.png"
     },
     {
       "index": 52,

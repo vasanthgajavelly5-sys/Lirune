@@ -1,5 +1,5 @@
 {
-  "corpus_directory": "C:\\Users\\vasanth\\Desktop\\Programs\\lirune-qa-corpus",
+  "corpus_directory": "qa-corpus",
   "total_targets": 54,
   "total_downloaded": 54,
   "artifacts": [

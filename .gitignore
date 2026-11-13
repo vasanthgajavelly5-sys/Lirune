@@ -53,3 +53,8 @@ ehthumbs.db
 [Dd]esktop.ini
 .vscode/
 .idea/
+.kilo/
+*.avd/
+mobile/internal/kilo-live-qa-evidence/
+mobile/internal/gpu_qa_screenshots/
+

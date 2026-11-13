@@ -384,6 +384,8 @@ export interface ReaderSettings {
   keepScreenAwake?: boolean;
   /** Whether to retain off-screen chapter DOM/data in memory cache. Default false (low memory footprint). */
   scrollEngineCache?: boolean;
+  /** Skip expensive layout animations and transitions for lower-powered devices. */
+  performanceMode?: boolean;
 }
 
 /** Narrowest brightness the edge gesture can dial down to. */
@@ -409,6 +411,7 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   brightness: 100,
   keepScreenAwake: true,
   scrollEngineCache: false,
+  performanceMode: false,
 };
 
 const VALID_THEMES = new Set([
@@ -446,6 +449,7 @@ export function validateReaderSettings(raw: any): ReaderSettings {
   const brightness = clampReaderBrightness(raw.brightness);
   const keepScreenAwake = typeof raw.keepScreenAwake === 'boolean' ? raw.keepScreenAwake : (DEFAULT_READER_SETTINGS.keepScreenAwake ?? true);
   const scrollEngineCache = typeof raw.scrollEngineCache === 'boolean' ? raw.scrollEngineCache : false;
+  const performanceMode = typeof raw.performanceMode === 'boolean' ? raw.performanceMode : false;
 
   return {
     theme,
@@ -461,6 +465,7 @@ export function validateReaderSettings(raw: any): ReaderSettings {
     brightness,
     keepScreenAwake,
     scrollEngineCache,
+    performanceMode,
   };
 }
 

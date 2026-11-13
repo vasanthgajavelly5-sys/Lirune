@@ -118,3 +118,50 @@ describe('Theme Consistency & Hex Color Audit', () => {
     assert.ok(true, 'No unauthorized hardcoded hex colors found');
   });
 });
+
+describe('New Dark Reader Themes', () => {
+  // Helper to load READER_THEMES via dynamic import of the compiled TS source
+  // We read and parse statically from Colors.ts to avoid needing a full build.
+  const colorsFile = path.resolve(mobileRoot, 'theme', 'Colors.ts');
+  const colorsSource = fs.readFileSync(colorsFile, 'utf-8');
+
+  function extractTheme(key: string): Record<string, string> {
+    // Grab the block for each theme key from the source
+    const blockRe = new RegExp(`${key}:\\s*\\{([^}]+)\\}`, 's');
+    const match = colorsSource.match(blockRe);
+    if (!match) return {};
+    const block = match[1];
+    const result: Record<string, string> = {};
+    const lineRe = /(\w+):\s*'([^']+)'/g;
+    let m: RegExpExecArray | null;
+    while ((m = lineRe.exec(block)) !== null) {
+      result[m[1]] = m[2];
+    }
+    return result;
+  }
+
+  const newThemes: { key: string; expectedId: string; expectedLabel: string }[] = [
+    { key: 'nord',      expectedId: 'nord',      expectedLabel: 'Nord' },
+    { key: 'gruvbox',   expectedId: 'gruvbox',   expectedLabel: 'Gruvbox' },
+    { key: 'solarized', expectedId: 'solarized', expectedLabel: 'Solarized' },
+    { key: 'rosepine',  expectedId: 'rosepine',  expectedLabel: 'Rosé Pine' },
+    { key: 'dracula',   expectedId: 'dracula',   expectedLabel: 'Dracula' },
+    { key: 'mocha',     expectedId: 'mocha',     expectedLabel: 'Mocha' },
+  ];
+
+  for (const { key, expectedId, expectedLabel } of newThemes) {
+    it(`theme "${key}" has valid palette fields`, () => {
+      const theme = extractTheme(key);
+
+      assert.ok(typeof theme.bg === 'string' && theme.bg.length > 0, `${key}: bg must be a non-empty string`);
+      assert.ok(theme.bg.startsWith('#'), `${key}: bg must start with '#', got "${theme.bg}"`);
+
+      assert.ok(typeof theme.text === 'string' && theme.text.length > 0, `${key}: text must be a non-empty string`);
+      assert.ok(typeof theme.link === 'string' && theme.link.length > 0, `${key}: link must be a non-empty string`);
+
+      assert.ok(typeof theme.label === 'string' && theme.label.length > 0, `${key}: label must be a non-empty string`);
+      assert.strictEqual(theme.id, expectedId, `${key}: id must match the key`);
+      assert.strictEqual(theme.label, expectedLabel, `${key}: label mismatch`);
+    });
+  }
+});

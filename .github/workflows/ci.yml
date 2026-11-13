@@ -54,8 +54,16 @@ jobs:
       - name: Performance benchmark regression checks
         run: npm run test:perf
 
-      - name: Full dependency security audit
-        run: npm audit
+      - name: Production dependency security audit
+        run: node scripts/audit-prod.js
+
+      - name: Upload E2E failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: test/e2e/screenshots/
+          if-no-files-found: ignore
 
       - name: Validate corpus (if available)
         run: npm run validate:corpus

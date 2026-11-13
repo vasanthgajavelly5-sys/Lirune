@@ -14,6 +14,7 @@ import {
 import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
 import { ProgressPersistenceQueue } from './progressPersistenceQueue';
+import { useSettingsStore } from './settingsStore';
 
 const TAG = 'ReaderStore';
 const progressQueue = new ProgressPersistenceQueue((progress) =>
@@ -335,3 +336,10 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       isSettingsVisible: false,
     }),
 }));
+
+/**
+ * Resets reader display settings to defaults by delegating to the settings store.
+ */
+export function resetToDefaults(): Promise<void> {
+  return useSettingsStore.getState().resetReaderSettings();
+}

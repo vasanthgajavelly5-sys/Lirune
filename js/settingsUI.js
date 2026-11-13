@@ -302,7 +302,7 @@ const SettingsUI = (() => {
           <label class="quick-row-label" for="qs-theme-select">Theme</label>
           <select class="glass-select quick-select" id="qs-theme-select" data-quick-select="qs-theme">
             ${Object.entries(READER_THEME_LABELS).map(([value, label]) => `
-              <option value="${Utils.escapeHTML(value)}"${value === theme ? ' selected' : ''}>${Utils.escapeHTML(label)}</option>
+              <option value="${Utils.escapeAttr(value)}"${value === theme ? ' selected' : ''}>${Utils.escapeHTML(label)}</option>
             `).join('')}
           </select>
         </div>
@@ -366,7 +366,7 @@ const SettingsUI = (() => {
         <div class="segmented ${modifier ? `segmented-${modifier}` : ''}" role="group" aria-labelledby="${id}-label" data-quick-segment="${id}">
           ${options.map(option => `
             <button type="button" class="segment-opt${option.value === value ? ' active' : ''}"
-              data-value="${Utils.escapeHTML(option.value)}"
+              data-value="${Utils.escapeAttr(option.value)}"
               aria-pressed="${option.value === value ? 'true' : 'false'}">${Utils.escapeHTML(option.label)}</button>
           `).join('')}
         </div>
@@ -379,7 +379,7 @@ const SettingsUI = (() => {
         <label class="quick-row-label" for="${id}-select">${Utils.escapeHTML(label)}</label>
         <select class="glass-select quick-select" id="${id}-select" data-quick-select="${id}">
           ${options.map(option => `
-            <option value="${Utils.escapeHTML(option.value)}"${option.value === value ? ' selected' : ''}>${Utils.escapeHTML(option.label)}</option>
+            <option value="${Utils.escapeAttr(option.value)}"${option.value === value ? ' selected' : ''}>${Utils.escapeHTML(option.label)}</option>
           `).join('')}
         </select>
       </div>`;
@@ -393,7 +393,7 @@ const SettingsUI = (() => {
           <span class="quick-row-note">${Utils.escapeHTML(note)}</span>
         </div>
         <button type="button" role="switch" class="setting-switch" id="${id}"
-          aria-checked="${checked ? 'true' : 'false'}" aria-label="${Utils.escapeHTML(label)}"><span class="setting-switch-thumb"></span></button>
+          aria-checked="${checked ? 'true' : 'false'}" aria-label="${Utils.escapeAttr(label)}"><span class="setting-switch-thumb"></span></button>
       </div>`;
   }
 
@@ -407,7 +407,7 @@ const SettingsUI = (() => {
         <input type="range" class="glass-slider" id="${id}-range"
           data-quick-slider="${id}" data-unit="${unit}"
           min="${min}" max="${max}" step="${step}" value="${value}"
-          aria-label="${Utils.escapeHTML(label)}">
+          aria-label="${Utils.escapeAttr(label)}">
       </div>`;
   }
 

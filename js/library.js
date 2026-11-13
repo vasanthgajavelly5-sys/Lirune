@@ -1065,13 +1065,15 @@ const RENDER_BATCH_SIZE = 50;
           const safeName = Utils.escapeHTML(book.name);
           const safeExt = Utils.escapeHTML((book.ext || 'epub').toUpperCase());
           const safePath = Utils.escapeHTML(book.path);
+          const safeAttrPath = Utils.escapeAttr(book.path);
+          const safeAttrName = Utils.escapeAttr(book.name);
           const formattedSize = Utils.formatBytes(book.size || 0);
           return `
-            <div class="archive-book-item ${isChecked ? 'selected' : ''}" data-path="${safePath}" role="button" tabindex="0">
-              <input type="checkbox" ${isChecked ? 'checked' : ''} aria-label="Select ${safeName}">
+            <div class="archive-book-item ${isChecked ? 'selected' : ''}" data-path="${safeAttrPath}" role="button" tabindex="0">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} aria-label="Select ${safeAttrName}">
               <span class="archive-badge">${safeExt}</span>
               <div class="archive-book-info">
-                <span class="archive-book-name" title="${safeName}">${safeName}</span>
+                <span class="archive-book-name" title="${safeAttrName}">${safeName}</span>
                 <span class="archive-book-meta">${formattedSize}${book.path !== book.name ? ` • ${safePath}` : ''}</span>
               </div>
             </div>
@@ -1248,12 +1250,12 @@ const RENDER_BATCH_SIZE = 50;
         } else if (item.status === 'completed') {
           badgeHtml = '<span class="import-queue-badge completed">✓ Completed</span>';
         } else {
-          badgeHtml = `<span class="import-queue-badge error" title="${Utils.escapeHTML(item.error || 'Failed')}">✗ Error</span>`;
+          badgeHtml = `<span class="import-queue-badge error" title="${Utils.escapeAttr(item.error || 'Failed')}">✗ Error</span>`;
         }
         return `
           <div class="import-queue-item">
             <div class="import-queue-item-info">
-              <span class="import-queue-item-name" title="${Utils.escapeHTML(item.name)}">${Utils.escapeHTML(item.name)}</span>
+              <span class="import-queue-item-name" title="${Utils.escapeAttr(item.name)}">${Utils.escapeHTML(item.name)}</span>
               <span class="import-queue-item-meta">${item.size ? Utils.formatBytes(item.size) : ''}${item.error ? ` • ${Utils.escapeHTML(item.error)}` : ''}</span>
             </div>
             ${badgeHtml}

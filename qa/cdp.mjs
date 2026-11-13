@@ -214,6 +214,13 @@ export async function launch({ freshUserData = false, extraArgs = [] } = {}) {
   const isPackaged = Boolean(process.env.LIRUNE_BIN);
   const electron = process.env.LIRUNE_BIN
     || path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
+  if (!isPackaged && !fs.existsSync(electron)) {
+    const installScript = path.join(ROOT, 'node_modules', 'electron', 'install.js');
+    if (fs.existsSync(installScript)) {
+      console.log('Downloading Electron binary via install.js...');
+      spawnSync(process.execPath, [installScript], { stdio: 'inherit', cwd: ROOT });
+    }
+  }
   // This machine exports ELECTRON_RUN_AS_NODE=1 for tooling, which would make
   // the Electron binary behave as plain Node. The launcher BAT does not inherit
   // that, so strip it here to reproduce real application behaviour.

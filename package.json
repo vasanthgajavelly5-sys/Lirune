@@ -15,6 +15,7 @@
     "test:e2e:matrix": "node test/e2e/format-matrix.mjs",
     "test:perf": "node test/perf/benchmark.mjs",
     "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e:smoke && npm run test:e2e:formats && npm run test:perf",
+    "postinstall": "node node_modules/electron/install.js",
     "audit": "npm audit",
     "pack": "node -r ./scripts/builder-env-hook.js ./node_modules/electron-builder/cli.js --dir",
     "validate:corpus": "node scripts/validate-corpus.js",

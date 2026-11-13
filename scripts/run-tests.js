@@ -32,3 +32,4 @@ const res = spawnSync(process.execPath, ['--test', ...files], {
 });
 
 process.exit(res.status ?? 1);
+

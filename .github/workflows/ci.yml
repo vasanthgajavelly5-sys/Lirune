@@ -5,6 +5,7 @@ on:
     branches: [ lirune-store-home, main, master, android ]
   pull_request:
     branches: [ lirune-store-home, main, master, android ]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,9 +16,10 @@ permissions:
 
 jobs:
   validate-desktop:
-    name: Desktop Validation (Node 20 / Windows)
+    name: Desktop Validation (Node 22 / Windows)
     runs-on: windows-latest
-    if: github.ref_name != 'android' && github.base_ref != 'android'
+    timeout-minutes: 25
+    if: github.ref_name != 'android'
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -25,7 +27,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Clean install dependencies
@@ -34,21 +36,48 @@ jobs:
       - name: Lint and syntax checks
         run: npm run lint
 
-      - name: Run test suite
-        run: npm test
+      - name: Unit test suite
+        run: npm run test:unit
+
+      - name: Integration test suite
+        run: npm run test:integration
+
+      - name: E2E Smoke test (CDP / Electron)
+        run: npm run test:e2e:smoke
+
+      - name: Adapter-level format & settings tests
+        run: npm run test:e2e:formats
+
+      - name: Settings × Format capability matrix inspection
+        run: npm run test:e2e:matrix
+
+      - name: Performance benchmark regression checks
+        run: npm run test:perf
+
+      - name: Production dependency security audit
+        run: node scripts/audit-prod.js
+
+      - name: Upload E2E failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: test/e2e/screenshots/
+          if-no-files-found: ignore
 
       - name: Validate corpus (if available)
         run: npm run validate:corpus
 
-      - name: Production dependency audit
-        run: npm audit --omit=dev
-
       - name: Release configuration validation
         run: npm run validate:release:config
+
+      - name: Windows packaging assembly check (unsigned directory)
+        run: npm run pack
 
   validate-mobile:
     name: Mobile Validation (Node 22 / Ubuntu)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.ref_name != 'lirune-store-home'
     steps:
       - name: Checkout repository

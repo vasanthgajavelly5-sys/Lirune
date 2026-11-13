@@ -27,6 +27,7 @@ interface SettingsState {
   appTheme: AppThemeOption;
   accentColor: string;
   readerSettings: ReaderSettings;
+  profiles: Record<string, ReaderSettings>;
   accessibility: AccessibilitySettings;
   lastAuthorizedFolderUri: string | null;
   /** Every folder the user authorised with Scan Folder; all are re-scanned. */
@@ -58,6 +59,10 @@ interface SettingsState {
   setScanAccessDismissed: (dismissed: boolean) => Promise<void>;
   setHasCompletedWelcome: (completed: boolean) => Promise<void>;
   setHasSeenPermissionPrompt: (seen: boolean) => Promise<void>;
+  // New profile actions
+  saveProfile: (name: string) => Promise<void>;
+  loadProfile: (name: string) => Promise<void>;
+  deleteProfile: (name: string) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -67,6 +72,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   accessibility: DEFAULT_ACCESSIBILITY,
   lastAuthorizedFolderUri: null,
   authorizedFolderUris: [],
+  profiles: {} as Record<string, ReaderSettings>,
   scanAccessDismissed: false,
   hasCompletedWelcome: false,
   hasSeenPermissionPrompt: false,
@@ -85,6 +91,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         savedScanAccessDismissed,
         savedWelcome,
         savedSeenPerm,
+        savedProfiles,
       ] = await Promise.all([
         repo.getPreference?.('appTheme', 'system'),
         repo.getPreference?.('accentColor', '#EEECF8'),
@@ -95,6 +102,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         repo.getPreference?.('scanAccessDismissed', false),
         repo.getPreference?.('hasCompletedWelcome', false),
         repo.getPreference?.('hasSeenPermissionPrompt', false),
+        repo.getPreference?.('readingProfiles', {}),
       ]);
 
       const folderUris: string[] = Array.isArray(savedFolderUris) ? savedFolderUris.filter(Boolean) : [];
@@ -112,6 +120,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         scanAccessDismissed: !!savedScanAccessDismissed,
         hasCompletedWelcome: !!savedWelcome,
         hasSeenPermissionPrompt: !!savedSeenPerm,
+        profiles: (savedProfiles && typeof savedProfiles === 'object') ? savedProfiles : {},
         isLoaded: true,
       });
       await ttsService.hydrateVoiceSelection();
@@ -245,5 +254,33 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     } catch (err) {
       logger.warn(TAG, 'Failed to persist hasSeenPermissionPrompt', err);
     }
+  },
+
+  saveProfile: async (name: string) => {
+    const current = get().readerSettings;
+    const updated = { ...get().profiles, [name]: current };
+    set({ profiles: updated });
+    const repo = getBookRepository() as any;
+    try { await repo.setPreference?.('readingProfiles', updated); }
+    catch (err) { logger.warn(TAG, 'Failed to persist profiles', err); }
+  },
+
+  loadProfile: async (name: string) => {
+    const profile = get().profiles[name];
+    if (!profile) return;
+    const valid = validateReaderSettings(profile);
+    set({ readerSettings: valid });
+    const repo = getBookRepository() as any;
+    try { await repo.setPreference?.('readerSettings', valid); }
+    catch (err) { logger.warn(TAG, 'Failed to persist loaded profile', err); }
+  },
+
+  deleteProfile: async (name: string) => {
+    const updated = { ...get().profiles };
+    delete updated[name];
+    set({ profiles: updated });
+    const repo = getBookRepository() as any;
+    try { await repo.setPreference?.('readingProfiles', updated); }
+    catch (err) { logger.warn(TAG, 'Failed to persist profiles after delete', err); }
   },
 }));

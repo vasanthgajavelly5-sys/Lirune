@@ -24,6 +24,7 @@ import { ReaderSettings, ReaderThemeName, clampReaderBrightness } from '@/models
 import { READER_THEMES } from '@/theme/Colors';
 import { READER_FONTS, getNativeFontFamily } from '@/theme/Typography';
 import { useThemeContext } from '@/theme/ThemeContext';
+import { ProfileModal } from './ProfileModal';
 
 interface SettingsSheetProps {
   visible: boolean;
@@ -48,6 +49,7 @@ export function SettingsSheet({
   const panelWidth = Math.min(360, Math.floor(screenWidth * 0.88));
 
   const [showAllFontsModal, setShowAllFontsModal] = useState(false);
+  const [showProfilesModal, setShowProfilesModal] = useState(false);
   const { colors } = useThemeContext();
   const [fontCategoryFilter, setFontCategoryFilter] = useState<'all' | 'serif' | 'sans' | 'slab' | 'special'>('all');
 
@@ -132,6 +134,7 @@ export function SettingsSheet({
         {/* Backdrop */}
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <ProfileModal visible={showProfilesModal} onClose={() => setShowProfilesModal(false)} />
         </Animated.View>
 
         {/* Right-Side Panel */}
@@ -646,6 +649,23 @@ export function SettingsSheet({
                 })}
               </View>
             </View>
+
+            {/* Reading Profiles Button */}
+            <TouchableOpacity
+              style={[styles.resetBtn, { borderColor: borderColor, backgroundColor: surfaceBg, marginBottom: 10 }]}
+              onPress={() => setShowProfilesModal(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="bookmark-outline"
+                size={16}
+                color={activeAccent}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={[styles.resetBtnText, { color: textColor }]}>
+                Reading Profiles
+              </Text>
+            </TouchableOpacity>
 
             {/* Reset Button */}
             <TouchableOpacity

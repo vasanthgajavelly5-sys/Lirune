@@ -10,6 +10,8 @@ import {
   SortCriterion,
   SortDirection,
   FilterType,
+  ReaderSettings,
+  validateReaderSettings,
 } from '@/models/Book';
 import { getBookRepository } from '@/repositories';
 import { ImportService } from '@/services/import/ImportService';
@@ -51,6 +53,11 @@ interface LibraryState {
   setSearchQuery: (query: string) => void;
   updateBook: (book: Book) => void;
   clearError: () => void;
+
+  // Per-book overrides
+  bookOverrides: Record<string, ReaderSettings>;
+  setBookOverride: (bookId: string, settings: ReaderSettings) => Promise<void>;
+  clearBookOverride: (bookId: string) => Promise<void>;
 }
 
 let inFlightLibraryPromise: Promise<void> | null = null;
@@ -69,6 +76,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   filter: 'all',
   selectedCollectionId: 'all',
   searchQuery: '',
+  bookOverrides: {},
 
   loadLibrary: async (options?: { silent?: boolean; force?: boolean }) => {
     const state = get();
@@ -338,6 +346,24 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  setBookOverride: async (bookId: string, settings: ReaderSettings) => {
+    const valid = validateReaderSettings(settings);
+    const updated = { ...get().bookOverrides, [bookId]: valid };
+    set({ bookOverrides: updated });
+    const repo = getBookRepository() as any;
+    try { await repo.setPreference?.('bookOverrides', updated); }
+    catch (err) { logger.warn(TAG, 'Failed to persist bookOverrides', err); }
+  },
+
+  clearBookOverride: async (bookId: string) => {
+    const updated = { ...get().bookOverrides };
+    delete updated[bookId];
+    set({ bookOverrides: updated });
+    const repo = getBookRepository() as any;
+    try { await repo.setPreference?.('bookOverrides', updated); }
+    catch (err) { logger.warn(TAG, 'Failed to persist bookOverrides after clear', err); }
+  },
 }));
 
 let isBackfillingCovers = false;

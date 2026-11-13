@@ -40,6 +40,8 @@ interface AnnotationState {
   // Actions
   loadAnnotations: (options?: { force?: boolean; silent?: boolean }) => Promise<void>;
   removeAnnotation: (id: string, type: 'highlight' | 'note' | 'bookmark') => Promise<void>;
+  exportAnnotations: () => string;
+  importAnnotations: (json: string) => Promise<void>;
 }
 
 let inFlightLoadPromise: Promise<void> | null = null;
@@ -186,6 +188,28 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
       }));
     } catch (err) {
       logger.error(TAG, `Failed deleting annotation ${id}`, err);
+    }
+  },
+
+  exportAnnotations: () => {
+    return JSON.stringify(get().annotations ?? [], null, 2);
+  },
+
+  importAnnotations: async (json: string) => {
+    let parsed: unknown[];
+    try { parsed = JSON.parse(json); } catch { return; }
+    if (!Array.isArray(parsed)) return;
+    // merge into existing, avoid duplicates by id
+    const existing = new Map((get().annotations ?? []).map((a: any) => [a.id, a]));
+    for (const a of parsed) {
+      if (a && typeof (a as any).id === 'string') existing.set((a as any).id, a);
+    }
+    const merged = Array.from(existing.values()) as UnifiedAnnotation[];
+    set({ annotations: merged });
+    // persist each annotation
+    const repo = getBookRepository() as any;
+    for (const a of merged) {
+      try { await repo.saveAnnotation?.(a); } catch {}
     }
   },
 }));

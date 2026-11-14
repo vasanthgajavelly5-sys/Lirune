@@ -52,14 +52,11 @@ test('QA Real-File Corpus: Manifest and 54 Artifact Verification', async (t) => 
   // Verify file existence, hash integrity, and parser execution for all 54 files
   for (const item of manifest.artifacts) {
     const filePath = path.join(corpusDir, item.local_filename);
-    assert.ok(fs.existsSync(filePath), `File ${item.local_filename} must exist on disk`);
-
-    const stats = fs.statSync(filePath);
-    assert.ok(stats.size > 0, `File ${item.local_filename} must not be empty`);
-    assert.equal(stats.size, item.file_size, `File ${item.local_filename} size must match manifest`);
+    const fileBytes = fs.readFileSync(filePath);
+    assert.ok(fileBytes.length > 0, `File ${item.local_filename} must not be empty`);
+    assert.equal(fileBytes.length, item.file_size, `File ${item.local_filename} size must match manifest`);
 
     // Verify SHA-256
-    const fileBytes = fs.readFileSync(filePath);
     const hash = crypto.createHash('sha256').update(fileBytes).digest('hex');
     assert.equal(hash, item.sha256, `SHA-256 hash of ${item.local_filename} must match manifest`);
 

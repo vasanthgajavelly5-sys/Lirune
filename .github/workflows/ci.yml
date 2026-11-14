@@ -36,23 +36,11 @@ jobs:
       - name: Lint and syntax checks
         run: npm run lint
 
-      - name: Unit test suite
-        run: npm run test:unit
+      - name: Modernization and deprecated API gate
+        run: npm run check:modernization
 
-      - name: Integration test suite
-        run: npm run test:integration
-
-      - name: E2E Smoke test (CDP / Electron)
-        run: npm run test:e2e:smoke
-
-      - name: Adapter-level format & settings tests
-        run: npm run test:e2e:formats
-
-      - name: Settings × Format capability matrix inspection
-        run: npm run test:e2e:matrix
-
-      - name: Performance benchmark regression checks
-        run: npm run test:perf
+      - name: Desktop test suite
+        run: npm test
 
       - name: Production dependency security audit
         run: node scripts/audit-prod.js
@@ -99,6 +87,9 @@ jobs:
       - name: Mobile linting
         run: npm --prefix mobile run lint
 
+      - name: Modernization and deprecated API gate
+        run: npm run check:modernization
+
       - name: Mobile TypeScript check
         run: npm --prefix mobile run typecheck
 
@@ -107,6 +98,14 @@ jobs:
 
       - name: Mobile test suite
         run: npm --prefix mobile test
+
+      - name: Generate Android native project
+        working-directory: mobile
+        run: npx expo prebuild --no-install --platform android
+
+      - name: Android debug build
+        working-directory: mobile/android
+        run: ./gradlew :app:assembleDebug
 
       - name: Mobile production dependency audit
         run: npm --prefix mobile audit --omit=dev --audit-level=critical

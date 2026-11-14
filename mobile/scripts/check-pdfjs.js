@@ -1,11 +1,8 @@
-// Verifies the generated pdfjsAssets.ts round-trips correctly.
-//
-// Two independent checks per constant:
-//  1. the emitted string literal evaluates to byte-identical library source
-//  2. escapeForTemplateLiteral() output evaluates AS A TEMPLATE LITERAL back to
-//     the original bytes, which is exactly how the reader uses it
-const fs = require('fs');
-const path = require('path');
+// Verifies generated PDF.js assets against the exact generation pipeline.
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { readTransformedAsset, sources } = require('./pdfjs-pipeline');
 
 const root = path.resolve(__dirname, '..');
 const generated = fs.readFileSync(
@@ -13,96 +10,60 @@ const generated = fs.readFileSync(
   'utf8'
 );
 
-const cases = [
-  ['PDFJS_SOURCE', path.join(root, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.min.mjs')],
-  ['PDFJS_WORKER', path.join(root, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.min.mjs')],
-];
-
-function convertModuleToClassic(content, globalName, requiredExports) {
-  content = content.replace(/import\.meta\.url/g, 'undefined');
-  const exportPattern = /export\{([\s\S]*?)\};\s*$/;
-  const match = content.match(exportPattern);
-  if (!match || match.index === undefined) throw new Error('module export list missing');
-  const bindings = {};
-  for (const entry of match[1].split(',')) {
-    const parts = entry.trim().split(/\s+as\s+/);
-    if (parts.length === 2) bindings[parts[1]] = parts[0];
-  }
-  const bridge = requiredExports.map((name) => `${name}: ${bindings[name]}`).join(', ');
-  return `${content.slice(0, match.index)}globalThis.${globalName} = { ${bridge} };`;
-}
-
 let failed = false;
 
 function firstDiff(a, b) {
   const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     if (a[i] !== b[i]) return i;
   }
   return a.length === b.length ? -1 : n;
 }
 
-for (const [name, originalPath] of cases) {
-  const re = new RegExp('export const ' + name + ': string = ([\\s\\S]*?);\\r?\\n');
-  const m = generated.match(re);
-  if (!m) {
-    console.log(name + ': PATTERN NOT FOUND');
+for (const [name] of sources) {
+  const re = new RegExp(`export const ${name}: string = ([\\s\\S]*?);\\r?\\n`);
+  const match = generated.match(re);
+  if (!match) {
+    console.error(`${name}: generated export not found`);
     failed = true;
     continue;
   }
 
-  const moduleSource = fs.readFileSync(originalPath, 'utf8');
-  const original = convertModuleToClassic(
-    moduleSource,
-    name === 'PDFJS_SOURCE' ? 'pdfjsLib' : 'pdfjsWorker',
-    name === 'PDFJS_SOURCE'
-      ? ['getDocument', 'GlobalWorkerOptions', 'PDFWorker']
-      : ['WorkerMessageHandler']
-  );
-
-  // 1. literal -> value
+  const expected = readTransformedAsset(name);
   let value;
   try {
-    value = JSON.parse(m[1]);
-  } catch (e) {
-    console.log(name + ': JSON PARSE FAILED - ' + e.message);
+    value = JSON.parse(match[1]);
+  } catch (error) {
+    console.error(`${name}: generated string is not valid JSON: ${error.message}`);
     failed = true;
     continue;
   }
-  const litOk = value === original;
-  console.log(name + ': literalValueMatchesOriginal=' + litOk + ' bytes=' + value.length);
-  if (!litOk) {
+
+  const matches = value === expected;
+  console.log(`${name}: generatedMatchesPipeline=${matches} bytes=${value.length}`);
+  if (!matches) {
+    console.error(`  first diff at ${firstDiff(value, expected)}`);
     failed = true;
-    const d = firstDiff(value, original);
-    console.log('  first diff at ' + d);
   }
 
-  // 2. escape -> template literal evaluation -> original
-  //    Re-implements escapeForTemplateLiteral to keep this check standalone.
   const escaped = value
     .replace(/\\/g, '\\\\')
     .replace(/`/g, '\\`')
     .replace(/\$\{/g, '\\${');
-
-  let evaluated;
   try {
-    evaluated = new Function('return `' + escaped + '`')();
-  } catch (e) {
-    console.log(name + ': TEMPLATE EVAL THREW - ' + e.message);
+    const evaluated = new Function(`return \`${escaped}\`;`)();
+    if (evaluated !== expected) {
+      console.error(`${name}: template literal round-trip failed`);
+      failed = true;
+    }
+  } catch (error) {
+    console.error(`${name}: template literal evaluation failed: ${error.message}`);
     failed = true;
-    continue;
-  }
-  const tplOk = evaluated === original;
-  console.log(name + ': templateLiteralRoundTrip=' + tplOk);
-  if (!tplOk) {
-    failed = true;
-    const d = firstDiff(evaluated, original);
-    console.log('  first diff at ' + d);
   }
 }
 
 if (failed) {
-  console.log('RESULT: FAIL');
+  console.error('RESULT: FAIL');
   process.exit(1);
 }
 console.log('RESULT: PASS');

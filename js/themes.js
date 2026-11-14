@@ -97,14 +97,14 @@ const ThemeManager = (() => {
     bindUIEvents();
   }
 
-  function setAppTheme(themeName, persist = true) {
+  function setAppTheme(themeName, shouldPersist = true) {
     if (!APP_THEMES.includes(themeName)) themeName = 'dark';
     currentAppTheme = themeName;
 
     document.documentElement.setAttribute('data-theme', themeName);
     document.body.setAttribute('data-theme', themeName);
 
-    if (persist) {
+    if (shouldPersist) {
       NoveraDB.setPref('appTheme', themeName);
     }
 
@@ -132,7 +132,7 @@ const ThemeManager = (() => {
     return [parseInt(value.slice(0, 2), 16), parseInt(value.slice(2, 4), 16), parseInt(value.slice(4, 6), 16)];
   }
 
-  function applyAccent(value, persist = true) {
+  function applyAccent(value, shouldPersist = true) {
     const accent = normalizeAccent(value);
     const [red, green, blue] = accentRgb(accent);
     const luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
@@ -153,10 +153,10 @@ const ThemeManager = (() => {
     root.style.setProperty('--accent-glow-strong', `rgba(${red},${green},${blue},0.3)`);
     const input = document.getElementById('app-accent-color');
     if (input) input.value = accent;
-    if (persist) persist('accentColor', accent);
+    if (shouldPersist) persist('accentColor', accent);
   }
 
-  function setReaderTheme(themeName, persist = true) {
+  function setReaderTheme(themeName, shouldPersist = true) {
     if (!READER_THEMES.includes(themeName)) themeName = 'night';
     currentReaderTheme = themeName;
     const colors = getThemeColors(themeName);
@@ -180,7 +180,7 @@ const ThemeManager = (() => {
       preset.setAttribute('aria-pressed', preset.dataset.theme === themeName ? 'true' : 'false');
     });
     updateCustomUI();
-    if (persist) persist('readerTheme', themeName);
+    if (shouldPersist) persist('readerTheme', themeName);
 
     // Apply directly into EPUB iframe page content
     if (typeof EpubLoader !== 'undefined' && EpubLoader.isLoaded()) {

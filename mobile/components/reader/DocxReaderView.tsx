@@ -76,7 +76,11 @@ export function DocxReaderView({
         onChapterCountLoaded?.(Math.max(1, headings.length));
         if (onTOCLoaded) {
           const toc: TOCItem[] = headings.map((h, i) => {
-            const cleanText = h.replace(/<[^>]+>/g, '').trim();
+            let cleanText = h;
+            while (/<[^>]+>/.test(cleanText)) {
+              cleanText = cleanText.replace(/<[^>]+>/g, '');
+            }
+            cleanText = cleanText.trim();
             return {
               id: `sec_${i}`,
               label: cleanText || `Heading ${i + 1}`,

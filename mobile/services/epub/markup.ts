@@ -420,7 +420,7 @@ export async function inlineStyleUrls(
   for (let m = 0; m < matches.length; m++) {
     const resolved = resolutions[m];
     out += style.slice(cursor, matches[m].start);
-    out += resolved === null ? '' : `url("${resolved.replace(/"/g, '\\"')}")`;
+    out += resolved === null ? '' : `url("${resolved.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")`;
     cursor = matches[m].end;
   }
   out += style.slice(cursor);
@@ -663,9 +663,10 @@ function textOf(fragment: string): string {
   return fragment
     .replace(/<[^>]*>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, '&')
     .replace(/&#(\d+);/g, (_m, code: string) => String.fromCodePoint(Number(code)))
     .replace(/\s+/g, ' ')
     .trim();

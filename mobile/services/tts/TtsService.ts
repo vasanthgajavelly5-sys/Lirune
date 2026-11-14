@@ -131,16 +131,24 @@ export class TtsService {
   loadText(content: string, startIndex = 0) {
     this.stop();
 
-    // Strip HTML tags if present
-    const cleanText = content
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
+    // Strip HTML tags if present (matching whitespace in closing tags to prevent filter evasion)
+    let text = content;
+    let prev = '';
+    while (text !== prev) {
+      prev = text;
+      text = text
+        .replace(/<style\b[\s\S]*?<\/style\s*>/gi, '')
+        .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+        .replace(/<[^>]+>/g, ' ');
+    }
+
+    const cleanText = text
       .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&')
       .replace(/\s+/g, ' ')
       .trim();
 

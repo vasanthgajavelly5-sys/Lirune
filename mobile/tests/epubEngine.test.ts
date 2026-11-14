@@ -501,7 +501,7 @@ test('the reader document keeps every pagination and interaction control', () =>
     'touchend',
     '__lirunePager',
   ]) {
-    assert.match(html, new RegExp(token.replace(/[$]/g, '\\$')), `missing ${token}`);
+    assert.match(html, new RegExp(token.replace(/\\/g, '\\\\').replace(/[$]/g, '\\$')), `missing ${token}`);
   }
 
   const continuous = documentFor('continuous');
@@ -537,7 +537,7 @@ test('buildContinuousShell renders one section per chapter with only the active 
 
 test('continuous chapter titles are escaped', () => {
   const shell = buildContinuousShell(1, ['<script>alert(1)</script>'], 0, '<p>x</p>');
-  assert.doesNotMatch(shell, /<script>/);
+  assert.doesNotMatch(shell, /<script/i);
 });
 
 /* -------------------------------------------------------------------------- */
@@ -554,7 +554,7 @@ const VIEWPORTS: [string, number, number, boolean][] = [
 ];
 
 function paddingOf(css: string, selector: string): { top: number; right: number; bottom: number; left: number } {
-  const rule = new RegExp(`${selector.replace(/[.#]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css);
+  const rule = new RegExp(`${selector.replace(/\\/g, '\\\\').replace(/[.#]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css);
   assert.ok(rule, `${selector} rule is missing`);
   // Units are optional so a bare `0` is accepted.
   const padding = /padding:\s*([\d.]+)(?:px)?\s+([\d.]+)(?:px)?\s+([\d.]+)(?:px)?\s+([\d.]+)(?:px)?/.exec(rule[1]);

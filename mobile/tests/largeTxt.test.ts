@@ -55,7 +55,8 @@ function buildLargeFixture(filePath: string): number {
 }
 
 test('large TXT: index is built over a 10 MB file without resident growth', () => {
-  const tmp = path.join(os.tmpdir(), `lirune-large-txt-${process.pid}.txt`);
+  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-large-txt-'));
+  const tmp = path.join(testDir, 'large.txt');
   let fileSize = 0;
 
   try {
@@ -151,12 +152,13 @@ test('large TXT: index is built over a 10 MB file without resident growth', () =
         `${windows} windows, peak resident ${peakResidentChars} chars`
     );
   } finally {
-    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+    fs.rmSync(testDir, { recursive: true, force: true });
   }
 });
 
 test('large TXT: searching maps every hit to the chunk that contains it', () => {
-  const tmp = path.join(os.tmpdir(), `lirune-search-txt-${process.pid}.txt`);
+  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-search-txt-'));
+  const tmp = path.join(testDir, 'search.txt');
   try {
     // Pure ASCII, so a byte offset is also a string index. That keeps the
     // assertion about chunk membership exact and cheap. A rare marker is placed
@@ -232,6 +234,6 @@ test('large TXT: searching maps every hit to the chunk that contains it', () => 
       `  search: ${hits.length} hits; ${drifted.length} would have been misplaced by index/CHUNK_SIZE`
     );
   } finally {
-    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+    fs.rmSync(testDir, { recursive: true, force: true });
   }
 });

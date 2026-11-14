@@ -408,7 +408,16 @@ export class MetadataExtractor {
 
       // Annotation
       const annotMatch = xml.match(/<annotation[^>]*>([\s\S]*?)<\/annotation>/i);
-      const description = annotMatch ? annotMatch[1].replace(/<[^>]+>/g, '').trim() : undefined;
+      let description: string | undefined;
+      if (annotMatch) {
+        let desc = annotMatch[1];
+        let prevDesc = '';
+        while (desc !== prevDesc) {
+          prevDesc = desc;
+          desc = desc.replace(/<[^>]+>/g, '');
+        }
+        description = desc.trim();
+      }
 
       // Cover image binary
       let coverUrl: string | undefined;

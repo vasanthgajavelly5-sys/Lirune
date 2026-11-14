@@ -68,7 +68,11 @@ export function OdtReaderView({
         if (onTOCLoaded) {
           const headings = parsed.html.match(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi) || [];
           const toc: TOCItem[] = headings.map((h, i) => {
-            const cleanText = h.replace(/<[^>]+>/g, '').trim();
+            let cleanText = h;
+            while (/<[^>]+>/.test(cleanText)) {
+              cleanText = cleanText.replace(/<[^>]+>/g, '');
+            }
+            cleanText = cleanText.trim();
             return {
               id: `sec_${i}`,
               label: cleanText || `Section ${i + 1}`,

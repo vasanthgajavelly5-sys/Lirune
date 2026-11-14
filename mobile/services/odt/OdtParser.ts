@@ -87,10 +87,13 @@ export class OdtParser {
       }
 
       // Strip inner tags except text
-      const cleanText = inner
-        .replace(/<text:s\b[^>]*\/>/gi, ' ')
-        .replace(/<[^>]+>/g, '')
-        .trim();
+      let text = inner.replace(/<text:s\b[^>]*\/>/gi, ' ');
+      let prevText = '';
+      while (text !== prevText) {
+        prevText = text;
+        text = text.replace(/<[^>]+>/g, '');
+      }
+      const cleanText = text.trim();
 
       let paragraphHtml = '';
       if (cleanText) {

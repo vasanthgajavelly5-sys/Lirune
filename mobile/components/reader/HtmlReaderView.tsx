@@ -29,6 +29,16 @@ interface HtmlReaderViewProps {
   onSelectionChange?: (selection: SelectionPayload) => void;
 }
 
+function stripAllTags(input: string): string {
+  let prev = '';
+  let curr = input;
+  while (curr !== prev) {
+    prev = curr;
+    curr = curr.replace(/<[^>]*>/g, '');
+  }
+  return curr.trim();
+}
+
 export function HtmlReaderView({
   book,
   settings,
@@ -55,14 +65,14 @@ export function HtmlReaderView({
         if (active) {
           // Extract page title and meta description
           const titleMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-          const pageTitle = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : book.title || 'HTML document';
+          const pageTitle = titleMatch ? stripAllTags(titleMatch[1]) : book.title || 'HTML document';
           const metaMatch =
             raw.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']*)["']/i) ||
             raw.match(/<meta[^>]*content=["']([^"']*)["'][^>]*name=["']description["']/i);
           const metaDesc = metaMatch ? metaMatch[1].trim() : '';
 
           let sanitized = sanitizeHtml(raw);
-          const plainText = sanitized.replace(/<[^>]+>/g, '').trim();
+          const plainText = stripAllTags(sanitized);
 
           // Check if the page is a JS-only client-side SPA
           const isSpaNotice =

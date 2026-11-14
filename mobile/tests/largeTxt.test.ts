@@ -64,6 +64,7 @@ test('large TXT: index is built over a 10 MB file without resident growth', () =
 
     // Mirror FileStorage.readRangeAsString: a byte range read + decode.
     const fd = fs.openSync(tmp, 'r');
+    fileSize = fs.fstatSync(fd).size;
     const decoder = new TextDecoder('utf-8');
     const buffer = Buffer.alloc(WINDOW_BYTES);
 
@@ -71,6 +72,7 @@ test('large TXT: index is built over a 10 MB file without resident growth', () =
     let bytePos = 0;
     let peakResidentChars = 0;
     let windows = 0;
+    let all: Buffer;
 
     try {
       while (bytePos < fileSize) {
@@ -92,6 +94,9 @@ test('large TXT: index is built over a 10 MB file without resident growth', () =
         bytePos += windowBytes;
         windows++;
       }
+
+      all = Buffer.alloc(fileSize);
+      fs.readSync(fd, all, 0, fileSize, 0);
     } finally {
       fs.closeSync(fd);
     }
@@ -115,7 +120,6 @@ test('large TXT: index is built over a 10 MB file without resident growth', () =
     }
 
     // Every recorded cut must sit on a UTF-8 character boundary.
-    const all = fs.readFileSync(tmp);
     const strict = new TextDecoder('utf-8', { fatal: true });
     for (const off of offsets) {
       assert.doesNotThrow(
@@ -173,10 +177,11 @@ test('large TXT: searching maps every hit to the chunk that contains it', () => 
           : 'line ' + i + ' ordinary filler text with no marker at all'
       );
     }
-    fs.writeFileSync(tmp, lines.join('\n') + '\n', 'utf8');
-    const fileSize = fs.statSync(tmp).size;
+    const content = lines.join('\n') + '\n';
+    fs.writeFileSync(tmp, content, 'utf8');
 
     const fd = fs.openSync(tmp, 'r');
+    const fileSize = fs.fstatSync(fd).size;
     const decoder = new TextDecoder('utf-8');
     const buffer = Buffer.alloc(WINDOW_BYTES);
     const offsets: number[] = [0];
@@ -196,8 +201,6 @@ test('large TXT: searching maps every hit to the chunk that contains it', () => 
     } finally {
       fs.closeSync(fd);
     }
-
-    const content = fs.readFileSync(tmp, 'utf8');
 
     // A needle placed on widely separated lines, including well past the first
     // window, so an off-by-one in the offset index would be caught.

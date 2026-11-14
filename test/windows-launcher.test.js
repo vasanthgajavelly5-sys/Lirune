@@ -14,7 +14,7 @@ test('Launch-Lirune.bat exists and is non-empty', () => {
 });
 
 test('Launch-Lirune.bat succeeds with --test-dry-run', () => {
-  const result = spawnSync('cmd.exe', ['/c', batPath, '--test-dry-run'], {
+  const result = spawnSync('cmd.exe', ['/c', 'Launch-Lirune.bat', '--test-dry-run'], {
     cwd: root,
     encoding: 'utf8'
   });
@@ -23,7 +23,7 @@ test('Launch-Lirune.bat succeeds with --test-dry-run', () => {
 });
 
 test('Launch-Lirune.bat succeeds with --validate-only', () => {
-  const result = spawnSync('cmd.exe', ['/c', batPath, '--validate-only'], {
+  const result = spawnSync('cmd.exe', ['/c', 'Launch-Lirune.bat', '--validate-only'], {
     cwd: root,
     encoding: 'utf8'
   });

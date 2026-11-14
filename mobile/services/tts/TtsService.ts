@@ -137,8 +137,8 @@ export class TtsService {
     while (text !== prev) {
       prev = text;
       text = text
-        .replace(/<style\b[\s\S]*?<\/style\s*>/gi, '')
-        .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, '')
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, '')
         .replace(/<[^>]+>/g, ' ');
     }
 

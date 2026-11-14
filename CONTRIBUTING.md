@@ -17,6 +17,10 @@ Thank you for helping improve Lirune Reader, a private, open-source Windows EPUB
 - Keep Electron security settings intact: context isolation stays enabled and renderer Node integration stays disabled.
 - Prefer existing APIs and styles before adding dependencies.
 - Add or update focused validation for behavior changes.
+- Follow [DEVELOPMENT_STANDARDS.md](DEVELOPMENT_STANDARDS.md) and complete
+  [CODE_QUALITY_CHECKLIST.md](CODE_QUALITY_CHECKLIST.md) for every change.
+- Run `npm run check:modernization` and report any platform checks that are
+  `NOT TESTED`.
 - Do not commit private books, personal data, credentials, build secrets, or generated user storage.
 
 ## Pull Requests

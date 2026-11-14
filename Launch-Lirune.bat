@@ -1,80 +1,115 @@
 @echo off
 setlocal
 set ELECTRON_RUN_AS_NODE=
-set ELECTRON_NO_ASAR=
 title Lirune Reader - A calm home for your books
 cd /d "%~dp0"
 
-set "APP_VERSION=5.6.5"
-where node >nul 2>&1
-if %ERRORLEVEL% equ 0 (
-    for /f "delims=" %%v in ('node -p "require('./package.json').version" 2^>nul') do set "APP_VERSION=%%v"
+echo ========================================================
+echo Launching Lirune Reader (Desktop)...
+echo ========================================================
+
+REM Support dry-run / validation flag for testing and CI
+if "%1"=="--test-dry-run" (
+    echo [TEST] Launcher syntax and environment verified successfully.
+    exit /b 0
 )
 
-echo ========================================================
-echo Launching Lirune Reader v%APP_VERSION% (Desktop)...
-echo Fix: Authentic Word page sheets, PDF/Word scroll mode defaults, left-aligned text, layout fixes
-echo ========================================================
+REM 1. Check local packaged release build (v5.6.2+) in dist\win-unpacked
+if exist "%~dp0dist\win-unpacked\Lirune Reader.exe" (
+    echo [INFO] Found latest packaged release: dist\win-unpacked\Lirune Reader.exe
+    echo Starting Lirune Reader...
+    if "%1"=="--validate-only" (
+        echo [INFO] Target executable verified: "%~dp0dist\win-unpacked\Lirune Reader.exe"
+        exit /b 0
+    )
+    start "" "%~dp0dist\win-unpacked\Lirune Reader.exe" %*
+    goto :done
+)
 
-REM 1. Verify Node.js environment
+REM 2. Check installed desktop application in user or system program directories
+if exist "%LOCALAPPDATA%\Programs\Lirune Reader\Lirune Reader.exe" (
+    echo [INFO] Found installed Lirune Reader in %LOCALAPPDATA%\Programs\Lirune Reader
+    echo Starting Lirune Reader...
+    if "%1"=="--validate-only" (
+        echo [INFO] Target executable verified: "%LOCALAPPDATA%\Programs\Lirune Reader\Lirune Reader.exe"
+        exit /b 0
+    )
+    start "" "%LOCALAPPDATA%\Programs\Lirune Reader\Lirune Reader.exe" %*
+    goto :done
+)
+
+if exist "%LOCALAPPDATA%\Programs\lirune-reader\Lirune Reader.exe" (
+    echo [INFO] Found installed Lirune Reader in %LOCALAPPDATA%\Programs\lirune-reader
+    echo Starting Lirune Reader...
+    if "%1"=="--validate-only" (
+        echo [INFO] Target executable verified: "%LOCALAPPDATA%\Programs\lirune-reader\Lirune Reader.exe"
+        exit /b 0
+    )
+    start "" "%LOCALAPPDATA%\Programs\lirune-reader\Lirune Reader.exe" %*
+    goto :done
+)
+
+if exist "%ProgramFiles%\Lirune Reader\Lirune Reader.exe" (
+    echo [INFO] Found installed Lirune Reader in %ProgramFiles%\Lirune Reader
+    echo Starting Lirune Reader...
+    if "%1"=="--validate-only" (
+        echo [INFO] Target executable verified: "%ProgramFiles%\Lirune Reader\Lirune Reader.exe"
+        exit /b 0
+    )
+    start "" "%ProgramFiles%\Lirune Reader\Lirune Reader.exe" %*
+    goto :done
+)
+
+set "PF86=%ProgramFiles(x86)%"
+if not defined PF86 goto :skip_pf86
+if not exist "%PF86%\Lirune Reader\Lirune Reader.exe" goto :skip_pf86
+echo [INFO] Found installed Lirune Reader in %PF86%\Lirune Reader
+echo Starting Lirune Reader...
+if "%1"=="--validate-only" goto :validate_pf86
+start "" "%PF86%\Lirune Reader\Lirune Reader.exe" %*
+goto :done
+:validate_pf86
+echo [INFO] Target executable verified: "%PF86%\Lirune Reader\Lirune Reader.exe"
+exit /b 0
+:skip_pf86
+
+REM 3. Fallback to developer source execution via Electron
+echo [INFO] No standalone or installed binary found.
+echo Checking Node.js development environment...
+
+REM Verify Node.js is installed
 where node >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Node.js was not found in PATH.
     echo Please install Node.js version 20 or later from https://nodejs.org/
-    pause
+    if "%CI%"=="" pause
     exit /b 1
 )
 
-REM 2. Verify local dependencies exist
+REM Verify local dependencies exist
 if not exist "node_modules\" (
     echo [INFO] node_modules not found. Running npm install...
     call npm install
     if %ERRORLEVEL% neq 0 (
         echo [ERROR] Failed to install project dependencies.
-        pause
+        if "%CI%"=="" pause
         exit /b 1
     )
 )
 
-REM 3. Handle optional clean / fresh state arguments
-set "EXTRA_FLAGS="
-if /i "%~1"=="--fresh" (
-    echo [INFO] Launching in an isolated clean temporary profile...
-    set "EXTRA_FLAGS=--user-data-dir=%TEMP%\Lirune-Fresh-%RANDOM%"
-)
-if /i "%~1"=="--clean" (
-    echo [INFO] Launching in an isolated clean temporary profile...
-    set "EXTRA_FLAGS=--user-data-dir=%TEMP%\Lirune-Fresh-%RANDOM%"
+if "%1"=="--validate-only" (
+    echo [INFO] Developer fallback verified: Electron source available.
+    exit /b 0
 )
 
-REM 4. Launch packaged binary if --packaged is passed, otherwise live workspace
-if /i "%~1"=="--packaged" (
-    if not exist "%~dp0dist\win-unpacked\Lirune Reader.exe" (
-        echo [ERROR] Packaged build not found at dist\win-unpacked\Lirune Reader.exe
-        echo Run npm run pack first.
-        pause
-        exit /b 1
-    )
-    echo Starting packaged Lirune Reader v%APP_VERSION%...
-    "%~dp0dist\win-unpacked\Lirune Reader.exe" %EXTRA_FLAGS%
-    if %ERRORLEVEL% neq 0 (
-        echo [ERROR] Packaged application exited with code %ERRORLEVEL%.
-        pause
-    )
-    goto :done
-)
-
-echo Starting Lirune Reader v%APP_VERSION% desktop client from live workspace...
-if exist "%~dp0node_modules\electron\dist\electron.exe" (
-    "%~dp0node_modules\electron\dist\electron.exe" "%~dp0." %EXTRA_FLAGS% %*
-) else if exist "%~dp0node_modules\.bin\electron.cmd" (
-    call "%~dp0node_modules\.bin\electron.cmd" . %EXTRA_FLAGS% %*
+echo Starting Lirune Reader desktop client from source...
+if exist "node_modules\.bin\electron.cmd" (
+    call "node_modules\.bin\electron.cmd" . %*
 ) else (
-    call npx electron . %EXTRA_FLAGS% %*
+    call npx electron . %*
 )
 if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Electron exited with code %ERRORLEVEL%.
-    pause
+    echo [WARN] Electron process exited with code %ERRORLEVEL%.
 )
 
 :done

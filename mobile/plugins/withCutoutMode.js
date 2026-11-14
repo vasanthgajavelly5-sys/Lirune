@@ -46,10 +46,15 @@ module.exports = function withCutoutMode(config) {
     async (cfg) => {
       const { projectRoot, platformProjectRoot } = cfg.modRequest;
       const stylesPath = await AndroidConfig.Styles.getProjectStylesXMLPathAsync(projectRoot);
-      if (!fs.existsSync(stylesPath)) {
-        throw new Error(`withCutoutMode: ${platformProjectRoot} has no res/values/styles.xml.`);
+      let styles;
+      try {
+        styles = fs.readFileSync(stylesPath, 'utf8');
+      } catch (err) {
+        if (err && err.code === 'ENOENT') {
+          throw new Error(`withCutoutMode: ${platformProjectRoot} has no res/values/styles.xml.`);
+        }
+        throw err;
       }
-      const styles = fs.readFileSync(stylesPath, 'utf8');
       const patched = addCutoutMode(styles);
       if (patched !== styles) fs.writeFileSync(stylesPath, patched, 'utf8');
       return cfg;

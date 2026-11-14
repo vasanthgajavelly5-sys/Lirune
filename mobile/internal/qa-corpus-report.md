@@ -3,7 +3,7 @@
 - **Total Target Formats**: 18
 - **Total Target Files**: 54 (Strictly 3 distinct files per format)
 - **Total Successfully Downloaded / Prepared**: 54/54
-- **Corpus Storage Location**: `qa-corpus` (external to git repository)
+- **Corpus Storage Location**: `C:\Users\vasanth\Desktop\Programs\lirune-qa-corpus` (external to git repository)
 
 ### Format Distribution
 

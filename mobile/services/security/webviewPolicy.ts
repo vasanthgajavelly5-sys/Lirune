@@ -29,9 +29,11 @@ export function allowReaderNavigation(request: WebViewNavigation): boolean {
   const url = request.url ?? '';
   if (!url) return true; // initial about:blank handshake
   const lower = url.toLowerCase();
-  // Strictly reject hostile external, scheme-relative, or system-level navigation attempts
+  // Strictly reject hostile external, executable, scheme-relative, or system-level navigation attempts
   if (
     lower.startsWith('javascript:') ||
+    lower.startsWith('vbscript:') ||
+    (lower.startsWith('data:') && !lower.startsWith('data:text/html') && !lower.startsWith('data:image/')) ||
     lower.startsWith('intent:') ||
     lower.startsWith('content:') ||
     lower.startsWith('file:') ||

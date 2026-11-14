@@ -117,7 +117,11 @@ export function Fb2ReaderView({
           const titleMatch = secHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
           let titleText = `Section ${idx}`;
           if (titleMatch) {
-            titleText = titleMatch[1].replace(/<[^>]+>/g, '').trim() || titleText;
+            let stripped = titleMatch[1];
+            while (/<[^>]+>/.test(stripped)) {
+              stripped = stripped.replace(/<[^>]+>/g, '');
+            }
+            titleText = stripped.trim() || titleText;
             // Remove title tag from content since we render our own header
             secHtml = secHtml.replace(/<title[^>]*>[\s\S]*?<\/title>/i, '');
           }

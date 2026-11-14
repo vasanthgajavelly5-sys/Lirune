@@ -3,11 +3,7 @@ param(
     [string]$Engine = "v1" # v1 or v2
 )
 
-$adb = if ($env:ANDROID_HOME -and (Test-Path "$env:ANDROID_HOME\platform-tools\adb.exe")) {
-    "$env:ANDROID_HOME\platform-tools\adb.exe"
-} else {
-    "adb"
-}
+$adb = "C:\Users\vasanth\android-sdk\platform-tools\adb.exe"
 
 function RunAdb($cmd) {
     & $adb -s $Device shell $cmd

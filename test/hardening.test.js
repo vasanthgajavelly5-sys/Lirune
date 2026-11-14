@@ -6,8 +6,8 @@ const path = require('path');
 test('Version consistency across package and lockfile', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'));
   const lock = JSON.parse(fs.readFileSync(path.join(__dirname, '../package-lock.json'), 'utf8'));
-  assert.equal(pkg.version, '5.6.5', 'package.json version must be 5.6.5');
-  assert.equal(lock.version, '5.6.5', 'package-lock.json version must be 5.6.5');
+  assert.equal(pkg.version, '5.6.4', 'package.json version must be 5.6.4');
+  assert.equal(lock.version, '5.6.4', 'package-lock.json version must be 5.6.4');
   assert.equal(pkg.build?.artifactName, '${productName}-${version}-Setup.${ext}');
 });
 

@@ -29,6 +29,16 @@ interface HtmlReaderViewProps {
   onSelectionChange?: (selection: SelectionPayload) => void;
 }
 
+function stripAllTags(input: string): string {
+  let prev = '';
+  let curr = input;
+  while (curr !== prev) {
+    prev = curr;
+    curr = curr.replace(/<[^>]*>/g, '');
+  }
+  return curr.trim();
+}
+
 export function HtmlReaderView({
   book,
   settings,
@@ -53,7 +63,37 @@ export function HtmlReaderView({
       try {
         const raw = await fileStorage.readAsString(bookPath);
         if (active) {
-          setHtmlContent(sanitizeHtml(raw));
+          // Extract page title and meta description
+          const titleMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+          const pageTitle = titleMatch ? stripAllTags(titleMatch[1]) : book.title || 'HTML document';
+          const metaMatch =
+            raw.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']*)["']/i) ||
+            raw.match(/<meta[^>]*content=["']([^"']*)["'][^>]*name=["']description["']/i);
+          const metaDesc = metaMatch ? metaMatch[1].trim() : '';
+
+          let sanitized = sanitizeHtml(raw);
+          const plainText = stripAllTags(sanitized);
+
+          // Check if the page is a JS-only client-side SPA
+          const isSpaNotice =
+            !plainText ||
+            /this page requires javascript|you need to enable javascript|javascript is required|enable javascript to continue/i.test(
+              plainText
+            );
+
+          if (isSpaNotice && !sanitized.includes('<img')) {
+            sanitized = `
+              <div style="padding: 36px 16px; text-align: center; max-width: 600px; margin: 32px auto;">
+                <h2 style="font-size: 1.35rem; margin-bottom: 12px; color: ${palette.text};">${pageTitle}</h2>
+                ${metaDesc ? `<p style="color: ${palette.muted}; margin-bottom: 20px; line-height: 1.6;">${metaDesc}</p>` : ''}
+                <div style="background: rgba(128,128,128,0.12); border-radius: 8px; padding: 18px; font-size: 0.95rem; color: ${palette.muted}; line-height: 1.6;">
+                  This web page was saved as dynamic client-side HTML (Single Page Application). Its readable content is rendered dynamically by external JavaScript scripts which cannot be executed in this reader.
+                </div>
+              </div>
+            `;
+          }
+
+          setHtmlContent(sanitized);
           setIsLoading(false);
         }
       } catch (err) {
@@ -68,40 +108,105 @@ export function HtmlReaderView({
     return () => {
       active = false;
     };
-  }, [book.filePath, book.uri]);
+  }, [book.filePath, book.uri, book.title, palette.text, palette.muted]);
 
   useEffect(() => {
+    const cssFont = getCssFontFamily(settings.fontFamily);
+    const cardBg = palette.surface || palette.bg;
+    const cssText = `
+      html, body {
+        background-color: ${palette.bg} !important;
+        color: ${palette.text} !important;
+        font-family: ${cssFont} !important;
+        font-size: ${settings.fontSize}px !important;
+        line-height: ${settings.lineHeight} !important;
+        text-align: ${settings.alignment} !important;
+      }
+      .doc-viewport {
+        padding-left: ${settings.margin + 4}px !important;
+        padding-right: ${settings.margin + 4}px !important;
+      }
+      .doc-page-card {
+        background-color: ${cardBg} !important;
+        color: ${palette.text} !important;
+      }
+      .doc-page-content, p, div, span, h1, h2, h3, h4, h5, h6, li, blockquote {
+        color: ${palette.text} !important;
+      }
+      p {
+        margin-bottom: ${settings.paragraphSpacing || 1.0}em !important;
+        text-align: ${settings.alignment} !important;
+      }
+      a {
+        color: ${palette.link} !important;
+      }
+    `;
+    const escaped = cssText.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\n/g, ' ');
     webViewRef.current?.injectJavaScript(`
       (function() {
         var el = document.getElementById('reader-theme-override');
         if (el) {
-          el.textContent = 'html, body { background-color: ${palette.bg} !important; color: ${palette.text} !important; } p, div, span, h1, h2, h3, h4, h5, h6, li, blockquote { color: ${palette.text} !important; background-color: transparent !important; } a { color: ${palette.link} !important; }';
-        }
-        if (document.body) {
-          document.body.style.setProperty('background-color', '${palette.bg}', 'important');
-          document.body.style.setProperty('color', '${palette.text}', 'important');
+          el.textContent = \`${escaped}\`;
         }
       })(); true;
     `);
-  }, [palette.bg, palette.text, palette.link]);
+  }, [
+    palette.bg,
+    palette.surface,
+    palette.text,
+    palette.link,
+    settings.fontFamily,
+    settings.fontSize,
+    settings.lineHeight,
+    settings.paragraphSpacing,
+    settings.margin,
+    settings.alignment,
+  ]);
 
   // Generate styled, secure wrapper HTML
+  const cardBg = palette.surface || palette.bg;
   const styledHtml = `
     <!DOCTYPE html>
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
       <style>
+        * { box-sizing: border-box; }
         body {
           background-color: ${palette.bg};
           color: ${palette.text};
           font-family: ${getCssFontFamily(settings.fontFamily)};
           font-size: ${settings.fontSize}px;
           line-height: ${settings.lineHeight};
-          padding: 24px ${settings.margin + 4}px 60px ${settings.margin + 4}px;
           margin: 0;
+          padding: 0;
           text-align: ${settings.alignment};
-          word-wrap: break-word;
+          overflow-x: hidden;
+        }
+        .doc-viewport {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 24px ${settings.margin + 4}px 60px ${settings.margin + 4}px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .doc-page-card {
+          width: 100%;
+          max-width: 816px;
+          background-color: ${cardBg};
+          color: ${palette.text};
+          padding: 28px 20px;
+          border-radius: 6px;
+          box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+          border: 1px solid rgba(128, 128, 128, 0.18);
+          box-sizing: border-box;
+          overflow: hidden;
+        }
+        .doc-page-content {
+          width: 100%;
+          overflow-wrap: break-word;
+          word-break: break-word;
         }
         a {
           color: ${palette.link};
@@ -118,11 +223,27 @@ export function HtmlReaderView({
           margin-top: 1.5em;
           margin-bottom: 0.5em;
           line-height: 1.3;
+          overflow-wrap: break-word;
+          word-break: break-word;
         }
         p {
           margin-top: 0;
           margin-bottom: ${settings.paragraphSpacing || 1.0}em;
           text-indent: 1em;
+          text-align: ${settings.alignment};
+          overflow-wrap: break-word;
+          word-break: break-word;
+        }
+        table {
+          border-collapse: collapse;
+          width: 100%;
+          margin: 16px 0;
+          display: block;
+          overflow-x: auto;
+        }
+        button, input, select, textarea {
+          pointer-events: none;
+          opacity: 0.8;
         }
         hr {
           border: 0;
@@ -131,13 +252,42 @@ export function HtmlReaderView({
         }
       </style>
       <style id="reader-theme-override">
-        html, body { background-color: ${palette.bg} !important; color: ${palette.text} !important; }
-        p, div, span, h1, h2, h3, h4, h5, h6, li, blockquote { color: ${palette.text} !important; background-color: transparent !important; }
-        a { color: ${palette.link} !important; }
+        html, body {
+          background-color: ${palette.bg} !important;
+          color: ${palette.text} !important;
+          font-family: ${getCssFontFamily(settings.fontFamily)} !important;
+          font-size: ${settings.fontSize}px !important;
+          line-height: ${settings.lineHeight} !important;
+          text-align: ${settings.alignment} !important;
+        }
+        .doc-viewport {
+          padding-left: ${settings.margin + 4}px !important;
+          padding-right: ${settings.margin + 4}px !important;
+        }
+        .doc-page-card {
+          background-color: ${cardBg} !important;
+          color: ${palette.text} !important;
+        }
+        .doc-page-content, p, div, span, h1, h2, h3, h4, h5, h6, li, blockquote {
+          color: ${palette.text} !important;
+        }
+        p {
+          margin-bottom: ${settings.paragraphSpacing || 1.0}em !important;
+          text-align: ${settings.alignment} !important;
+        }
+        a {
+          color: ${palette.link} !important;
+        }
       </style>
     </head>
     <body>
-      ${htmlContent}
+      <div class="doc-viewport">
+        <article class="doc-page-card">
+          <div class="doc-page-content">
+            ${htmlContent}
+          </div>
+        </article>
+      </div>
       <script>
         // Track scroll progress and tap zones.
         // Throttled: the native side persists progress with two SQL writes per

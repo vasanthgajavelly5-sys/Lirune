@@ -1,35 +1,41 @@
-const { spawnSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+#!/usr/bin/env node
 
-const root = path.join(__dirname, '..');
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
 const mode = process.argv[2] || 'all';
 
-function findTests(dir) {
-  const fullDir = path.join(root, dir);
-  if (!fs.existsSync(fullDir)) return [];
-  return fs.readdirSync(fullDir)
-    .filter(f => f.endsWith('.test.js'))
-    .map(f => path.join(dir, f));
+function findTests(directory) {
+  const fullDirectory = path.join(root, directory);
+  if (!fs.existsSync(fullDirectory)) return [];
+  return fs.readdirSync(fullDirectory)
+    .filter((name) => name.endsWith('.test.js'))
+    .map((name) => path.join(directory, name));
 }
 
-let files = [];
-if (mode === 'unit') {
-  files = [...findTests(path.join('test', 'unit')), ...findTests('test')];
-} else if (mode === 'integration') {
-  files = findTests(path.join('test', 'integration'));
-} else {
-  files = [
-    ...findTests(path.join('test', 'unit')),
-    ...findTests(path.join('test', 'integration')),
-    ...findTests('test')
-  ];
+function testsForMode(selectedMode) {
+  const unit = findTests(path.join('test', 'unit'));
+  const integration = findTests(path.join('test', 'integration'));
+  const rootTests = findTests('test');
+
+  if (selectedMode === 'unit') return [...unit, ...rootTests];
+  if (selectedMode === 'integration') return integration;
+  if (selectedMode === 'all') return [...unit, ...integration, ...rootTests];
+  console.error(`Unknown desktop test mode: ${selectedMode}`);
+  process.exit(2);
 }
 
-const res = spawnSync(process.execPath, ['--test', ...files], {
+const files = testsForMode(mode);
+if (files.length === 0) {
+  console.log(`No desktop tests found for mode "${mode}"; nothing to run.`);
+  process.exit(0);
+}
+
+const result = spawnSync(process.execPath, ['--test', ...files], {
   cwd: root,
   stdio: 'inherit'
 });
 
-process.exit(res.status ?? 1);
-
+process.exit(result.status ?? 1);

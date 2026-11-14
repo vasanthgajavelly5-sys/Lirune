@@ -49,6 +49,11 @@ Lirune Reader supports **19 universal document, e-book, and comic book formats**
 
 ## Development
 
+All changes follow the repository's permanent modernization and validation
+rules in [DEVELOPMENT_STANDARDS.md](DEVELOPMENT_STANDARDS.md),
+[CODE_QUALITY_CHECKLIST.md](CODE_QUALITY_CHECKLIST.md), and
+[DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md).
+
 Requirements: Windows 10/11, Node.js 20 or newer, and npm.
 
 ```powershell
@@ -61,8 +66,9 @@ npm start
 Useful commands:
 
 ```powershell
-npm test                  # Run Windows desktop test suite
+npm test                  # Run all discovered Windows desktop tests
 npm run lint              # Static analysis and linting
+npm run check:modernization # Reject newly introduced legacy API patterns
 npm run dist:win          # Build Windows NSIS installer
 npm run dist:store        # Build Microsoft Store AppX package
 npm run validate:release  # Validate release configuration and artifacts

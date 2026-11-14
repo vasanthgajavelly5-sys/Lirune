@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
+import { toFileUri } from '@/services/storage/FileStorage';
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { ChmParser } from '@/services/chm/ChmParser';
@@ -53,7 +54,7 @@ export function ChmReaderView({
       setIsLoading(true);
       setError(null);
       try {
-        const filePath = book.filePath || book.uri || '';
+        const filePath = toFileUri(book.filePath || book.uri || '');
         const base64 = await FileSystem.readAsStringAsync(filePath, {
           encoding: FileSystem.EncodingType.Base64,
         });
@@ -72,7 +73,11 @@ export function ChmReaderView({
         if (onTOCLoaded) {
           const headings = parsed.html.match(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi) || [];
           const toc: TOCItem[] = headings.map((h, i) => {
-            const cleanText = h.replace(/<[^>]+>/g, '').trim();
+            let cleanText = h;
+            while (/<[^>]+>/.test(cleanText)) {
+              cleanText = cleanText.replace(/<[^>]+>/g, '');
+            }
+            cleanText = cleanText.trim();
             return {
               id: `sec_${i}`,
               label: cleanText || `Topic ${i + 1}`,

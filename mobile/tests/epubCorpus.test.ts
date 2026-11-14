@@ -499,7 +499,13 @@ test('synthetic: unusual XHTML shapes all yield a readable chapter', async () =>
   for (const [label, html] of cases) {
     const archive = await buildSyntheticEpub({}, [{ name: 'ch1.xhtml', html }]);
     const doc = await extractChapterDocument(archive, 'OEBPS/ch1.xhtml');
-    assert.ok(doc.body.replace(/<[^>]*>/g, '').trim().length > 0, `${label} produced no text`);
+    let text = doc.body;
+    let prev = '';
+    while (text !== prev) {
+      prev = text;
+      text = text.replace(/<[^>]*>/g, '');
+    }
+    assert.ok(text.trim().length > 0, `${label} produced no text`);
   }
 });
 

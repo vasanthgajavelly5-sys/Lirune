@@ -15,8 +15,8 @@ Date: 2026-10-02
 
 ## Build and launch
 
-- JDK: Temurin 17.0.20.1 at `$JAVA_HOME`
-- Android SDK: `$ANDROID_HOME`
+- JDK: Temurin 17.0.20.1 at `C:\Users\vasanth\jdk17`
+- Android SDK: `C:\Users\vasanth\android-sdk`
 - Native debug build: completed with `:app:assembleDebug`
 - APK install: succeeded with `adb install -r`
 - Debug bundle: loaded through Metro using `adb reverse tcp:8081 tcp:8081`

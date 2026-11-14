@@ -1,96 +1,371 @@
-## 5.6.5 - 2026-11-14
+## 4.9.3 — Scroll Engine v2 Exclusivity & Permanent v1 Retirement (2026-10-27)
+
+Scroll Engine v2 is now the exclusive, unified continuous-scroll engine across Lirune Android. Scroll Engine v1 and its experimental feature toggle have been permanently retired, shedding legacy code while preserving backwards-compatible reading positions and low-memory device stability.
+
+### Reader Engine & Architecture
+
+- **Scroll Engine v2 Exclusivity:**
+  - Continuous-mode EPUB reading is now powered unconditionally by Scroll Engine v2's virtualized block locator architecture.
+  - Legacy Scroll Engine v1 code paths (monolithic chapter injection, sentinel-based DOM intersection observers, and host drain timers) have been permanently deleted.
+  - Experimental "Scroll Engine (v1 / v2)" toggle row removed from Settings Sheet; continuous reading now seamlessly leverages v2 without user configuration.
+- **Backward Compatibility & Seamless Migration:**
+  - Preserved full backward compatibility for saved reading positions (`loc:v2:...`, legacy `spine:N:scroll:Y`, `spine:N:frac:F`, and simple `spine:N`). Upgrading users will resume reading at the exact same location with zero position drift or loss.
+  - Legacy `scrollEngine` values in stored settings, backups, and per-book overrides are silently sanitized and ignored without error.
+  - Retained `scrollEngineCache` host setting (default `false`) for low-memory devices (such as 2GB RAM Galaxy Tab A tablets), properly purging evicted chapter ASTs from host memory.
+- **Zero-Internet Invariant Maintained:**
+  - Standalone release APK maintains zero network permissions (`android.permission.INTERNET` removed at manifest merge time).
+
+## 4.9.2 — Smoothness overhaul, Scroll Engine v2 & Zero-Internet Release (2026-10-27)
+
+Comprehensive smoothness overhaul and reader responsiveness upgrade for Lirune Android, featuring zero network permissions in release builds, elimination of launch flashes/white screen gaps, accelerated library rendering, unified theme transitions, and experimental Scroll Engine v2.
+
+### Security & Privacy
+
+- **Zero-Internet Release APKs:**
+  - Distributed release APKs explicitly strip `android.permission.INTERNET` at the manifest level via `tools:node="remove"`.
+  - The application is physically barred by the Android OS from opening network sockets, making network requests, or leaking telemetry.
+  - Users and auditors can independently verify:
+    ```bash
+    aapt2 dump permissions Lirune-Reader-v4.9.2-release.apk
+    ```
+    (Confirms `android.permission.INTERNET` is completely absent; only `VIBRATE` and `READ_EXTERNAL_STORAGE` for Android 10 and below are present).
+  - External donation links ("Buy Me a Coffee" in About) delegate safely to the user's default web browser via `Linking.openURL`, requiring zero app-level internet access.
+
+### Performance & Smoothness Overhaul
+
+- **Cold Open Waterfall Gap Elimination:**
+  - Removed render-blocking remote Google Fonts links (`Merriweather`, `Literata`, `Lora`, `Inter`, `Roboto`, `OpenDyslexic`) from reader HTML templates; replaced with bundled offline typography.
+  - Replaced arbitrary timeout gates with an active `DOMContentLoaded` double-rAF handshake (`webViewPainted`).
+  - Cold open time for small EPUB (*Alice in Wonderland*) dropped from ~3.6s–5.8s down to **1.51s** (a 3.5x speedup).
+  - Cold open waterfall phases verified to sum cleanly to total elapsed time within 13ms (OPF parse: 104ms, chapter extract: 153ms, WebView bootstrap: 981ms, first paint & reveal: 272ms).
+- **Smooth Launch (No Flash / Grid Glitch):**
+  - Eliminated initial white-screen flash and unstyled grid flashes during cold app launches.
+  - Native window background and splash screen match user theme palette immediately prior to React Native first paint.
+- **Unified Theme Transitions & Dark Mode Consistency:**
+  - Resolved theme mismatches between system navigation bars, window backgrounds, reader chrome, and reader WebView body.
+  - Night and Pure Black reading themes now transition smoothly without intermediate white frame blips.
+- **Accelerated Library List & Warm Open:**
+  - Optimized book cover thumbnail rendering and database query batching on library launch.
+  - Warm reader open (second tap on an already-parsed book) opens in ~250–350ms.
+- **Storage Permission Handling on Android 10 and Below:**
+  - Preserved `READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"` and runtime permission requests on API ≤ 29/30 devices, fixing storage access failures on legacy devices while preserving Scoped Storage on Android 11+.
+
+### Reader Engine
+
+- **Scroll-Mode Reliability Fixes:**
+  - Fixed scroll jumping and anchor restoration jitter when switching between paginated and continuous scroll modes.
+  - Preserved scroll position accurately across app restarts, force stops, orientation rotations, and system low-memory evictions.
+- **Experimental Scroll Engine v2:**
+  - Introduced Scroll Engine v2 (off by default, selectable under **Reader Settings -> Reader Engine**).
+  - Uses native-driven virtualized translation and decoupled continuous scroll physics for ultra-smooth reading on 60Hz and 120Hz displays.
+  - Validated across S1–S14 test suite: 0% jank, p99 frame time 53ms on Android 11 (`tab_lowend`) and 150ms on Android 15 (`tab_modern`), zero crashes/leaks across 300 continuous swipe soaks.
+- **Upgrade Path & Migration Safety:**
+  - Tested upgrading directly over published release `v4.9.0`: SQLite schema v3 migration and cover thumbnail migrations execute cleanly with zero data loss across books, progress markers, bookmarks, and highlights.
+
+### Verification & Test Scope Notice
+
+- **Tested Platforms:** Extensively automated and live-verified across Android 11 (API 30, `tab_lowend` AVD) and Android 15 (API 35, `tab_modern` AVD) across all 14 scenarios (S1–S14) on both Engine v1 and v2.
+- **Not Tested on Physical Tablet:** Physical hardware testing on a real physical Samsung Galaxy Tab A (2019) was NOT RUN during this cycle; all metrics and timings reflect calibrated Android Virtual Devices (AVDs).
+
+---
+
+## 4.9.1 — Android file associations, ZIP/APK identification & Archive Browser (2026-10-26)
+
+Addressed system file association chooser over-matching (P1), classified ZIP-family files with an ordered decision tree (P2), and introduced in-app container archive browsing and selective book importing.
 
 ### Fixed
-- Kindle & MOBI Decompression: Fixed PalmDOC LZ77 distance formula calculation and stripped trailing metadata records so books decompress cleanly without garbled text, mangled words, or misaligned columns.
-- Word Layout: Enforced `overflow: hidden` on `.word-page-card` and word-break on paragraph content to prevent unbroken separator lines from bleeding past page card margins.
-- HTML Reading: Preserved heading elements in chunks, rendered button and form controls inert without deleting their text, and added graceful SPA fallback notice.
-- Column Break Alignment: Enforced column breaking on multi-column document sections to eliminate horizontal page offsets and centered clipping.
+
+- **App appeared in "Open with" chooser for APKs and unrelated files (P1):**
+  - Removed catch-all intent filters (`*/*`, `application/octet-stream`, bare `content://`, wildcard `pathPattern`).
+  - Implemented explicit programmatic intent filter generation in `mobile/plugins/withLiruneStorage.js` using `SUPPORTED_MIME_TYPES` and repeated case-insensitive `pathPattern` globs for each supported book extension.
+  - Excluded `apk`, `jar`, `aab`, `xapk`, `apks`, `dex`, and `exe` from all manifest intent filters.
+  - Added intent pre-sniffing safety net in `mobile/app/_layout.tsx`: incoming VIEW/SEND intents for application packages or unrecognized files route to `BlockedFileModal` with an explanatory message ("Lirune can't open this file: it looks like an Android app package (.apk)") and a **Close** button that cleans up the intent and safely exits.
+  - Constrained `DocumentPicker` MIME filters in `ImportService.ts`, `mobile/app/folders/index.tsx`, and `mobile/app/(tabs)/search.tsx` to explicit supported types.
+
+- **ZIP files incorrectly treated as importable books (P2):**
+  - Replaced fallthrough sniffer logic with an ordered decision tree inspecting only ZIP Central Directory records:
+    1. `mimetype` = `application/epub+zip` or `META-INF/container.xml` -> **EPUB** (`book`)
+    2. `word/document.xml` + `[Content_Types].xml` -> **DOCX** (`book`); `content.xml` + `mimetype` -> **ODT** (`book`)
+    3. `AndroidManifest.xml` + (`classes.dex` | `resources.arsc`) or AAB/JAR/XPI markers -> **`blocked:app-package`** (`blocked`)
+    4. `.fb2` inside single-entry zip -> **FB2** (`book`)
+    5. >=90% image entries (ignoring metadata / thumbs) -> **CBZ** (`book`)
+    6. >=1 supported book format entry -> **`container:zip`** (`container`)
+    7. Otherwise -> `failed:unrecognized` ("ZIP archive with no supported books inside")
+  - Mirrored sniffer logic in `FormatDetector.ts` and `FormatRegistry.kt`.
+  - Added strict importer guards in `ImportService.ts`, `importQueueStore.ts`, and `Ingestor.kt` that reject any file with `kind !== 'book'` or `kind === 'blocked'` with typed `Unsupported` errors.
 
 ### Added
-- Authentic Paged Document Cards: Added `.doc-page-card` page sheets with margins, shadows, and `Page X` footers for Plain Text (`.txt`) and Markdown (`.md`) files.
-- Default Continuous Scroll Mode: Plain Text, Markdown, and HTML files now default to continuous vertical Scroll Mode matching Word and PDF documents.
 
-### Legal & Documentation
-- Refined TRADEMARK.md, README.md, and COPYRIGHT.md to align canonical project ownership, licensing (GPL-3.0-only), and Microsoft Store publisher identity.
+- **Browse Inside Container Archives (Native & UI):**
+  - **Native Engine (`ArchiveBrowser.kt`):** Exposed Expo coroutine APIs (`openArchive`, `listArchive`, `sniffArchiveEntry`, `extractEntryToImport`, `closeArchive`) operating on `Dispatchers.IO`.
+  - **Random-Access Virtual Directory Tree:** Uses `FileChannel` / `SeekableByteChannel` and parses Central Directory/EOCD/EOCD64 headers directly without copying or decompressing the whole archive. Non-seekable streams copy once to a 512 MB capped cache.
+  - **Handle Management:** LRU pool capped at 4 handles with a 5-minute idle auto-close watchdog.
+  - **Charset Auto-Detection:** Checks UTF-8 flag (bit 11), validates UTF-8 bytes, and falls back to CP437 -> CP866 -> GBK -> Shift_JIS -> Big5.
+  - **Password & Encryption:** Detects ZipCrypto and AES encryption; presents `ArchivePasswordModal` with a 5-attempt guard; decrypts purely in memory without persisting credentials.
+  - **Security Protections:** Enforces Zip-slip path sanitization (destinations strictly `<uuid>.<ext>`), rejects directory traversal segments (`..`), limits total entries (max 100,000), enforces entry size budget (max 2 GB uncompressed), and checks compression ratios dynamically via `SafeGuardInputStream` (>200:1 on >100 MB).
+  - **Streaming Extraction Ingestion (`Ingestor.kt`):** Added `ingestStream` for atomic streaming entry decompression directly to `books/<uuid>.part` -> `books/<uuid>.<ext>` with single-pass SHA-256 dedup, journal logging, and `fsync()`.
+  - **Folders Archive Navigation:** Container archives render with container badges and book counts in Folders. Tapping an archive navigates directly into its virtual folder hierarchy with interactive breadcrumbs, 8-way concurrency capped lazy format sniffing badges, multi-select "Import (n)", and "Import all books in this folder". Single-book archives offer an immediate Open/Import bottom sheet shortcut.
+  - **Error Reporting Modal:** `ErrorReportModal` displays human-readable diagnostics for corrupt or unsupported compression with a "Copy report" button.
+  - **Library Separation:** ZIP container files are filtered out from the main Library screen and appear only in Folders and the Archives filter.
 
-## 5.6.4 - 2026-11-12
+- **Tests and Documentation:**
+  - `docs/INVESTIGATION_ZIP.md`: Merged manifest intent-filter audit and initial sniffer behavior matrix.
+  - `docs/FILE_ASSOCIATIONS.md`: Complete specification of Android MIME types, extension patterns, and plugin generation.
+  - `docs/QA_STORAGE.md`: Section 8 with 11 manual verification test cases (ARC-01 to ARC-11).
+  - Synthetic test fixtures generated via `scripts/make-zip-fixtures.py` in `test-fixtures/zip-suite/`.
+  - Automated test suites: `archiveBrowser.test.ts` (6 tests), `formatSniffer.test.ts` (18 tests), `nativeStoragePlugin.test.ts` (7 tests).
+
+---
+
+## 4.7.0 — Android reader: scroll mode, first frame, reading comfort (2026-10-04)
+
+Seven reported Android reader defects fixed, plus two reading-comfort features.
+The headline change is that continuous scroll mode no longer has to extract a
+whole publication before it can show a page.
 
 ### Fixed
-- Scoped reader side panels (`#toc-panel`, `#settings-panel`, `#annotations-panel`) and their controls to the active reader theme while reading, restoring app theme inheritance in Library view.
-- Cleared `ELECTRON_RUN_AS_NODE` in `Launch-Lirune.bat` so launching from Electron-based terminals starts the desktop app cleanly.
 
-### Maintenance
-- Updated release packaging and dependency metadata for Windows Microsoft Store version `5.6.4`.
+- **Scroll mode could open onto chapter headings and "Loading chapter…"
+  placeholders and stay there.** Continuous mode inlined every spine item before
+  revealing the first frame, so a large book sat on placeholders for as long as
+  the whole archive took to read — and any chapter that failed to extract stayed
+  a placeholder permanently. Hydration is now demand-driven: the document reports
+  which unloaded sections are near the viewport, the host fills exactly those,
+  and a bounded background drain fills the rest while yielding to scrolling. A
+  watchdog guarantees the document is never left suppressing scroll progress.
+- **Coming back from the library was slow and lost the position.** The reader
+  re-resolved and re-mounted its document every time an engine reported a chapter
+  count. Resolution is now keyed on the book's identity, so a count arriving
+  cannot restart the reader. Extracted chapters also survive the session: a
+  handful per source are kept in memory, so re-opening a book in scroll mode
+  renders from cache instead of re-reading the archive.
+- **Settings panel taps were unreliable.** The panel claims touches in the
+  capture phase, so a tap on a control cannot be lost to the backdrop underneath.
+- **The header and the footer reported different chapters.** The header counted
+  from the published chapter title and the footer from the engine's spine index.
+  Both now derive from the published position, so they cannot disagree, and the
+  header shows `Chapter N of M` next to the title.
+- **A flash of unstyled content on open.** The reader document announces its own
+  first painted frame (two animation frames after `load`, not `onLoadEnd`), and
+  the WebView is revealed against an opaque themed backdrop only then.
+- **Page turns lagged and scrolling felt twitchy.** A page turn is a 240ms
+  decelerating transition; a re-measure, a zoom and the load-time restore are not
+  animated at all, so nothing queues behind an easing turn. In scroll mode a tap
+  must match on movement, duration *and* the scroll offset captured at touch
+  start, which is what stops a fling from turning a chapter.
+- **`fileStorage.readAsArrayBuffers` did not exist** and threw on every EPUB
+  open, failing the book outright.
 
-## 5.6.3 - 2026-11-06
+### Added
+
+- **Edge brightness.** Swipe up or down on the left or right 44dp edge to dim or
+  brighten the page. A floating pill follows the gesture and hides itself after
+  two seconds. The overlay is `box-none` and only its two edge zones can become
+  the touch responder, so it never competes with the reader.
+- **Keep Screen Awake.** A new tracked `LiruneScreen` native module
+  (`plugins/withLiruneScreen.js`) holds the display on with
+  `FLAG_KEEP_SCREEN_ON` while a book is open — no permission, and the system
+  releases it when the window goes away. On by default, with a toggle in the
+  appearance panel.
+- **Reading Comfort** section in the appearance panel: brightness stepper with a
+  level bar, and the keep-screen-awake switch.
 
 ### Changed
-- Replaced the RAR/CBR decoder with libarchive-wasm for licence compatibility.
 
-## 5.6.2 - 2026-10-28
+- Default page margin is **Standard (20px)** rather than Compact (12px), and is
+  persisted like every other reader setting.
 
-### Security
-- FB2 Cover Sanitization & XSS Prevention: Thoroughly sanitized FB2 cover data URLs to protect against SVG payload execution, CSS expression injection, and attribute breakout attacks.
-- Archive Exhaustion & Zip-Bomb Protection: Implemented strict unpacking limits (maximum uncompressed size caps, maximum file counts, and entry ratio checks) across archive extraction flows.
-- IPC Bridge Hardening: Enforced context isolation, strict parameter validation, path TTLs, safe sender validation, and eliminated unsafe remote IPC channels.
+## 4.6.7 — Android hardening & stability (2026-10-03)
 
-### Fixed
-- Batch Launcher Fix: Corrected syntax and escape handling in `Launch-Lirune.bat` and documented the architecture specification.
-- Cross-Platform Test Execution: Updated test runner commands to operate consistently across Windows PowerShell and Unix shells.
+Comprehensive hardening pass across the Android edition: native module correctness, Kotlin type-safety, build pipeline fixes, reader robustness, and a slimmed 64-bit-only APK.
 
-## 5.6.1 - 2026-10-25
+### Native module and app config
+- The `LiruneStorage` Kotlin module is now tracked in the repository and
+  re-installed by `plugins/withLiruneStorage.js` on every prebuild, so
+  `prebuild --clean` can no longer silently delete it. A missing module is logged
+  at startup and reported in the Files screen.
+- `plugins/withCutoutMode.js`, `plugins/withAndroidConfigChanges.js` and
+  `plugins/withReleaseSigning.js` replace hand-edited files in the generated
+  `android/` tree.
+- Orientation follows the system rotation lock, `MANAGE_EXTERNAL_STORAGE` and
+  `READ_EXTERNAL_STORAGE` are declared, `versionCode` is tracked, and the build
+  covers `armeabi-v7a`, `arm64-v8a`, `x86` and `x86_64`.
+- Landscape can draw into the display cutout while safe-area insets keep text out
+  of it; `density`/`fontScale` changes re-lay out instead of recreating the
+  activity.
 
-### Added
-- Distraction-Free Fullscreen Reading: Status bar, reading progress stripe, and top toolbar are hidden in focused fullscreen mode; floating frosted glass controls pill provides immediate TOC and Settings access.
-- Quick Themes in Side Panel: Direct visual theme swatches in reading settings drawer for one-click theme switching.
-- Window Controls & Desktop Chrome: Dynamic maximize/restore button state synchronization and crisp window management controls.
+### EPUB
+- One heading per chapter in scroll mode, and no fabricated "Chapter N" for a
+  spine item the publication never named.
+- Table-of-contents entries resolve: NCX `src` against the NCX directory, nav
+  hrefs keep their `#fragment`, percent-encoded names decode, and nested
+  `ol`/`navPoint` levels indent.
+- Chapter turns skip `linear="no"` items while every spine index, chapter id and
+  CFI keeps addressing the same document.
+- Books are read as bytes instead of base64, the page count is rounded up and
+  re-measured once fonts, images and resize settle, and a missing embedded font
+  can no longer leave text invisible.
+- Metadata comes from one shared OPF parser: entities, CDATA, every `dc:creator`,
+  language, publisher, date, series and both cover conventions.
 
-## 5.6.0 - 2026-10-23
+### Layout
+- Reader chrome toggling no longer re-flows the text: stable safe-area insets,
+  nothing is painted before the container is measured, font scale is reactive,
+  geometry settles for 200ms before it is applied, and module-level
+  `Dimensions.get('window')` reads are gone.
+- Two columns need two readable measures and a 720dp window with 24dp of
+  hysteresis, instead of flipping at 600dp; a new Columns setting (auto/1/2)
+  overrides it.
 
-### Added
-- Fullscreen Table of Contents: Dedicated floating frosted glass action pill in fullscreen mode containing TOC and Settings buttons.
-- Responsive Sizing for Restored / Split Windows: Adaptive toolbar actions capsule preventing button congestion or collisions down to 720px window widths.
-- Smooth Top Hover Reveal: Polished fullscreen top edge reveal interaction.
+### Files and storage
+- Scan Phone no longer lists the app's own imported copies, can see Downloads and
+  the storage root with All files access (explained before it is requested), shows
+  a cancellable native walk with progress, and always falls back to MediaStore and
+  the authorised folders.
+- Rows show the real title and author, read from the EPUB's OPF without copying
+  the book; duplicate detection uses format, size and file name or title+author
+  instead of comparing a file name to a title.
 
-## 5.5.0 - 2026-10-09
+### PDF
+- The document is streamed into the viewer in 512KB ranges with real progress,
+  layout is pushed instead of baked in, renders are queued rather than cancelled
+  on a shared canvas, the canvas is capped at 16MP, and fit mode is explicit.
+- Search, outline-as-contents, pinch re-render, panning, Retry and password
+  prompts are wired; import reads only the ends of the file.
 
-### Added
-- Custom Glass Dropdowns: Replaced default select controls with accessible glass dropdowns featuring arrow navigation, aria-expanded, and auto-sync.
-- Settings UI: Refined frosted glass card surfaces, typographic alignment, and About card structure.
-- Launcher & Packaging: Windows Desktop Microsoft Store AppX and NSIS release packages.
+### Robustness
+- A killed WebView renderer is detected, the position is flushed and the view is
+  rebuilt.
+- Reading progress is flushed when the app leaves the foreground and when the
+  reader closes.
+- Imports are staged as `.part` files and renamed after verification, stale ones
+  are cleaned at startup, and a free-space check runs before copying.
 
-## 5.0.0 - Lirune V5 Major Upgrade
+## 4.0.6 - Android v4.0.6 release (EPUB engine)
 
-### Improvements & Fixes
-- **Library List View** — Redesigned list mode into a true horizontal list layout displaying compact book cover, title, author, reading progress bar, chapter/page count, favorite control, direct read action, and options menu.
-- **Windows File Association & Double-Click** — Reliable OS file open handling for both cold application launches and active running instances, resolving imported books and immediately opening the reader.
-- **Continuous Reading Mode** — Refactored EPUB continuous scrolling with dedicated continuous manager, coordinated scroll ownership, natural wheel and trackpad handling, and dedicated keyboard navigation.
-- **Subtle Motion & Transitions** — Replaced bouncy spring animations with calm, fast, and purposeful UI transitions across views, modals, cards, and reader controls; full support for prefers-reduced-motion.
-- **Async Session Token Protection** — Guarded asynchronous reader operations (locations, TOC, annotations, progress persistence) against cross-book mutations and race conditions.
-- **Controlled Import Memory Overhead** — Streamlined bulk file and folder imports to avoid holding duplicate in-memory buffers simultaneously.
-- **Currently Reading Multi-Book Capacity** — Expanded Currently Reading strip to display up to two books simultaneously in most-recently-read order, with independent reading progress, duplicate protection, and restart persistence.
+EPUB reading pipeline rebuilt around a per-publication session, and the
+responsive reader geometry corrected.
 
-## 4.1.0 - Bug fixes & format parity
+### EPUB engine
 
-### Bug fixes
-- **File click in folder now opens the book directly** — clicking a book file in a folder-imported collection previously showed the library screen; the reader now opens immediately after import.
-- **Theme no longer flashes on startup** — light-mode users no longer see a brief dark flash; the saved theme is applied before the first paint using a synchronous localStorage cache.
-- **EPUB arrow-key navigation restored** — ArrowRight/ArrowLeft/PageDown/PageUp and Space now reliably navigate pages regardless of whether the EPUB iframe or the outer window has focus; a direct fallback handler ensures keys are never silently dropped.
-- **Arrow keys work correctly in scroll mode** — in Scroll layout, ArrowRight/Left scroll the page instead of jumping to the next spine item, matching the behaviour of ArrowDown/Up.
+- Added a per-publication `EpubArchive` session that owns the ZIP, a normalized
+  resource index, and the embedded-resource cache. It is disposed when the book
+  changes, so nothing can leak between books.
+- Replaced the per-lookup linear archive scan with a normalized lookup index
+  (exact path, case-folded path, then a unique file-name match). Measured 4-24x
+  faster than the previous `Object.values(zip.files).find(...)` fallback, and it
+  recovers books whose own relative image paths do not resolve.
+- Embedded resources (images, fonts) are now read and base64-encoded at most
+  once per session, behind a least-recently-used byte budget so an
+  image-heavy publication cannot grow the heap without limit.
+- Implemented CSS `@import` resolution: nested chains are inlined in cascade
+  order, media conditions are preserved, duplicate and cyclic imports terminate
+  safely, and the earlier blanket removal of `@import` is gone.
+- Implemented embedded font support. `.woff`, `.woff2`, `.ttf`, and `.otf`
+  sources inside `@font-face` are resolved from the publication and embedded,
+  with `font-family`, `font-weight`, `font-style`, `font-stretch`, and
+  `unicode-range` preserved.
+- Resource discovery now covers `url()` inside inline `style` attributes
+  (`background-image`, `background`, `list-style-image`, borders) in addition to
+  `src` and `xlink:href`. `data:`, `http:`, `https:`, `blob:`, and
+  fragment-only references are left untouched.
+- Replaced the fragile `<body>` regular expression with a comment-, CDATA-, and
+  raw-text-aware scanner, so a `</body>` inside a comment or a script string no
+  longer truncates a chapter.
+- Safe inline SVG is preserved again (diagrams, illustrations, icons, MathML),
+  including `epub:type`, `xml:*`, and ARIA attributes. Cover-only
+  `<svg><image/></svg>` wrappers still become ordinary images. The SVG cover
+  transform is now a bounded scan, so a malformed or oversized document can no
+  longer stall the UI thread.
+- Chapter titles now prefer the book's own navigation metadata (EPUB 3 `nav`,
+  then NCX) over the document `<title>`, which is frequently just the book
+  title repeated in every chapter. Generic placeholders such as `Chapter 3`
+  still yield to a real chapter heading.
+- Fixed TOC targets being resolved twice against the package directory, which
+  left every navigation entry unclickable.
 
-### New format support (parity with Android)
-- **DOCX** — Microsoft Word 2007+ documents. Headings become chapters; bold and italic inline runs are preserved.
-- **ODT** — OpenDocument Text files. Title, author, and heading structure are extracted.
-- **RTF** — Rich Text Format. Control words are stripped and prose is rendered as flowing paragraphs.
-- All three formats show the document's own title and author in the library card.
+### Reader
 
-## 4.0.4
+- Fixed an infinite render loop ("Maximum update depth exceeded") that crashed the
+  reader when turning a page at the end of a chapter. The reader published its own
+  progress CFI, the host echoed it back as a navigation target, and the reader
+  chased it between two chapters forever. Navigation targets that are the
+  reader's own progress echo, or a request that has already been honoured, are
+  now ignored.
+- Fixed the next text column bleeding into the right edge of every page. In CSS
+  multicol, padding on the container insets the whole flow rather than separating
+  neighbouring columns, so the reading margin now sits on the content inside each
+  column fragment and one page is exactly one viewport wide.
+- Fixed a chapter reporting a page count of 1 regardless of its length: the page
+  count is now measured from the column flow rather than the padded content box.
+- Fixed the two-column inset on tablets, where the margin computed for one wide
+  centred column left no room for text in a half-width column.
+- Reading position now survives layout-affecting changes. Rotating, changing
+  font size, margin, line height, alignment, or theme captures a stable anchor
+  (element id, character offset, chapter, scroll ratio) before the document is
+  re-rendered and restores it afterwards, instead of replaying a stale pixel
+  offset.
+- Fixed horizontal clipping in the paginated reader: the column container was
+  `content-box` with a `100vw` width plus horizontal padding, so its content
+  extended past the viewport. Column width and side insets are now derived from
+  the measured content box.
+- Side-inset rounding is clamped so `sideOffset + columnWidth` can never exceed
+  the space available, including with asymmetric safe-area insets.
+- Publisher typography is preserved (drop caps, indents, floats, blockquotes,
+  small caps, `page-break-*` hints) while reader-owned safety rules are layered
+  after the book stylesheet so they win without stripping legitimate CSS.
+- Continuous mode renders one document at load time and hydrates the remaining
+  chapters in batches, instead of re-rendering on every scroll position change.
+- Progress and scroll state are reset when a different book is opened.
 
-- Replaced legacy sample book with an original built-in first-run tutorial: "Welcome to Lirune".
-- Added a full offline guide covering library management, reading customization, keyboard shortcuts, annotations, and local-first backups.
-- Replaced sample cover with an original dynamic canvas-generated Lirune design.
-- Removed all legacy sample references and third-party sample text.
-- Finalized Microsoft Store package identity and release assets.
+### Content safety
+
+- Single-pass sanitiser that is idempotent and no longer double-escapes
+  character references in attribute values.
+- HTML comments dropped (conditional-comment scripts cannot execute); CDATA
+  sections unwrapped and re-sanitised so wrapped content is preserved but
+  wrapped scripts are not.
+- SMIL animation elements that target `href`/`xlink:href` are dropped, and
+  event handlers, `javascript:` URLs, `expression()`, `behavior`, and
+  `-moz-binding` remain blocked in every context.
+- Stylesheets can no longer terminate the reader's own `<style>` element.
+
+### Storage
+
+- Android import prefers a native content-URI stream copy, with the existing
+  `copyAsync` and base64 paths kept as fallbacks.
+- Scan Phone now performs MediaStore discovery through a native bridge, which
+  works on Android 10+ without `MANAGE_EXTERNAL_STORAGE`, and still scans
+  well-known paths when they are accessible.
+
+### Verification
+
+- 198 automated tests, including a real-publication corpus harness that opens
+  every EPUB in the QA corpus, renders every chapter, and asserts there is no
+  active content and no fetchable reference to the network.
+- TypeScript and lint clean.
+- Signed release APK installed and exercised on an Android 16 emulator: library,
+  EPUB open, TOC navigation, chapter and page navigation, continuous scrolling,
+  font size, theme, rotation, and switching between EPUB, DJVU, CBZ and TXT —
+  each resolving to its own distinct file path.
+- The release APK is a signed `assembleRelease` build, `versionCode 3`,
+  signed with the existing `CN=Lirune Reader Release` key.
+
+## 4.0.5 - Android v4.0.5 release
+
+- Fixed EPUB table-of-contents targets so internal fragments are preserved, and restored
+  the correct chapter after a continuous-document hydration instead of the last chapter.
+- Ignored stale reader scroll events while a requested chapter navigation is still pending.
+- Bound the resolved reader source to the book it was resolved for. Switching books inside
+  one app session previously handed the newly mounted engine the previous book's file path,
+  which surfaced as spurious parse errors in unrelated formats.
+- Restated `mobile/LICENSE` as GPL-3.0-only and added `mobile/THIRD_PARTY_NOTICES.md`
+  covering the real Android dependency set, the vendored Apache-2.0 PDF.js, and the
+  public-domain offline dictionary.
+- Added Maestro flows for corpus import, an 18-format reader matrix, reader-session
+  isolation, and EPUB deep QA.
+- Moved stray QA screenshots out of the application source root into the live-QA evidence
+  folder and ignored transient device-run output.
 
 ## 4.0.0 - Production hardening
 
@@ -111,3 +386,4 @@
 - Added a frameless full-page window experience with custom minimize, maximize, and close controls.
 - Added draggable application toolbars while preserving interactive search and reader controls.
 - Improved EPUB loading and local library storage handling.
+

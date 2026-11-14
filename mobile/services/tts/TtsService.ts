@@ -7,6 +7,7 @@
 import * as Speech from 'expo-speech';
 import { getBookRepository } from '@/repositories';
 import { logger } from '@/utils/logger';
+import { sanitizeHtml } from '../security/sanitizeHtml';
 
 const TAG = 'TtsService';
 const VOICE_PREFERENCE_KEY = 'ttsVoiceIdentifier';
@@ -131,16 +132,21 @@ export class TtsService {
   loadText(content: string, startIndex = 0) {
     this.stop();
 
-    // Strip HTML tags if present
-    const cleanText = content
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
+    // Strip scripts, styles and unsafe elements via security sanitizer
+    let text = sanitizeHtml(content);
+    let prev = '';
+    while (text !== prev) {
+      prev = text;
+      text = text.replace(/<[^>]*>/g, ' ');
+    }
+
+    const cleanText = text
       .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&')
       .replace(/\s+/g, ' ')
       .trim();
 

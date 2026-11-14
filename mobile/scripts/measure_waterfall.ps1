@@ -3,11 +3,7 @@ param(
     [int]$Runs = 5
 )
 
-$adb = if ($env:ANDROID_HOME -and (Test-Path "$env:ANDROID_HOME\platform-tools\adb.exe")) {
-    "$env:ANDROID_HOME\platform-tools\adb.exe"
-} else {
-    "adb"
-}
+$adb = "C:\Users\vasanth\android-sdk\platform-tools\adb.exe"
 
 function Log($msg) {
     Write-Host "[Waterfall] $msg"

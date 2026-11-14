@@ -26,6 +26,7 @@ if (!hasCertificate) {
 const hookPath = path.join(__dirname, 'builder-env-hook.js');
 const args = ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'nsis'];
 let temporaryConfig;
+let temporaryDir;
 if (!hasCertificate) {
   const localConfig = JSON.parse(JSON.stringify(packageJson.build));
   localConfig.win = {
@@ -33,13 +34,14 @@ if (!hasCertificate) {
     signExecutable: false,
     forceCodeSigning: false
   };
-  temporaryConfig = path.join(os.tmpdir(), `novera-electron-builder-${process.pid}.json`);
-  fs.writeFileSync(temporaryConfig, JSON.stringify(localConfig));
+  temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-build-'));
+  temporaryConfig = path.join(temporaryDir, 'electron-builder.json');
+  fs.writeFileSync(temporaryConfig, JSON.stringify(localConfig), { mode: 0o600 });
   args.push('--config', temporaryConfig);
 }
 const result = spawnSync(process.execPath, args, {
   env,
   stdio: 'inherit'
 });
-if (temporaryConfig) fs.rmSync(temporaryConfig, { force: true });
+if (temporaryDir) fs.rmSync(temporaryDir, { recursive: true, force: true });
 process.exitCode = result.status === null ? 1 : result.status;

@@ -33,4 +33,5 @@ Lirune Reader is a local-first, privacy-focused application. Reports related to 
 - Document sanitization and parser safety (EPUB, PDF, FB2, CBZ, DOCX, DjVu, RTF, ODT).
 - Sandbox escapes, context-isolation bypasses, or unrestricted IPC mechanisms in the Electron shell.
 - Android WebView navigation bypasses, intent spoofing, or storage path traversal.
+- Network permission invariants: verifying that distributed release APKs strictly maintain zero network permissions (`android.permission.INTERNET` stripped via manifest overlay `tools:node="remove"`).
 - Dependency vulnerabilities affecting runtime execution.

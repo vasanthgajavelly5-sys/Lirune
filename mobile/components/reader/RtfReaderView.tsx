@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
+import { toFileUri } from '@/services/storage/FileStorage';
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { RtfParser } from '@/services/rtf/RtfParser';
@@ -52,7 +53,7 @@ export function RtfReaderView({
       setIsLoading(true);
       setError(null);
       try {
-        const filePath = book.filePath || book.uri || '';
+        const filePath = toFileUri(book.filePath || book.uri || '');
         const rawText = await FileSystem.readAsStringAsync(filePath, {
           encoding: FileSystem.EncodingType.UTF8,
         });

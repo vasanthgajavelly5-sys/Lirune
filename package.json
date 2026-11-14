@@ -1,20 +1,18 @@
 {
   "name": "lirune",
   "productName": "Lirune Reader",
-  "version": "5.6.5",
+  "version": "5.6.4",
   "description": "A private, open-source Windows EPUB reader",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "lint": "node scripts/lint.js",
+    "check:modernization": "node scripts/check-modernization.js",
     "test": "node scripts/run-tests.js all",
     "test:unit": "node scripts/run-tests.js unit",
     "test:integration": "node scripts/run-tests.js integration",
-    "test:e2e:smoke": "node --experimental-websocket test/e2e/smoke.mjs",
-    "test:e2e:formats": "node --experimental-websocket test/e2e/format-e2e.mjs",
-    "test:e2e:matrix": "node --experimental-websocket test/e2e/format-matrix.mjs",
-    "test:perf": "node --experimental-websocket test/perf/benchmark.mjs",
-    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e:smoke && npm run test:e2e:formats && npm run test:perf",
+    "test:e2e": "node test/e2e/desktop-e2e.test.mjs",
+    "test:all": "npm test && npm run test:e2e",
     "postinstall": "node node_modules/electron/install.js",
     "audit": "npm audit",
     "audit:prod": "node scripts/audit-prod.js",
@@ -127,7 +125,7 @@
       "uninstallerIcon": "assets/icon.ico",
       "installerHeaderIcon": "assets/icon.ico",
       "license": "LICENSE",
-      "include": "build/installer.nsh"
+      "include": "scripts/nsis-include.nsh"
     }
   },
   "dependencies": {
@@ -138,6 +136,10 @@
   },
   "overrides": {
     "@xmldom/xmldom": "^0.8.15",
-    "minimatch": "^11.0.8"
+    "minimatch": "^11.0.8",
+    "undici": "^7.30.1",
+    "node-gyp": {
+      "undici": "^6.29.1"
+    }
   }
 }

@@ -17,6 +17,14 @@ const COVERS_DIR = `${FileSystem.documentDirectory || ''}covers/`;
 /** Maximum file size in bytes permitted to be loaded in a single base64 string buffer (15MB). */
 export const MAX_BASE64_FILE_BYTES = 15 * 1024 * 1024;
 
+export function toFileUri(pathOrUri: string): string {
+  if (!pathOrUri) return '';
+  if (pathOrUri.startsWith('/')) {
+    return `file://${pathOrUri}`;
+  }
+  return pathOrUri;
+}
+
 function base64ToBuffer(base64: string): ArrayBuffer {
   if (typeof Buffer !== 'undefined') {
     const buf = Buffer.from(base64, 'base64');
@@ -257,7 +265,8 @@ export class FileStorageService {
   async getFileSize(filePath: string): Promise<number> {
     if (Platform.OS === 'web') return 0;
     try {
-      const info = await FileSystem.getInfoAsync(filePath);
+      const uri = toFileUri(filePath);
+      const info = await FileSystem.getInfoAsync(uri);
       return info.exists && !info.isDirectory ? info.size ?? 0 : 0;
     } catch (err) {
       logger.warn(TAG, `Unable to stat file: ${filePath}`, err);
@@ -285,7 +294,8 @@ export class FileStorageService {
     if (length <= 0 || start < 0) return '';
 
     try {
-      return await FileSystem.readAsStringAsync(filePath, {
+      const uri = toFileUri(filePath);
+      return await FileSystem.readAsStringAsync(uri, {
         position: start,
         length: length,
         encoding: FileSystem.EncodingType.UTF8,
@@ -304,7 +314,8 @@ export class FileStorageService {
       const res = await fetch(filePath);
       return await res.text();
     }
-    return await FileSystem.readAsStringAsync(filePath, {
+    const uri = toFileUri(filePath);
+    return await FileSystem.readAsStringAsync(uri, {
       encoding: FileSystem.EncodingType.UTF8,
     });
   }
@@ -314,8 +325,9 @@ export class FileStorageService {
    * @deprecated Use readAsArrayBuffer for better performance.
    */
   async readAsBase64(filePath: string): Promise<string> {
+    const uri = toFileUri(filePath);
     if (Platform.OS === 'web') {
-      const res = await fetch(filePath);
+      const res = await fetch(uri);
       const blob = await res.blob();
       if (blob.size > MAX_BASE64_FILE_BYTES) {
         throw new Error(
@@ -334,7 +346,7 @@ export class FileStorageService {
     }
 
     try {
-      const info = await FileSystem.getInfoAsync(filePath);
+      const info = await FileSystem.getInfoAsync(uri);
       if (info.exists && !info.isDirectory && typeof info.size === 'number' && info.size > MAX_BASE64_FILE_BYTES) {
         throw new Error(
           `File exceeds maximum base64 buffer limit of 15MB (${Math.round(info.size / (1024 * 1024))}MB). Use streaming or chunked reading instead.`
@@ -346,7 +358,7 @@ export class FileStorageService {
       }
     }
 
-    return await FileSystem.readAsStringAsync(filePath, {
+    return await FileSystem.readAsStringAsync(uri, {
       encoding: FileSystem.EncodingType.Base64,
     });
   }
@@ -389,17 +401,18 @@ export class FileStorageService {
    * For large publications, preference is given to native BookSession handles.
    */
   async readAsArrayBuffer(filePath: string): Promise<ArrayBuffer> {
+    const uri = toFileUri(filePath);
     if (Platform.OS !== 'web') {
       try {
-        const bytes = await new ExpoFile(filePath).bytes();
+        const bytes = await new ExpoFile(uri).bytes();
         const copy = new Uint8Array(bytes.byteLength);
         copy.set(bytes);
         return copy.buffer;
       } catch (err) {
-        logger.warn(TAG, `Native byte read failed for ${filePath}, falling back to base64`, err);
+        logger.warn(TAG, `Native byte read failed for ${uri}, falling back to base64`, err);
       }
     }
-    const base64 = await this.readAsBase64(filePath);
+    const base64 = await this.readAsBase64(uri);
     return base64ToBuffer(base64);
   }
 

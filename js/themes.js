@@ -135,14 +135,19 @@ const ThemeManager = (() => {
     bindUIEvents();
   }
 
-  function setAppTheme(themeName, shouldPersist = true) {
-    if (!APP_THEMES.includes(themeName)) themeName = 'dark';
+  function setAppTheme(themeName, persist = true) {
+    if (!APP_THEMES.includes(themeName)) themeName = 'light';
     currentAppTheme = themeName;
 
     document.documentElement.setAttribute('data-theme', themeName);
     document.body.setAttribute('data-theme', themeName);
 
-    if (shouldPersist) {
+    // Write to localStorage immediately so the anti-flash <script> in index.html
+    // can apply the correct theme synchronously on next app launch, before IndexedDB
+    // is even opened — this eliminates the dark→light repaint on startup.
+    try { localStorage.setItem('lirune-app-theme', themeName); } catch (_) {}
+
+    if (persist) {
       NoveraDB.setPref('appTheme', themeName);
     }
 
@@ -195,11 +200,178 @@ const ThemeManager = (() => {
     root.style.setProperty('--accent-glow-strong', `rgba(${red},${green},${blue},0.12)`);
     const input = document.getElementById('app-accent-color');
     if (input) input.value = accent;
+    syncReaderPanels();
     if (shouldPersist) persist('accentColor', accent);
   }
 
+  function hexToRgb(hex) {
+    const clean = normalizeHex(hex, '#000000').slice(1);
+    return [
+      parseInt(clean.slice(0, 2), 16),
+      parseInt(clean.slice(2, 4), 16),
+      parseInt(clean.slice(4, 6), 16)
+    ];
+  }
+
+  function rgbToHex(r, g, b) {
+    const clamp = n => Math.max(0, Math.min(255, Math.round(n)));
+    return `#${[clamp(r), clamp(g), clamp(b)].map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+  }
+
+  function rgbaFromHex(hex, alpha) {
+    const [r, g, b] = hexToRgb(hex);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function mixHex(hexA, hexB, weightB) {
+    const [r1, g1, b1] = hexToRgb(hexA);
+    const [r2, g2, b2] = hexToRgb(hexB);
+    const w = Math.max(0, Math.min(1, weightB));
+    return rgbToHex(r1 + (r2 - r1) * w, g1 + (g2 - g1) * w, b1 + (b2 - b1) * w);
+  }
+
+  function relativeLuminance(hex) {
+    const channels = hexToRgb(hex).map(v => {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  }
+
+  function contrastRatio(hexA, hexB) {
+    const lumA = relativeLuminance(hexA);
+    const lumB = relativeLuminance(hexB);
+    const lighter = Math.max(lumA, lumB);
+    const darker = Math.min(lumA, lumB);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  function isDarkColor(hex) {
+    return relativeLuminance(hex) < 0.22;
+  }
+
+  function pickReadableForeground(bgHex) {
+    const lightOption = '#FFFFFF';
+    const darkOption = '#11151B';
+    return contrastRatio(bgHex, lightOption) >= contrastRatio(bgHex, darkOption)
+      ? lightOption
+      : darkOption;
+  }
+
+  const READER_PANEL_IDS = ['toc-panel', 'settings-panel', 'annotations-panel'];
+  const READER_SCOPED_TOKEN_PROPS = [
+    '--bg-base', '--bg-surface', '--bg-elevated', '--bg-card', '--bg-overlay',
+    '--bg-glass', '--bg-glass-nav', '--bg-hover', '--bg-active', '--bg-input', '--bg-inset',
+    '--text-primary', '--text-secondary', '--text-tertiary', '--text-muted', '--text-on-accent',
+    '--border-subtle', '--border-default', '--border-strong', '--border-accent',
+    '--accent', '--accent-hover', '--accent-active', '--accent-text',
+    '--gradient-accent', '--accent-subtle', '--accent-subtle-h',
+    '--accent-glow', '--accent-glow-strong',
+    '--reader-panel-switch-bg', '--reader-panel-switch-active-bg',
+    '--reader-panel-segment-bg', '--reader-panel-segment-active-bg', '--reader-panel-segment-active-fg',
+    '--reader-panel-dropdown-bg', '--reader-panel-group-bg', '--reader-panel-btn-bg',
+    'accent-color'
+  ];
+
+  function computeReaderPanelTokens(colors) {
+    const bgHex = normalizeHex(colors.bg, '#FDFCF8');
+    const surfaceHex = normalizeHex(colors.surface || colors.bg, bgHex);
+    const textHex = normalizeHex(colors.text, '#1A1410');
+    const mutedHex = normalizeHex(colors.muted, '#6B6055');
+    const appAccent = normalizeAccent(document.documentElement.style.getPropertyValue('--accent') || DEFAULT_ACCENT);
+    const dark = isDarkColor(surfaceHex);
+    const accentFg = pickReadableForeground(appAccent);
+    const accentStyle = document.documentElement.style;
+    const accentToken = (name, fallback) => accentStyle.getPropertyValue(name).trim() || fallback;
+    const accentActive = accentToken('--accent-active', mixHex(appAccent, '#000000', 0.16));
+
+    return {
+      isDark: dark,
+      props: {
+        '--bg-base': bgHex,
+        '--bg-surface': surfaceHex,
+        '--bg-elevated': mixHex(surfaceHex, dark ? '#FFFFFF' : '#000000', dark ? 0.06 : 0.03),
+        '--bg-card': surfaceHex,
+        '--bg-overlay': mixHex(surfaceHex, textHex, 0.08),
+        '--bg-glass': rgbaFromHex(surfaceHex, 0.94),
+        '--bg-glass-nav': rgbaFromHex(surfaceHex, 0.97),
+        '--bg-hover': rgbaFromHex(textHex, dark ? 0.09 : 0.055),
+        '--bg-active': rgbaFromHex(textHex, dark ? 0.15 : 0.09),
+        '--bg-input': rgbaFromHex(textHex, dark ? 0.08 : 0.05),
+        '--bg-inset': rgbaFromHex(textHex, dark ? 0.07 : 0.05),
+        '--text-primary': textHex,
+        '--text-secondary': mixHex(textHex, mutedHex, 0.35),
+        '--text-tertiary': mutedHex,
+        '--text-muted': mutedHex,
+        '--text-on-accent': accentFg,
+        '--border-subtle': rgbaFromHex(textHex, dark ? 0.13 : 0.1),
+        '--border-default': rgbaFromHex(textHex, dark ? 0.22 : 0.16),
+        '--border-strong': rgbaFromHex(textHex, dark ? 0.34 : 0.26),
+        '--border-accent': accentToken('--border-accent', rgbaFromHex(appAccent, 0.54)),
+        '--accent': appAccent,
+        '--accent-hover': accentToken('--accent-hover', mixHex(appAccent, dark ? '#FFFFFF' : '#000000', 0.12)),
+        '--accent-active': accentActive,
+        '--accent-text': appAccent,
+        '--gradient-accent': accentToken('--gradient-accent', appAccent),
+        '--accent-subtle': accentToken('--accent-subtle', rgbaFromHex(appAccent, dark ? 0.18 : 0.14)),
+        '--accent-subtle-h': accentToken('--accent-subtle-h', rgbaFromHex(appAccent, dark ? 0.26 : 0.22)),
+        '--accent-glow': accentToken('--accent-glow', rgbaFromHex(appAccent, 0.2)),
+        '--accent-glow-strong': accentToken('--accent-glow-strong', rgbaFromHex(appAccent, 0.32)),
+        '--reader-panel-switch-bg': rgbaFromHex(textHex, dark ? 0.16 : 0.14),
+        '--reader-panel-switch-active-bg': appAccent,
+        '--reader-panel-segment-bg': rgbaFromHex(textHex, dark ? 0.08 : 0.055),
+        '--reader-panel-segment-active-bg': mixHex(surfaceHex, '#FFFFFF', dark ? 0.16 : 0.65),
+        '--reader-panel-segment-active-fg': textHex,
+        '--reader-panel-dropdown-bg': rgbaFromHex(mixHex(surfaceHex, bgHex, 0.25), 0.96),
+        '--reader-panel-group-bg': dark ? rgbaFromHex(textHex, 0.045) : 'var(--bg-surface)',
+        '--reader-panel-btn-bg': dark ? rgbaFromHex(textHex, 0.065) : 'var(--bg-elevated)',
+        'accent-color': appAccent
+      }
+    };
+  }
+
+  function clearReaderPanelTheme(el) {
+    if (!el) return;
+    el.removeAttribute('data-reader-panel-theme');
+    el.removeAttribute('data-reader-theme-name');
+    if (el.style) {
+      el.style.colorScheme = '';
+      for (const prop of READER_SCOPED_TOKEN_PROPS) {
+        el.style.removeProperty(prop);
+      }
+    }
+  }
+
+  function applyReaderPanelTheme(el, themeName, tokens) {
+    if (!el || !el.style) return;
+    el.setAttribute('data-reader-panel-theme', tokens.isDark ? 'dark' : 'light');
+    el.setAttribute('data-reader-theme-name', themeName);
+    el.style.colorScheme = tokens.isDark ? 'dark' : 'light';
+    for (const [prop, val] of Object.entries(tokens.props)) {
+      el.style.setProperty(prop, val);
+    }
+  }
+
+  function syncReaderPanels(isReaderOpen) {
+    if (typeof document === 'undefined') return;
+    const readerActive = typeof isReaderOpen === 'boolean'
+      ? isReaderOpen
+      : !!document.body?.classList?.contains('reader-open');
+    const colors = getThemeColors(currentReaderTheme);
+    const readerView = document.getElementById('reader-view');
+    const targets = [...READER_PANEL_IDS.map(id => document.getElementById(id)), readerView].filter(Boolean);
+
+    if (!readerActive) {
+      for (const el of targets) clearReaderPanelTheme(el);
+      return;
+    }
+
+    const tokens = computeReaderPanelTokens(colors);
+    for (const el of targets) applyReaderPanelTheme(el, currentReaderTheme, tokens);
+  }
+
   function setReaderTheme(themeName, shouldPersist = true) {
-    if (!READER_THEMES.includes(themeName)) themeName = 'night';
+    if (!READER_THEMES.includes(themeName)) themeName = 'neutral';
     currentReaderTheme = themeName;
     const colors = getThemeColors(themeName);
 
@@ -229,6 +401,7 @@ const ThemeManager = (() => {
       qsThemeSelect._customDropdownSync?.();
     }
     updateCustomUI();
+    syncReaderPanels();
     if (shouldPersist) persist('readerTheme', themeName);
 
     // Apply directly into EPUB iframe page content

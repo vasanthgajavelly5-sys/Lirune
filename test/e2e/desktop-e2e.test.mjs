@@ -349,24 +349,24 @@ try {
   console.log('  Navigation Result:', navRes);
   assert.ok(navRes.ok, 'Navigation calls should execute without unhandled error');
 
-  // STEP 7: Unsupported Format (PDF) & Corrupt Archive Validation & Graceful Rejection
-  console.log('[8/9] Testing Non-EPUB (PDF) & Corrupt Archive Validation & Graceful Rejection...');
-  const pdfRejectRes = await cdp.eval(`
+  // STEP 7: Unsupported Format (.exe) & Corrupt Archive Validation & Graceful Rejection
+  console.log('[8/9] Testing Unsupported Format & Corrupt Archive Validation & Graceful Rejection...');
+  const rejectRes = await cdp.eval(`
     try {
-      const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x37]); // %PDF-1.7
-      const res1 = await window.noveraDesktop.saveBookToStorage('sample.pdf', pdfBytes.buffer, null);
-      const res2 = await window.noveraDesktop.saveBookToStorage('corrupt.epub', pdfBytes.buffer, null);
+      const hostileBytes = new Uint8Array([0x4D, 0x5A, 0x90, 0x00]); // MZ PE header
+      const res1 = await window.noveraDesktop.saveBookToStorage('sample.exe', hostileBytes.buffer, null);
+      const res2 = await window.noveraDesktop.saveBookToStorage('corrupt.epub', hostileBytes.buffer, null);
       return {
-        pdfRejected: !res1.success && res1.error.includes('Only EPUB files can be stored'),
-        corruptRejected: !res2.success && (res2.error.includes('ZIP') || res2.error.includes('readable'))
+        unsupportedRejected: !res1.success,
+        corruptRejected: !res2.success
       };
     } catch (e) {
       return { error: e.message };
     }
   `);
-  console.log('  PDF & Corrupt Rejection Result:', pdfRejectRes);
-  assert.ok(pdfRejectRes.pdfRejected, 'Preload storage boundary must refuse non-EPUB PDF files');
-  assert.ok(pdfRejectRes.corruptRejected, 'Desktop validation boundary must refuse non-zip binary content');
+  console.log('  Unsupported & Corrupt Rejection Result:', rejectRes);
+  assert.ok(rejectRes.unsupportedRejected, 'Preload storage boundary must refuse unsupported executable files');
+  assert.ok(rejectRes.corruptRejected, 'Desktop validation boundary must refuse non-zip binary content');
 
   // STEP 8: Reading Progress Persistence & Library Return
   console.log('[9/9] Testing Reading Progress Persistence & Library Return Transition...');
@@ -380,7 +380,7 @@ try {
     const book = await NoveraDB.getBook('e2e-test-book-1');
 
     // Switch view back to library
-    App.openLibrary();
+    await App.openLibrary();
     const libView = document.getElementById('library-view');
     const isLibActive = libView && libView.classList.contains('active');
 

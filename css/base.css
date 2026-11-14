@@ -25,8 +25,9 @@ body {
   overflow: hidden; /* we manage scroll per-view */
   line-height: 1.5;
   transition:
-    background var(--dur-slow) var(--ease-io),
-    color var(--dur-slow) var(--ease-io);
+    background-color var(--dur-normal) var(--ease-io),
+    color var(--dur-normal) var(--ease-io),
+    border-color var(--dur-normal) var(--ease-io);
 }
 
 a { color: inherit; text-decoration: none; }
@@ -55,6 +56,20 @@ svg { flex-shrink: 0; }
 ::selection {
   background: var(--accent-subtle);
   color: var(--accent-text);
+}
+
+/* Keep application chrome still and legible; book content keeps its own
+   typography and theme rules inside the reading surfaces. */
+.ambient-bg { display: none; }
+button, input, select, textarea { font: inherit; }
+button { color: inherit; }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ── Ambient Background ──────────────────────────────────── */
@@ -125,7 +140,16 @@ svg { flex-shrink: 0; }
   min-height: 100vh;
   display: none;
 }
-.view.active { display: flex; flex-direction: column; }
+.view.active {
+  display: flex;
+  flex-direction: column;
+  animation: viewFadeIn var(--dur-normal) var(--ease-out);
+}
+
+@keyframes viewFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 
 /* ── Typography helpers ──────────────────────────────────── */
 .text-sm     { font-size: 0.8125rem; }
@@ -217,4 +241,45 @@ svg { flex-shrink: 0; }
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* The in-app Reduce motion preference. Same rule as the operating
+   system setting, driven by an attribute so it can be turned on
+   without changing how the application is launched. */
+:root[data-reduce-motion='on'] *,
+:root[data-reduce-motion='on'] *::before,
+:root[data-reduce-motion='on'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+:root[data-focus-outlines='on'] :focus-visible {
+  outline: 3px solid var(--accent) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 5px rgba(238, 236, 248, 0.4) !important;
+}
+
+:root[data-large-controls='on'] .btn,
+:root[data-large-controls='on'] .glass-select,
+:root[data-large-controls='on'] .segment-opt,
+:root[data-large-controls='on'] .setting-switch {
+  min-height: 40px !important;
+  font-size: 0.9375rem !important;
+}
+
+:root[data-high-contrast='on'] {
+  --border-subtle: rgba(255, 255, 255, 0.22) !important;
+  --border-default: rgba(255, 255, 255, 0.35) !important;
+  --border-strong: rgba(255, 255, 255, 0.5) !important;
+  --text-secondary: var(--text-primary) !important;
+  --text-tertiary: var(--text-secondary) !important;
+}
+:root[data-theme='light'][data-high-contrast='on'] {
+  --border-subtle: rgba(0, 0, 0, 0.25) !important;
+  --border-default: rgba(0, 0, 0, 0.45) !important;
+  --border-strong: rgba(0, 0, 0, 0.7) !important;
+  --text-secondary: #000000 !important;
+  --text-tertiary: #1A1630 !important;
 }

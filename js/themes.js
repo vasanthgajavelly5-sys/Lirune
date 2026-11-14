@@ -4,13 +4,18 @@
 
 const ThemeManager = (() => {
   const APP_THEMES = ['dark', 'light'];
-  const READER_THEMES = ['neutral', 'sepia', 'night', 'paper', 'contrast1', 'contrast2', 'contrast3', 'contrast4', 'custom'];
-  const LEGACY_READER_THEMES = { dark: 'night', light: 'neutral', oled: 'night', sepia: 'sepia' };
-  let currentAppTheme = 'dark';
+  const READER_THEMES = [
+    'neutral', 'sepia', 'night', 'paper',
+    'contrast1', 'contrast2', 'contrast3', 'contrast4',
+    'nord', 'gruvbox', 'solarized', 'rosepine', 'dracula', 'mocha',
+    'custom'
+  ];
+  const LEGACY_READER_THEMES = { dark: 'night', light: 'neutral', oled: 'contrast1', sepia: 'sepia' };
+  let currentAppTheme = 'light';
   let currentReaderTheme = 'neutral';
   let customColors = null;
   let persistTimer = null;
-  const DEFAULT_ACCENT = '#EEECF8';
+  const DEFAULT_ACCENT = '#426F86';
 
   const THEME_COLORS = {
     neutral: {
@@ -54,6 +59,30 @@ const ThemeManager = (() => {
     contrast4: {
       bg: '#E4F1E5', surface: '#F3FAF3', text: '#102B19', muted: '#4D6B55',
       link: '#176B3A', selection: 'rgba(23,107,58,0.28)', selectionText: '#FFFFFF'
+    },
+    nord: {
+      bg: '#2E3440', surface: '#3B4252', text: '#ECEFF4', muted: '#D8DEE9',
+      link: '#88C0D0', selection: 'rgba(136,192,208,0.35)', selectionText: '#FFFFFF'
+    },
+    gruvbox: {
+      bg: '#282828', surface: '#32302F', text: '#EBDBB2', muted: '#A89984',
+      link: '#FABD2F', selection: 'rgba(250,189,47,0.35)', selectionText: '#282828'
+    },
+    solarized: {
+      bg: '#002B36', surface: '#073642', text: '#93A1A1', muted: '#657B83',
+      link: '#2AA198', selection: 'rgba(42,161,152,0.35)', selectionText: '#002B36'
+    },
+    rosepine: {
+      bg: '#191724', surface: '#1F1D2E', text: '#E0DEF4', muted: '#908CAA',
+      link: '#EB6F92', selection: 'rgba(235,111,146,0.35)', selectionText: '#FFFFFF'
+    },
+    dracula: {
+      bg: '#282A36', surface: '#343746', text: '#F8F8F2', muted: '#6272A4',
+      link: '#BD93F9', selection: 'rgba(189,147,249,0.35)', selectionText: '#282A36'
+    },
+    mocha: {
+      bg: '#1E1E2E', surface: '#24273A', text: '#CDD6F4', muted: '#A6ADC8',
+      link: '#CBA6F7', selection: 'rgba(203,166,247,0.35)', selectionText: '#1E1E2E'
     }
   };
 
@@ -85,8 +114,17 @@ const ThemeManager = (() => {
   }
 
   async function init() {
-    const legacyTheme = await NoveraDB.getPref('theme', 'dark');
-    const savedAppTheme = await NoveraDB.getPref('appTheme', APP_THEMES.includes(legacyTheme) ? legacyTheme : 'dark');
+    let cachedTheme = null;
+    try { cachedTheme = localStorage.getItem('lirune-app-theme'); } catch (_) {}
+    const dbAppTheme = await NoveraDB.getPref('appTheme', null);
+    const legacyTheme = await NoveraDB.getPref('theme', null);
+    const savedAppTheme = (dbAppTheme && APP_THEMES.includes(dbAppTheme))
+      ? dbAppTheme
+      : (cachedTheme && APP_THEMES.includes(cachedTheme))
+        ? cachedTheme
+        : (legacyTheme && APP_THEMES.includes(legacyTheme))
+          ? legacyTheme
+          : 'light';
     customColors = normalizeCustomColors(await NoveraDB.getPref('customReaderTheme', DEFAULT_CUSTOM_COLORS));
     const savedReaderTheme = await NoveraDB.getPref('readerTheme', 'neutral');
     applyAccent(await NoveraDB.getPref('accentColor', DEFAULT_ACCENT), false);
@@ -120,6 +158,7 @@ const ThemeManager = (() => {
       themeSwitch.setAttribute('aria-checked', isDark ? 'true' : 'false');
       themeSwitch.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
     }
+    syncReaderPanels();
     window.dispatchEvent(new CustomEvent('novera:appthemechange', { detail: { theme: themeName } }));
   }
 
@@ -143,14 +182,17 @@ const ThemeManager = (() => {
     root.style.setProperty('--accent', accent);
     root.style.setProperty('--accent-hover', hover);
     root.style.setProperty('--accent-active', active);
-    root.style.setProperty('--accent-text', luminance > 0.62 ? foreground : accent);
+    // --accent-text is always a legible foreground that can be placed on top
+    // of an accent-coloured surface; it is never the raw accent hex.
+    root.style.setProperty('--accent-text', foreground);
     root.style.setProperty('--text-on-accent', foreground);
-    root.style.setProperty('--gradient-accent', `linear-gradient(135deg, ${accent}, ${active})`);
+    root.style.setProperty('--gradient-accent', accent);
+    root.style.setProperty('--gradient-accent-soft', `rgba(${red},${green},${blue},0.08)`);
     root.style.setProperty('--border-accent', `rgba(${red},${green},${blue},0.48)`);
     root.style.setProperty('--accent-subtle', `rgba(${red},${green},${blue},0.13)`);
     root.style.setProperty('--accent-subtle-h', `rgba(${red},${green},${blue},0.22)`);
-    root.style.setProperty('--accent-glow', `rgba(${red},${green},${blue},0.18)`);
-    root.style.setProperty('--accent-glow-strong', `rgba(${red},${green},${blue},0.3)`);
+    root.style.setProperty('--accent-glow', `rgba(${red},${green},${blue},0.08)`);
+    root.style.setProperty('--accent-glow-strong', `rgba(${red},${green},${blue},0.12)`);
     const input = document.getElementById('app-accent-color');
     if (input) input.value = accent;
     if (shouldPersist) persist('accentColor', accent);
@@ -179,6 +221,13 @@ const ThemeManager = (() => {
       preset.classList.toggle('active', preset.dataset.theme === themeName);
       preset.setAttribute('aria-pressed', preset.dataset.theme === themeName ? 'true' : 'false');
     });
+    const qsThemeSelect = document.getElementById('qs-theme-select');
+    if (qsThemeSelect) {
+      if (qsThemeSelect.value !== themeName) {
+        qsThemeSelect.value = themeName;
+      }
+      qsThemeSelect._customDropdownSync?.();
+    }
     updateCustomUI();
     if (shouldPersist) persist('readerTheme', themeName);
 
@@ -269,11 +318,18 @@ const ThemeManager = (() => {
     init,
     setAppTheme,
     setReaderTheme,
+    syncReaderPanels,
     getAppTheme,
     getReaderTheme,
     getThemeColors,
+    applyAccent,
     APP_THEMES,
     READER_THEMES
     ,DEFAULT_ACCENT
   };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ThemeManager;
+}
+

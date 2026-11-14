@@ -1,0 +1,555 @@
+/**
+ * Lirune Reader — Concrete Flowing-Document Adapters
+ *
+ * TXT  : plain UTF-8 text, rendered as a single flowing document.
+ * HTML : a local HTML file, sanitised and inlined so it can never navigate the
+ *        shell or reach the network.
+ * FB2  : FictionBook 2 XML, mapped onto the same document model.
+ */
+
+const TextAdapter = (() => {
+  // A plain-text file is one continuous run of lines. Emitting the whole file
+  // as a single <p> joined by <br> builds one enormous inline formatting
+  // context, and the layout engine has to re-break that whole run across every
+  // paginated column each time the typography changes. Above this many lines a
+  // block is split per line instead, so the document is a list of ordinary
+  // paragraph boxes rather than one giant run of text.
+  const MAX_LINES_IN_ONE_PARAGRAPH = 400;
+
+  class Adapter extends DocumentAdapter.Adapter {
+    constructor(host, record) {
+      super(host, record);
+      this.format = 'txt';
+      this.formatLabel = 'Plain text';
+      this.flow = 'scrolled';
+    }
+
+    _mount() {
+      super._mount();
+      this.element?.classList.add('is-txt', 'is-page-document');
+      this.viewport?.classList.add('is-txt', 'is-page-document');
+    }
+
+    async buildSections() {
+      const bytes = await this.loadBytes();
+      // Windows line endings are normalised first. A CRLF paragraph break is
+      // \r\n\r\n, whose two newlines are not adjacent, so splitting on blank
+      // lines before normalising leaves the entire file as one block.
+      const text = decodeText(bytes).replace(/\r\n?/g, '\n');
+      if (!text.trim()) throw new Error('This text file is empty.');
+
+      let blocks = text
+        .split(/\n{2,}/)
+        .map(block => block.trim())
+        .filter(Boolean);
+
+      // Blank-line separation alone leaves a whole novel in one block when the
+      // file separates its lines with single newlines, which is the usual shape
+      // of a Project Gutenberg text. That block is split per line so the
+      // rendered document is a list of paragraphs rather than one huge run.
+      if (blocks.length <= 2) {
+        const lines = blocks.join('\n').split(/\n/);
+        if (lines.length > MAX_LINES_IN_ONE_PARAGRAPH) {
+          blocks = lines.map(line => line.trim()).filter(Boolean);
+        }
+      }
+
+      const CHARS_PER_PAGE = 2400;
+      const pages = [];
+      let currentPageHtml = '';
+      let currentPageChars = 0;
+      let pageNum = 1;
+
+      const flushPage = () => {
+        if (!currentPageHtml.trim()) return;
+        pages.push({
+          num: pageNum,
+          html: `<article class="doc-page-card" data-page-number="${pageNum}"><div class="doc-page-content is-txt">${currentPageHtml}</div><div class="doc-page-footer">Page ${pageNum}</div></article>`
+        });
+        pageNum++;
+        currentPageHtml = '';
+        currentPageChars = 0;
+      };
+
+      for (const block of blocks) {
+        const subBlocks = block.length > CHARS_PER_PAGE ? block.split(/\n/) : [block];
+        for (const sub of subBlocks) {
+          const paraHtml = `<p>${Utils.escapeHTML(sub).replace(/\n/g, '<br>')}</p>`;
+          if (currentPageChars + sub.length > CHARS_PER_PAGE && currentPageChars > 0) {
+            flushPage();
+          }
+          currentPageHtml += paraHtml;
+          currentPageChars += sub.length;
+        }
+      }
+      flushPage();
+
+      if (!pages.length) throw new Error('This text file has no readable content.');
+
+      return pages.map(p => ({
+        id: `page-${p.num}`,
+        label: p.num === 1 && this.record.title ? this.record.title : `Page ${p.num}`,
+        depth: 0,
+        html: p.html
+      }));
+    }
+
+    async loadBytes() {
+      if (this.record.fileData) return new Uint8Array(this.record.fileData);
+      if (this.record.storageId && window.noveraDesktop?.readManagedBook) {
+        const buffer = await window.noveraDesktop.readManagedBook(this.record.storageId, this.record.fingerprint, this.record.fileSize);
+        return new Uint8Array(buffer);
+      }
+      throw new Error('This text file is unavailable.');
+    }
+  }
+
+  function decodeText(bytes) {
+    if (!bytes || !bytes.length) return '';
+    if (bytes[0] === 0xFF && bytes[1] === 0xFE) return new TextDecoder('utf-16le').decode(bytes);
+    if (bytes[0] === 0xFE && bytes[1] === 0xFF) return new TextDecoder('utf-16be').decode(bytes);
+    if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+      return new TextDecoder('utf-8').decode(bytes.subarray(3));
+    }
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+
+  return { Adapter, decodeText };
+})();
+
+const HtmlAdapter = (() => {
+  const SCRIPT_TAGS = new Set(['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'APPLET', 'FRAME', 'FRAMESET', 'BASE', 'TEMPLATE']);
+
+  class Adapter extends DocumentAdapter.Adapter {
+    constructor(host, record) {
+      super(host, record);
+      this.format = 'html';
+      this.formatLabel = 'HTML document';
+      this.flow = 'scrolled';
+    }
+
+    async buildSections() {
+      const bytes = await this.loadBytes();
+      const source = TextAdapter.decodeText(bytes);
+      const parsed = new DOMParser().parseFromString(source, 'text/html');
+      this._sanitize(parsed);
+
+      const title = parsed.querySelector('title')?.textContent?.trim() || this.record.title || 'HTML document';
+      const body = parsed.body;
+      const metaDesc = parsed.querySelector('meta[name="description"]')?.getAttribute('content')?.trim() || '';
+
+      if (!body || (!body.textContent.trim() && !body.querySelector('img, svg, canvas'))) {
+        // If the webpage was saved as a client-side SPA (like Microsoft Store or Twitter)
+        return [{
+          id: 'sec-1',
+          label: title,
+          depth: 0,
+          html: `<div class="doc-spa-notice" style="padding: 40px 24px; text-align: center; max-width: 600px; margin: 40px auto; font-family: var(--font-sans, system-ui, sans-serif);">
+            <h2 style="font-size: 1.5rem; margin-bottom: 1rem; color: var(--color-text-primary, currentColor);">${Utils.escapeHTML(title)}</h2>
+            ${metaDesc ? `<p style="color: var(--color-text-secondary, #666); margin-bottom: 1.5rem; line-height: 1.6;">${Utils.escapeHTML(metaDesc)}</p>` : ''}
+            <div style="background: rgba(0, 0, 0, 0.04); border-radius: 8px; padding: 20px; font-size: 0.95rem; color: var(--color-text-secondary, #555); line-height: 1.6;">
+              This web page was saved as dynamic client-side HTML (Single Page Application). Its readable content is rendered dynamically by external JavaScript scripts which cannot be executed in this reader.
+            </div>
+          </div>`
+        }];
+      }
+
+      // Split on the document's own top-level headings so navigation mirrors
+      // the source file rather than an invented chapter list.
+      const blocks = [...body.children];
+      const sections = [];
+      let current = null;
+      const push = (label) => {
+        current = { id: `sec-${sections.length + 1}`, label, depth: 0, chunks: [] };
+        sections.push(current);
+      };
+
+      let autoIndex = 1;
+      for (const node of blocks) {
+        const heading = node.matches('h1,h2,h3,h4,h5,h6')
+          ? node
+          : node.querySelector?.('h1,h2,h3,h4,h5,h6');
+        if (heading === node) {
+          push(node.textContent.trim() || `Section ${autoIndex++}`);
+          current.depth = Math.min(2, Number(node.tagName.slice(1)) - 1);
+          current.chunks.push(node.outerHTML);
+          continue;
+        }
+        if (!current) push(title);
+        if (heading) {
+          push(heading.textContent.trim() || `Section ${autoIndex++}`);
+          current.depth = Math.min(2, Number(heading.tagName.slice(1)) - 1);
+        }
+        current.chunks.push(node.outerHTML);
+      }
+      if (!current) push(title);
+
+      const mapped = sections
+        .filter(s => s.chunks && s.chunks.length > 0)
+        .map(section => ({ ...section, html: section.chunks.join('\n') }));
+
+      if (!mapped.length) {
+        return [{ id: 'sec-1', label: title, depth: 0, html: body.innerHTML }];
+      }
+      return mapped;
+    }
+
+    _sanitize(parsed) {
+      const kill = node => {
+        while (node.firstChild) node.removeChild(node.firstChild);
+        node.remove?.();
+      };
+
+      // 1. Unwrap NOSCRIPT so readable fallback content is preserved
+      parsed.querySelectorAll('noscript').forEach(ns => {
+        const span = parsed.createElement('span');
+        span.textContent = ns.textContent || '';
+        ns.replaceWith(span);
+      });
+
+      // 2. Remove executable/dangerous script and embedded tags
+      parsed.querySelectorAll('*').forEach(node => {
+        const tag = node.tagName.toUpperCase();
+        if (SCRIPT_TAGS.has(tag)) {
+          kill(node);
+          return;
+        }
+
+        // 3. Make interactive form controls inert without destroying their text
+        if (tag === 'BUTTON') {
+          node.setAttribute('disabled', 'true');
+          node.setAttribute('type', 'button');
+          node.style.pointerEvents = 'none';
+        } else if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+          node.setAttribute('disabled', 'true');
+          node.style.pointerEvents = 'none';
+        }
+
+        // 4. Clean attributes
+        [...node.attributes].forEach(attr => {
+          const name = attr.name.toLowerCase();
+          const value = attr.value || '';
+          if (name.startsWith('on')) node.removeAttribute(attr.name);
+          else if (name === 'style' && /url\s*\(|expression\s*\(|javascript:/i.test(value)) node.removeAttribute(attr.name);
+          else if ((name === 'href' || name === 'src' || name === 'xlink:href' || name === 'srcset' || name === 'poster') &&
+                   /^\s*(https?:|javascript:|data:text\/html|file:)/i.test(value) && !/^\s*data:image\//i.test(value)) {
+            // Keep local resources, drop anything that would leave the machine.
+            node.removeAttribute(attr.name);
+          }
+        });
+
+        if (node.tagName === 'A') {
+          node.removeAttribute('target');
+          node.addEventListener?.('click', event => event.preventDefault());
+        }
+      });
+      // Inline the document's own stylesheet rules so the local file keeps its
+      // typography without pulling in a remote stylesheet.
+      const styleRules = [...parsed.querySelectorAll('style')].map(node => node.textContent).join('\n');
+      if (styleRules) {
+        const style = parsed.createElement('style');
+        style.textContent = styleRules;
+        parsed.head.appendChild(style);
+      }
+    }
+
+    async loadBytes() {
+      if (this.record.fileData) return new Uint8Array(this.record.fileData);
+      if (this.record.storageId && window.noveraDesktop?.readManagedBook) {
+        const buffer = await window.noveraDesktop.readManagedBook(this.record.storageId, this.record.fingerprint, this.record.fileSize);
+        return new Uint8Array(buffer);
+      }
+      throw new Error('This HTML file is unavailable.');
+    }
+  }
+
+  return { Adapter };
+})();
+
+const Fb2Adapter = (() => {
+  class Adapter extends DocumentAdapter.Adapter {
+    constructor(host, record) {
+      super(host, record);
+      this.format = 'fb2';
+      this.formatLabel = 'FictionBook';
+    }
+
+    async buildSections() {
+      let bytes = await this.loadBytes();
+      if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)) {
+        if (typeof JSZip !== 'undefined') {
+          const zip = await JSZip.loadAsync(bytes);
+          const fb2Entry = Object.values(zip.files).find(f => !f.dir && f.name.toLowerCase().endsWith('.fb2'));
+          if (fb2Entry) {
+            bytes = await fb2Entry.async('uint8array');
+          }
+        }
+      }
+      const source = TextAdapter.decodeText(bytes);
+      let isXmlError = false;
+      let parser;
+      try {
+        parser = new DOMParser({
+          errorHandler: {
+            warning: () => {},
+            error: () => { isXmlError = true; },
+            fatalError: () => { isXmlError = true; }
+          }
+        });
+      } catch {
+        parser = new DOMParser();
+      }
+      const parsed = parser.parseFromString(source, 'application/xml');
+      const errorTag = parsed?.querySelector ? parsed.querySelector('parsererror') : (parsed?.getElementsByTagName ? parsed.getElementsByTagName('parsererror')[0] : null);
+      if (isXmlError || errorTag) throw new Error('This FictionBook file is not valid XML.');
+
+      const doc = parsed;
+      const fictionBook = doc.documentElement;
+      if (!fictionBook || fictionBook.nodeName.toLowerCase() !== 'fictionbook') {
+        throw new Error('This file is not a FictionBook document.');
+      }
+
+      function getElementChildren(el) {
+        if (!el) return [];
+        if (el.children) return Array.from(el.children);
+        const res = [];
+        const nodes = el.childNodes || [];
+        for (let i = 0; i < nodes.length; i++) {
+          if (nodes[i].nodeType === 1) res.push(nodes[i]);
+        }
+        return res;
+      }
+
+      // Inline validated raster <binary> image payloads so embedded covers render offline.
+      const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+      const images = new Map();
+      const binaryNodes = doc.querySelectorAll ? doc.querySelectorAll('binary') : (doc.getElementsByTagNameNS ? doc.getElementsByTagNameNS('*', 'binary') : doc.getElementsByTagName('binary'));
+      for (let i = 0; i < (binaryNodes?.length || 0); i++) {
+        const binary = binaryNodes[i];
+        const id = binary.getAttribute('id') || binary.getAttribute('xml:id') || (binary.getAttributeNS && binary.getAttributeNS(null, 'id'));
+        if (!id) continue;
+        const contentType = (binary.getAttribute('content-type') || binary.getAttribute('contentType') || 'image/jpeg').toLowerCase().trim();
+        if (!ALLOWED_IMAGE_TYPES.has(contentType)) continue;
+        const rawBase64 = (binary.textContent || '').replace(/\s+/g, '');
+        if (!/^[A-Za-z0-9+/=]+$/.test(rawBase64) || rawBase64.length < 4) continue;
+        const candidateUri = `data:${contentType};base64,${rawBase64}`;
+        const dataUri = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(candidateUri) : candidateUri;
+        if (!dataUri) continue;
+        const cleanId = id.trim().replace(/^#/, '');
+        images.set(cleanId, dataUri);
+        images.set(`#${cleanId}`, dataUri);
+      }
+      this.embeddedImages = images;
+
+      const body = doc.querySelector ? doc.querySelector('body') : (doc.getElementsByTagName ? doc.getElementsByTagName('body')[0] : null);
+      if (!body) throw new Error('This FictionBook file has no body.');
+
+      function convertFb2Node(node, depth = 0) {
+        if (!node) return '';
+        if (node.nodeType === 3) { // Text node
+          return Utils.escapeHTML(node.nodeValue);
+        }
+        if (node.nodeType !== 1) return '';
+
+        const tag = (node.localName || node.nodeName.split(':').pop() || '').toLowerCase();
+
+        // Drop dangerous, active, or unsupported elements
+        if (['script', 'svg', 'math', 'foreignobject', 'binary', 'style', 'iframe', 'object', 'embed', 'applet', 'link', 'meta'].includes(tag)) {
+          return '';
+        }
+
+        const convertChildren = (n) => {
+          let out = '';
+          const children = n.childNodes || [];
+          for (let i = 0; i < children.length; i++) {
+            out += convertFb2Node(children[i], depth);
+          }
+          return out;
+        };
+
+        switch (tag) {
+          case 'section':
+            return `<div class="doc-section-content">${convertChildren(node)}</div>`;
+          case 'title': {
+            const hLevel = Math.min(6, Math.max(2, depth + 1));
+            return `<h${hLevel}>${convertChildren(node)}</h${hLevel}>`;
+          }
+          case 'subtitle':
+            return `<h4>${convertChildren(node)}</h4>`;
+          case 'p':
+            return `<p>${convertChildren(node)}</p>`;
+          case 'v':
+            return `<p class="doc-verse">${convertChildren(node)}</p>`;
+          case 'stanza':
+            return `<div class="doc-stanza">${convertChildren(node)}</div>`;
+          case 'poem':
+            return `<blockquote class="doc-poem">${convertChildren(node)}</blockquote>`;
+          case 'cite':
+            return `<blockquote class="doc-cite">${convertChildren(node)}</blockquote>`;
+          case 'epigraph':
+            return `<blockquote class="doc-epigraph">${convertChildren(node)}</blockquote>`;
+          case 'annotation':
+            return `<div class="doc-annotation">${convertChildren(node)}</div>`;
+          case 'text-author':
+            return `<p class="doc-author">${convertChildren(node)}</p>`;
+          case 'empty-line':
+            return `<p class="empty-line">&nbsp;</p>`;
+          case 'strong':
+          case 'b':
+            return `<strong>${convertChildren(node)}</strong>`;
+          case 'emphasis':
+          case 'i':
+            return `<em>${convertChildren(node)}</em>`;
+          case 'code':
+            return `<code>${convertChildren(node)}</code>`;
+          case 'strikethrough':
+            return `<s>${convertChildren(node)}</s>`;
+          case 'sub':
+            return `<sub>${convertChildren(node)}</sub>`;
+          case 'sup':
+            return `<sup>${convertChildren(node)}</sup>`;
+          case 'table':
+            return `<div class="doc-table-wrapper"><table class="doc-table">${convertChildren(node)}</table></div>`;
+          case 'tr':
+            return `<tr>${convertChildren(node)}</tr>`;
+          case 'th':
+            return `<th>${convertChildren(node)}</th>`;
+          case 'td':
+            return `<td>${convertChildren(node)}</td>`;
+          case 'image': {
+            const href = (node.getAttributeNS && (node.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'l:href')))
+              || node.getAttribute('xlink:href') || node.getAttribute('l:href') || node.getAttribute('href') || '';
+            const cleanHref = href.trim().replace(/^#/, '');
+            const dataUri = images.get(cleanHref) || images.get(`#${cleanHref}`) || images.get(href);
+            if (dataUri) {
+              const safeSrc = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(dataUri) : dataUri;
+              if (safeSrc) {
+                return `<img src="${Utils.escapeAttr(safeSrc)}" alt="Document Image" class="doc-image" />`;
+              }
+            }
+            return '';
+          }
+          case 'a': {
+            const href = (node.getAttributeNS && (node.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'l:href')))
+              || node.getAttribute('xlink:href') || node.getAttribute('l:href') || node.getAttribute('href') || '';
+            const inner = convertChildren(node);
+            if (!inner) return '';
+            const trimmedHref = href.trim();
+            if (trimmedHref.startsWith('#')) {
+              return `<a href="${Utils.escapeAttr(trimmedHref)}">${inner}</a>`;
+            }
+            try {
+              const url = new URL(trimmedHref);
+              if (url.protocol === 'http:' || url.protocol === 'https:') {
+                return `<a href="${Utils.escapeAttr(url.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+              }
+            } catch {}
+            return inner;
+          }
+          default:
+            return convertChildren(node);
+        }
+      }
+
+      const sections = [];
+      const walk = (parent, depth) => {
+        const parentChildren = getElementChildren(parent);
+        for (const node of parentChildren) {
+          const name = (node.localName || node.nodeName.split(':').pop() || '').toLowerCase();
+          if (name === 'title') continue;
+          if (name === 'section') {
+            const nodeChildren = getElementChildren(node);
+            const titleNode = node.querySelector ? node.querySelector(':scope > title') : nodeChildren.find(c => (c.localName || c.nodeName).toLowerCase() === 'title');
+            const titleText = titleNode?.textContent?.trim();
+            let sectionHtml = '';
+            for (const child of nodeChildren) {
+              const childName = (child.localName || child.nodeName.split(':').pop() || '').toLowerCase();
+              if (childName === 'section' || childName === 'title') continue;
+              sectionHtml += convertFb2Node(child, depth);
+            }
+            sections.push({
+              id: `sec-${sections.length + 1}`,
+              label: titleText || `Section ${sections.length + 1}`,
+              depth: Math.min(2, depth),
+              html: sectionHtml
+            });
+            const nested = nodeChildren.filter(child => {
+              const cName = (child.localName || child.nodeName.split(':').pop() || '').toLowerCase();
+              return cName === 'section';
+            });
+            if (nested.length) walk(node, depth + 1);
+          } else if (node.nodeType === 1) {
+            const existing = sections[sections.length - 1];
+            if (existing) {
+              existing.html += convertFb2Node(node, depth);
+            }
+          }
+        }
+      };
+      walk(body, 0);
+      if (!sections.length) {
+        sections.push({
+          id: 'sec-1',
+          label: this.record.title || 'Document',
+          depth: 0,
+          html: convertFb2Node(body, 0)
+        });
+      }
+      return sections;
+    }
+
+    extractMetadata(bytes) {
+      try {
+        const Parser = (typeof DOMParser !== 'undefined') ? DOMParser : (typeof require !== 'undefined' ? require('@xmldom/xmldom').DOMParser : null);
+        if (!Parser) return {};
+        const doc = new Parser().parseFromString(TextAdapter.decodeText(bytes), 'application/xml');
+        const info = doc.querySelector ? doc.querySelector('title-info') : (doc.getElementsByTagName ? doc.getElementsByTagName('title-info')[0] : null);
+        if (!info) return {};
+        const get = (tag) => {
+          if (info.querySelector) return info.querySelector(`:scope > ${tag}`)?.textContent?.trim() || '';
+          const el = info.getElementsByTagName ? info.getElementsByTagName(tag)[0] : null;
+          return el?.textContent?.trim() || '';
+        };
+        let coverImg = doc.querySelector ? (doc.querySelector('coverpage image') || doc.querySelector('image')) : null;
+        if (!coverImg && doc.getElementsByTagNameNS) {
+          const cp = doc.getElementsByTagNameNS('*', 'coverpage');
+          if (cp && cp.length > 0) {
+            const imgs = cp[0].getElementsByTagNameNS('*', 'image');
+            if (imgs && imgs.length > 0) coverImg = imgs[0];
+          }
+        }
+        if (!coverImg && doc.getElementsByTagName) {
+          const cp = doc.getElementsByTagName('coverpage');
+          if (cp && cp.length > 0) {
+            const imgs = cp[0].getElementsByTagName('image');
+            if (imgs && imgs.length > 0) coverImg = imgs[0];
+          }
+        }
+        const rawCoverHref = coverImg
+          ? ((coverImg.getAttributeNS && (coverImg.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || coverImg.getAttributeNS('http://www.w3.org/1999/xlink', 'l:href')))
+             || coverImg.getAttribute('xlink:href') || coverImg.getAttribute('l:href') || coverImg.getAttribute('href') || '')
+          : '';
+        const coverId = rawCoverHref.trim().replace(/^#/, '').trim();
+        return {
+          title: get('title'),
+          author: get('author'),
+          description: get('annotation') ? (doc.querySelector ? doc.querySelector('annotation')?.textContent?.trim() : doc.getElementsByTagName('annotation')[0]?.textContent?.trim()) : '',
+          coverId
+        };
+      } catch {
+        return {};
+      }
+    }
+
+    async loadBytes() {
+      if (this.record.fileData) return new Uint8Array(this.record.fileData);
+      if (this.record.storageId && window.noveraDesktop?.readManagedBook) {
+        const buffer = await window.noveraDesktop.readManagedBook(this.record.storageId, this.record.fingerprint, this.record.fileSize);
+        return new Uint8Array(buffer);
+      }
+      throw new Error('This FictionBook file is unavailable.');
+    }
+  }
+
+  return { Adapter };
+})();

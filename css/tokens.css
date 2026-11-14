@@ -19,6 +19,7 @@
   --bg-glass-nav:   rgba(17,21,27,0.94);
   --bg-scrim:       rgba(0,0,0,0.68);
   --bg-input:       rgba(255,255,255,0.05);
+  --bg-inset:       rgba(255,255,255,0.05);
 
   /* Text */
   --text-primary:   #E9E7F5;
@@ -103,6 +104,7 @@
   --bg-glass-nav:   rgba(248,247,255,0.92);
   --bg-scrim:       rgba(0,0,0,0.4);
   --bg-input:       rgba(0,0,0,0.04);
+  --bg-inset:       rgba(0,0,0,0.04);
 
   --text-primary:   #1A1630;
   --text-secondary: #4D4A68;
@@ -332,6 +334,14 @@
   --r-2xl: 30px;
   --r-full:9999px;
 
+  /* Aliases for semantic radius usage */
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
+  --radius-full: var(--r-full);
+
   /* Font stacks */
   --font-ui:      'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --font-cormorant:'Cormorant Garamond', Georgia, 'Times New Roman', serif;
@@ -345,19 +355,19 @@
   /* Component metrics */
   --topbar-h:   60px;
   --progress-h: 3px;
-  --sidebar-w:  310px;
-  --panel-w:    350px;
+  --sidebar-w:  355px;
+  --panel-w:    355px;
 
-  /* Transitions */
-  --dur-instant: 80ms;
-  --dur-fast:    160ms;
-  --dur-normal:  260ms;
-  --dur-slow:    420ms;
-  --dur-slower:  640ms;
+  /* Transitions — V5 restrained, responsive, calm motion */
+  --dur-instant: 70ms;
+  --dur-fast:    150ms;
+  --dur-normal:  210ms;
+  --dur-slow:    280ms;
+  --dur-slower:  320ms;
   --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
   --ease-io:     cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --ease-spring: cubic-bezier(0.2, 0.8, 0.4, 1);
+  --ease-bounce: cubic-bezier(0.2, 0.8, 0.4, 1);
 
   /* Blur */
   --blur-sm: blur(8px);
@@ -370,4 +380,78 @@
   --z-panel: 100;
   --z-modal: 200;
   --z-toast: 300;
+}
+
+/* Application chrome: quiet neutrals and one accessible accent. Reader page
+   colours and typography remain controlled by the reading settings. */
+:root,
+[data-theme="dark"] {
+  --accent: #8DB7CC;
+  --accent-hover: #A7C9D9;
+  --accent-active: #709DB4;
+  --accent-subtle: rgba(141, 183, 204, 0.14);
+  --accent-subtle-h: rgba(141, 183, 204, 0.22);
+  --accent-glow: rgba(141, 183, 204, 0.1);
+  --accent-glow-strong: rgba(141, 183, 204, 0.16);
+  --accent-text: #A7C9D9;
+  --accent-dim: #8DB7CC;
+  --border-accent: rgba(141, 183, 204, 0.42);
+  --gradient-accent: var(--accent);
+  --gradient-accent-soft: var(--accent-subtle);
+  --shadow-glow: var(--shadow-xs);
+  --shadow-glow-lg: var(--shadow-sm);
+}
+
+[data-theme="light"] {
+  --bg-base: #F3F5F6;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #F8FAFB;
+  --bg-card: #FFFFFF;
+  --bg-overlay: #E9EEF1;
+  --bg-glass-nav: rgba(248, 250, 251, 0.96);
+  --text-primary: #202A31;
+  --text-on-accent: #FFFFFF;
+  --text-secondary: #53616B;
+  --text-tertiary: #6F7D86;
+  --text-disabled: #AEB8BE;
+  --accent: #426F86;
+  --accent-hover: #365D71;
+  --accent-active: #2D5062;
+  --accent-subtle: rgba(66, 111, 134, 0.12);
+  --accent-subtle-h: rgba(66, 111, 134, 0.18);
+  --accent-glow: rgba(66, 111, 134, 0.1);
+  --accent-glow-strong: rgba(66, 111, 134, 0.16);
+  --accent-text: #365D71;
+  --accent-dim: #426F86;
+  --border-accent: rgba(66, 111, 134, 0.42);
+  --gradient-accent: var(--accent);
+  --gradient-accent-soft: var(--accent-subtle);
+  --shadow-glow: var(--shadow-xs);
+  --shadow-glow-lg: var(--shadow-sm);
+}
+
+[data-theme="oled"] {
+  --accent: #8DB7CC;
+  --accent-hover: #A7C9D9;
+  --accent-active: #709DB4;
+  --accent-subtle: rgba(141, 183, 204, 0.14);
+  --accent-subtle-h: rgba(141, 183, 204, 0.22);
+  --accent-glow: rgba(141, 183, 204, 0.1);
+  --accent-glow-strong: rgba(141, 183, 204, 0.16);
+  --accent-text: #A7C9D9;
+  --accent-dim: #8DB7CC;
+  --border-accent: rgba(141, 183, 204, 0.42);
+  --gradient-accent: var(--accent);
+  --gradient-accent-soft: var(--accent-subtle);
+  --shadow-glow: var(--shadow-xs);
+  --shadow-glow-lg: var(--shadow-sm);
+}
+
+:root {
+  --font-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-2xl: 20px;
 }

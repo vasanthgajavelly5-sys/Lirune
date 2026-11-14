@@ -23,7 +23,8 @@ if (!hasCertificate) {
   console.log('Building a signed NSIS installer using the configured certificate.');
 }
 
-const args = [require.resolve('electron-builder/cli.js'), '--win', 'nsis'];
+const hookPath = path.join(__dirname, 'builder-env-hook.js');
+const args = ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'nsis'];
 let temporaryConfig;
 let temporaryDir;
 if (!hasCertificate) {
@@ -31,7 +32,6 @@ if (!hasCertificate) {
   localConfig.win = {
     ...localConfig.win,
     signExecutable: false,
-    signAndEditExecutable: true,
     forceCodeSigning: false
   };
   temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-build-'));

@@ -1,0 +1,1521 @@
+/**
+ * Lirune Reader — Contextual Settings
+ *
+ * One presentation layer over the existing settings stores. It never keeps
+ * settings of its own: every control reads from and writes to the module that
+ * owns that setting.
+ *
+ *   Library appearance  -> Library
+ *   Typography, layout  -> ReaderSettings
+ *   App theme, accent,
+ *   reader theme        -> ThemeManager
+ *   Motion              -> AppPrefs
+ *   Persistence         -> NoveraDB (through the owners above)
+ *
+ * Two views share the existing settings panel:
+ *
+ *   Quick settings  a compact presentation of what matters for the view the
+ *                   user is in right now.
+ *   Full settings   every real setting, arranged into sections.
+ *
+ * The panel itself, its width, placement and animation are unchanged; the
+ * expanded view only widens the panel while it is open.
+ */
+
+const SettingsUI = (() => {
+  const SECTIONS = [
+    { id: 'general', label: 'General' },
+    { id: 'appearance', label: 'Appearance' },
+    { id: 'reading', label: 'Reading' },
+    { id: 'tts', label: 'Read Aloud' },
+    { id: 'library', label: 'Library' },
+    { id: 'accessibility', label: 'Accessibility' },
+    { id: 'shortcuts', label: 'Shortcuts' },
+    { id: 'storage', label: 'Storage & Data' },
+    { id: 'about', label: 'About' }
+  ];
+
+  const FONT_OPTIONS = [
+    { value: 'Serif', label: 'Classic Serif', note: 'Georgia / Noto Serif' },
+    { value: 'Sans-Serif', label: 'Modern Sans', note: 'Clean & readable' },
+    { value: 'Cormorant Garamond', label: 'Cormorant', note: 'Lirune Signature Serif' },
+    { value: 'Merriweather', label: 'Merriweather', note: 'Screen reading serif' },
+    { value: 'Literata', label: 'Literata', note: 'E-reader serif' },
+    { value: 'Inter', label: 'Inter', note: 'Precision screen sans' },
+    { value: 'Lora', label: 'Lora', note: 'Literary & calligraphic' },
+    { value: 'EB Garamond', label: 'EB Garamond', note: 'Classic book serif' },
+    { value: 'Bitter', label: 'Bitter', note: 'Contemporary slab serif' },
+    { value: 'Source Serif', label: 'Source Serif', note: 'Adobe book serif' },
+    { value: 'OpenDyslexic', label: 'OpenDyslexic', note: 'Accessibility & reading ease' },
+    { value: 'Playfair Display', label: 'Playfair Display', note: 'High contrast editorial' },
+    { value: 'Vollkorn', label: 'Vollkorn', note: 'Quiet book typeface' },
+    { value: 'Alegreya', label: 'Alegreya', note: 'Rhythmic literature face' },
+    { value: 'Charter', label: 'Charter', note: 'Warm book text' },
+    { value: 'JetBrains Mono', label: 'Monospace', note: 'Technical & typewriter' },
+    { value: 'Original', label: 'Publisher Default', note: 'Original EPUB' }
+  ];
+
+  const SORT_OPTIONS = [
+    { value: 'recent', label: 'Recently read' },
+    { value: 'added', label: 'Recently added' },
+    { value: 'title', label: 'Title' },
+    { value: 'author', label: 'Author' },
+    { value: 'type', label: 'Type (Format)' },
+    { value: 'progress', label: 'Reading progress' }
+  ];
+
+  const READER_THEME_LABELS = {
+    neutral: 'Neutral',
+    sepia: 'Sepia',
+    night: 'Night',
+    paper: 'Paper',
+    contrast1: 'OLED (Pure Black)',
+    contrast2: 'Amber (Warm Night)',
+    contrast3: 'Navy (Deep Midnight)',
+    contrast4: 'Sage (Soft Forest)',
+    nord: 'Nord (Frost)',
+    gruvbox: 'Gruvbox (Warm Retro)',
+    solarized: 'Solarized (Teal Dark)',
+    rosepine: 'Rose Pine (Dusk)',
+    dracula: 'Dracula (Gothic)',
+    mocha: 'Mocha (Catppuccin)',
+    custom: 'Custom'
+  };
+
+  let activeSection = 'general';
+  let expanded = false;
+  let currentContext = 'library';
+
+  /**
+   * Every switch in the panel, keyed by the id its control is rendered with.
+   * Each entry flips one stored setting; nothing here owns state, it only
+   * decides which owner to ask.
+   */
+  const SWITCH_ACTIONS = {
+    'qs-metadata': () => Library.setView({ showMetadata: !Library.getViewState().showMetadata }),
+    'fs-metadata': () => Library.setView({ showMetadata: !Library.getViewState().showMetadata }),
+    'fs-group-by-type': () => Library.setView({ groupByType: !Library.getViewState().groupByType }),
+    'fs-reduce-motion': () => AppPrefs.set({ reduceMotion: !AppPrefs.getAll().reduceMotion }),
+    'fs-confirm-delete': () => AppPrefs.set({ confirmDelete: !AppPrefs.getAll().confirmDelete }),
+    'fs-restore-last': () => AppPrefs.set({ restoreLastBook: !AppPrefs.getAll().restoreLastBook }),
+    'fs-focus-outlines': () => AppPrefs.set({ focusOutlines: !AppPrefs.getAll().focusOutlines }),
+    'fs-large-controls': () => AppPrefs.set({ largeControls: !AppPrefs.getAll().largeControls }),
+    'fs-high-contrast': () => AppPrefs.set({ highContrast: !AppPrefs.getAll().highContrast }),
+    // General
+    'fs-save-progress': () => AppPrefs.set({ saveProgress: !AppPrefs.getAll().saveProgress }),
+    'fs-esc-to-library': () => AppPrefs.set({ escToLibrary: !AppPrefs.getAll().escToLibrary }),
+    'fs-title-progress': () => AppPrefs.set({ windowTitleProgress: !AppPrefs.getAll().windowTitleProgress }),
+    'fs-open-shelf': () => AppPrefs.set({ openShelfAfterImport: !AppPrefs.getAll().openShelfAfterImport }),
+    // Appearance
+    'fs-follow-system': () => AppPrefs.set({ followSystemTheme: !AppPrefs.getAll().followSystemTheme }),
+    'fs-glass-effect': () => AppPrefs.set({ glassEffect: !AppPrefs.getAll().glassEffect }),
+    'fs-rounded-covers': () => AppPrefs.set({ roundedCovers: !AppPrefs.getAll().roundedCovers }),
+    'fs-card-shadows': () => AppPrefs.set({ elevatedCardShadows: !AppPrefs.getAll().elevatedCardShadows }),
+    // Reading
+    'fs-tap-to-turn': () => AppPrefs.set({ tapToTurn: !AppPrefs.getAll().tapToTurn }),
+    'fs-reading-bar': () => AppPrefs.set({ readingFooterBar: !AppPrefs.getAll().readingFooterBar }),
+    'fs-smooth-scroll': () => AppPrefs.set({ smoothScroll: !AppPrefs.getAll().smoothScroll }),
+    'fs-auto-hyphenation': () => AppPrefs.set({ autoHyphenation: !AppPrefs.getAll().autoHyphenation }),
+    'fs-progress-chapter': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setSetting('progressShowChapter', ReaderSettings.getSettings().progressShowChapter === false),
+    'fs-progress-page': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setSetting('progressShowPage', ReaderSettings.getSettings().progressShowPage === false),
+    'fs-progress-percent': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setSetting('progressShowPercent', ReaderSettings.getSettings().progressShowPercent === false),
+    'fs-per-book-override': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setPerBookOverride(!ReaderSettings.getSettings().perBookOverride),
+    'qs-per-book': () => typeof ReaderSettings !== 'undefined' && ReaderSettings.setPerBookOverride(!ReaderSettings.getSettings().perBookOverride),
+    // Read Aloud (TTS)
+    'fs-tts-highlight': () => typeof ReadAloud !== 'undefined' && ReadAloud.updatePrefs({ highlight: !ReadAloud.getPrefs().highlight }),
+    'fs-tts-autoadvance': () => typeof ReadAloud !== 'undefined' && ReadAloud.updatePrefs({ autoAdvance: !ReadAloud.getPrefs().autoAdvance }),
+    // Library
+    'fs-progress-badges': () => AppPrefs.set({ showProgressBadge: !AppPrefs.getAll().showProgressBadge }),
+    'fs-format-badges': () => AppPrefs.set({ showFormatBadge: !AppPrefs.getAll().showFormatBadge }),
+    'fs-continue-reading': () => AppPrefs.set({ showContinueReading: !AppPrefs.getAll().showContinueReading }),
+    // Accessibility
+    'fs-dyslexic-font': () => AppPrefs.set({ dyslexicFont: !AppPrefs.getAll().dyslexicFont }),
+    'fs-underline-links': () => AppPrefs.set({ underlineLinks: !AppPrefs.getAll().underlineLinks }),
+    'fs-keyboard-cues': () => AppPrefs.set({ keyboardNavCues: !AppPrefs.getAll().keyboardNavCues })
+  };
+
+  // ---------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------
+
+  function init() {
+    buildSectionNav();
+    buildStaticControls();
+    bindEvents();
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
+      Utils.enhanceAllSelects(document.getElementById('settings-panel'));
+    }
+  }
+
+  /**
+   * Called whenever the settings panel is about to be shown. The context comes
+   * from the application rather than from anything in the document, so the
+   * panel always matches the view the user is actually looking at.
+   */
+  function refresh() {
+    const context = typeof App !== 'undefined' ? App.getSettingsContext() : 'library';
+    currentContext = context;
+    renderQuick();
+    syncFullControls();
+    if (expanded) showSection(activeSection);
+  }
+
+  function getContext() {
+    return currentContext;
+  }
+
+  function isExpanded() {
+    return expanded;
+  }
+
+  // ---------------------------------------------------------------
+  // Quick settings
+  // ---------------------------------------------------------------
+
+  function renderQuick() {
+    const host = document.getElementById('quick-settings');
+    if (!host) return;
+    host.innerHTML = currentContext === 'reader' ? readerQuickMarkup() : libraryQuickMarkup();
+    host.dataset.context = currentContext;
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
+      Utils.enhanceAllSelects(host);
+    }
+  }
+
+  function syncQuickControls() {
+    const host = document.getElementById('quick-settings');
+    if (!host || host.dataset.context !== currentContext) {
+      renderQuick();
+      return;
+    }
+    if (currentContext !== 'reader') return;
+
+    const reader = ReaderSettings.getSettings();
+    const theme = ThemeManager.getReaderTheme();
+
+    const profileSel = document.getElementById('qs-profile-select');
+    const activeProf = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getActiveProfileId)
+      ? ReaderSettings.getActiveProfileId()
+      : 'default';
+    if (profileSel && profileSel.value !== activeProf) {
+      profileSel.value = activeProf;
+      profileSel._customDropdownSync?.();
+    }
+
+    const perBookSwitch = document.getElementById('qs-per-book');
+    if (perBookSwitch) {
+      perBookSwitch.setAttribute('aria-checked', reader.perBookOverride ? 'true' : 'false');
+    }
+
+    const syncSlider = (id, val, format) => {
+      const slider = document.getElementById(`${id}-range`);
+      const valEl = document.getElementById(`${id}-value`);
+      if (slider && Number(slider.value) !== Number(val)) slider.value = val;
+      if (valEl) valEl.textContent = format(val);
+    };
+
+    syncSlider('qs-font-size', reader.fontSize, v => `${v}px`);
+    syncSlider('qs-line-height', reader.lineHeight, v => Number(v).toFixed(1));
+    syncSlider('qs-para-spacing', reader.paragraphSpacing ?? 1.0, v => `${Number(v).toFixed(1)}em`);
+    syncSlider('qs-word-spacing', reader.wordSpacing ?? 0.0, v => `${Number(v).toFixed(2)}em`);
+    syncSlider('qs-letter-spacing', reader.letterSpacing ?? 0.0, v => `${Number(v).toFixed(2)}em`);
+    syncSlider('qs-margin', reader.margin, v => `${v}%`);
+
+    const themeSel = document.getElementById('qs-theme-select');
+    if (themeSel && themeSel.value !== theme) {
+      themeSel.value = theme;
+      themeSel._customDropdownSync?.();
+    }
+    host.querySelectorAll('.theme-preset').forEach(btn => {
+      const active = btn.dataset.theme === theme;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+
+    const fontSel = document.getElementById('qs-font-select');
+    if (fontSel && fontSel.value !== reader.fontFamily) {
+      fontSel.value = reader.fontFamily;
+      fontSel._customDropdownSync?.();
+    }
+
+    const segmentValues = {
+      'qs-alignment': reader.alignment,
+      'qs-flow': reader.flow,
+      'qs-spread': reader.spread
+    };
+    Object.entries(segmentValues).forEach(([segId, activeVal]) => {
+      const group = host.querySelector(`[data-quick-segment="${segId}"]`);
+      if (!group) return;
+      group.querySelectorAll('.segment-opt').forEach(btn => {
+        const active = btn.dataset.value === activeVal;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    });
+  }
+
+  function libraryQuickMarkup() {
+    const view = Library.getViewState();
+    return `
+      <div class="quick-settings-heading">
+        <span class="quick-settings-context">Library</span>
+        <span class="quick-settings-hint">Settings for your shelf</span>
+      </div>
+      ${segmentRow('qs-view', 'View', [
+        { value: 'grid', label: 'Grid' },
+        { value: 'list', label: 'List' }
+      ], view.view)}
+      ${selectRow('qs-sort', 'Sort by', SORT_OPTIONS.map(o => ({ value: o.value, label: o.label })), view.sortBy)}
+      ${segmentRow('qs-order', 'Order', [
+        { value: 'desc', label: 'Descending' },
+        { value: 'asc', label: 'Ascending' }
+      ], view.sortOrder)}
+      ${segmentRow('qs-density', 'Density', [
+        { value: 'comfortable', label: 'Comfortable' },
+        { value: 'compact', label: 'Compact' }
+      ], view.density)}
+      ${switchRow('qs-metadata', 'Show book metadata', 'Author and file format on every cover', view.showMetadata)}
+      <button class="btn btn-ghost reset-settings-btn quick-reset-btn" id="qs-reset-library-btn" type="button" style="margin-top:var(--sp-2);">Reset library view</button>
+      ${expandButton()}
+    `;
+  }
+
+  function readerQuickMarkup() {
+    const reader = ReaderSettings.getSettings();
+    const theme = ThemeManager.getReaderTheme();
+    const profiles = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getProfiles)
+      ? ReaderSettings.getProfiles()
+      : [];
+    const activeProf = (typeof ReaderSettings !== 'undefined' && ReaderSettings.getActiveProfileId)
+      ? ReaderSettings.getActiveProfileId()
+      : 'default';
+
+    return `
+      <div class="quick-settings-heading">
+        <span class="quick-settings-context">Reader</span>
+        <span class="quick-settings-hint">Settings for the book you are reading</span>
+      </div>
+      ${selectRow('qs-profile', 'Profile', profiles.map(p => ({ value: p.id, label: p.name })), activeProf)}
+      ${switchRow('qs-per-book', 'Book override', 'Save settings for this book only', reader.perBookOverride === true)}
+      <div class="quick-theme-group">
+        <div class="quick-row">
+          <label class="quick-row-label" for="qs-theme-select">Theme</label>
+          <select class="glass-select quick-select" id="qs-theme-select" data-quick-select="qs-theme">
+            ${Object.entries(READER_THEME_LABELS).map(([value, label]) => `
+              <option value="${Utils.escapeAttr(value)}"${value === theme ? ' selected' : ''}>${Utils.escapeHTML(label)}</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="theme-preset-grid quick-theme-grid" role="group" aria-label="Reading themes">
+          <button type="button" class="theme-preset${theme === 'neutral' ? ' active' : ''}" data-theme="neutral" aria-pressed="${theme === 'neutral' ? 'true' : 'false'}" title="Neutral"><span class="theme-swatch theme-swatch-neutral"></span><span class="theme-preset-name">Neutral</span></button>
+          <button type="button" class="theme-preset${theme === 'sepia' ? ' active' : ''}" data-theme="sepia" aria-pressed="${theme === 'sepia' ? 'true' : 'false'}" title="Sepia"><span class="theme-swatch theme-swatch-sepia"></span><span class="theme-preset-name">Sepia</span></button>
+          <button type="button" class="theme-preset${theme === 'night' ? ' active' : ''}" data-theme="night" aria-pressed="${theme === 'night' ? 'true' : 'false'}" title="Night"><span class="theme-swatch theme-swatch-night"></span><span class="theme-preset-name">Night</span></button>
+          <button type="button" class="theme-preset${theme === 'paper' ? ' active' : ''}" data-theme="paper" aria-pressed="${theme === 'paper' ? 'true' : 'false'}" title="Paper"><span class="theme-swatch theme-swatch-paper"></span><span class="theme-preset-name">Paper</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast1' ? ' active' : ''}" data-theme="contrast1" aria-pressed="${theme === 'contrast1' ? 'true' : 'false'}" title="OLED (Pure Black)"><span class="theme-swatch theme-swatch-contrast1"></span><span class="theme-preset-name">OLED</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast2' ? ' active' : ''}" data-theme="contrast2" aria-pressed="${theme === 'contrast2' ? 'true' : 'false'}" title="Amber (Warm Night)"><span class="theme-swatch theme-swatch-contrast2"></span><span class="theme-preset-name">Amber</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast3' ? ' active' : ''}" data-theme="contrast3" aria-pressed="${theme === 'contrast3' ? 'true' : 'false'}" title="Navy (Deep Midnight)"><span class="theme-swatch theme-swatch-contrast3"></span><span class="theme-preset-name">Navy</span></button>
+          <button type="button" class="theme-preset${theme === 'contrast4' ? ' active' : ''}" data-theme="contrast4" aria-pressed="${theme === 'contrast4' ? 'true' : 'false'}" title="Sage (Soft Forest)"><span class="theme-swatch theme-swatch-contrast4"></span><span class="theme-preset-name">Sage</span></button>
+          <button type="button" class="theme-preset${theme === 'nord' ? ' active' : ''}" data-theme="nord" aria-pressed="${theme === 'nord' ? 'true' : 'false'}" title="Nord (Arctic Frost)"><span class="theme-swatch theme-swatch-nord"></span><span class="theme-preset-name">Nord</span></button>
+          <button type="button" class="theme-preset${theme === 'gruvbox' ? ' active' : ''}" data-theme="gruvbox" aria-pressed="${theme === 'gruvbox' ? 'true' : 'false'}" title="Gruvbox (Warm Retro)"><span class="theme-swatch theme-swatch-gruvbox"></span><span class="theme-preset-name">Gruvbox</span></button>
+          <button type="button" class="theme-preset${theme === 'solarized' ? ' active' : ''}" data-theme="solarized" aria-pressed="${theme === 'solarized' ? 'true' : 'false'}" title="Solarized (Teal Dark)"><span class="theme-swatch theme-swatch-solarized"></span><span class="theme-preset-name">Solarized</span></button>
+          <button type="button" class="theme-preset${theme === 'rosepine' ? ' active' : ''}" data-theme="rosepine" aria-pressed="${theme === 'rosepine' ? 'true' : 'false'}" title="Rose Pine (Soothing Dusk)"><span class="theme-swatch theme-swatch-rosepine"></span><span class="theme-preset-name">Rose Pine</span></button>
+          <button type="button" class="theme-preset${theme === 'dracula' ? ' active' : ''}" data-theme="dracula" aria-pressed="${theme === 'dracula' ? 'true' : 'false'}" title="Dracula (Gothic)"><span class="theme-swatch theme-swatch-dracula"></span><span class="theme-preset-name">Dracula</span></button>
+          <button type="button" class="theme-preset${theme === 'mocha' ? ' active' : ''}" data-theme="mocha" aria-pressed="${theme === 'mocha' ? 'true' : 'false'}" title="Mocha (Catppuccin)"><span class="theme-swatch theme-swatch-mocha"></span><span class="theme-preset-name">Mocha</span></button>
+        </div>
+      </div>
+      ${selectRow('qs-font', 'Font', FONT_OPTIONS.map(f => ({ value: f.value, label: f.label })), reader.fontFamily)}
+      ${sliderRow('qs-font-size', 'Size', reader.fontSize, 12, 36, 1, `${reader.fontSize}px`, 'px')}
+      ${sliderRow('qs-line-height', 'Line height', reader.lineHeight, 1.2, 2.4, 0.1, reader.lineHeight.toFixed(1), '')}
+      ${sliderRow('qs-para-spacing', 'Paragraph spacing', reader.paragraphSpacing ?? 1.0, 0, 3.0, 0.2, `${(reader.paragraphSpacing ?? 1.0).toFixed(1)}em`, 'em')}
+      ${sliderRow('qs-word-spacing', 'Word spacing', reader.wordSpacing ?? 0.0, -0.1, 0.5, 0.05, `${(reader.wordSpacing ?? 0.0).toFixed(2)}em`, 'em')}
+      ${sliderRow('qs-letter-spacing', 'Letter spacing', reader.letterSpacing ?? 0.0, -0.05, 0.3, 0.02, `${(reader.letterSpacing ?? 0.0).toFixed(2)}em`, 'em')}
+      ${sliderRow('qs-margin', 'Margins', reader.margin, 2, 24, 2, `${reader.margin}%`, '%')}
+      ${segmentRow('qs-alignment', 'Alignment', [
+        { value: 'auto', label: 'Auto' },
+        { value: 'left', label: 'Left' },
+        { value: 'center', label: 'Center' },
+        { value: 'right', label: 'Right' },
+        { value: 'justify', label: 'Justify' }
+      ], reader.alignment, 'wrap')}
+      ${segmentRow('qs-flow', 'Flow', [
+        { value: 'paginated', label: 'Pages' },
+        { value: 'scrolled', label: 'Scroll' }
+      ], reader.flow)}
+      ${segmentRow('qs-spread', 'Columns', [
+        { value: 'auto', label: 'Auto' },
+        { value: 'none', label: 'Single' }
+      ], reader.spread)}
+      <div class="quick-settings-zoom">
+        <span class="quick-row-label">Zoom</span>
+        <span class="quick-zoom-value" id="qs-zoom-value">${Reader.getZoom()}%</span>
+      </div>
+      <p class="quick-settings-note">Zoom applies to this book only and is never saved.</p>
+      <button class="btn btn-ghost quick-reset-btn" id="qs-reset-reader" type="button">Reset reading preferences</button>
+      ${expandButton()}
+    `;
+  }
+
+  // ---------------------------------------------------------------
+  // Row builders — shared by the quick view and the full sections
+  // ---------------------------------------------------------------
+
+  function segmentRow(id, label, options, value, modifier = '') {
+    return `
+      <div class="quick-row">
+        <span class="quick-row-label" id="${id}-label">${Utils.escapeHTML(label)}</span>
+        <div class="segmented ${modifier ? `segmented-${modifier}` : ''}" role="group" aria-labelledby="${id}-label" data-quick-segment="${id}">
+          ${options.map(option => `
+            <button type="button" class="segment-opt${option.value === value ? ' active' : ''}"
+              data-value="${Utils.escapeAttr(option.value)}"
+              aria-pressed="${option.value === value ? 'true' : 'false'}">${Utils.escapeHTML(option.label)}</button>
+          `).join('')}
+        </div>
+      </div>`;
+  }
+
+  function selectRow(id, label, options, value) {
+    return `
+      <div class="quick-row">
+        <label class="quick-row-label" for="${id}-select">${Utils.escapeHTML(label)}</label>
+        <select class="glass-select quick-select" id="${id}-select" data-quick-select="${id}">
+          ${options.map(option => `
+            <option value="${Utils.escapeAttr(option.value)}"${option.value === value ? ' selected' : ''}>${Utils.escapeHTML(option.label)}</option>
+          `).join('')}
+        </select>
+      </div>`;
+  }
+
+  function switchRow(id, label, note, checked) {
+    return `
+      <div class="quick-row quick-row-switch">
+        <div>
+          <span class="quick-row-label">${Utils.escapeHTML(label)}</span>
+          <span class="quick-row-note">${Utils.escapeHTML(note)}</span>
+        </div>
+        <button type="button" role="switch" class="setting-switch" id="${id}"
+          aria-checked="${checked ? 'true' : 'false'}" aria-label="${Utils.escapeAttr(label)}"><span class="setting-switch-thumb"></span></button>
+      </div>`;
+  }
+
+  function sliderRow(id, label, value, min, max, step, display, unit) {
+    return `
+      <div class="quick-row quick-row-slider">
+        <div class="quick-slider-head">
+          <label class="quick-row-label" for="${id}-range">${Utils.escapeHTML(label)}</label>
+          <span class="quick-slider-value" id="${id}-value">${display}</span>
+        </div>
+        <input type="range" class="glass-slider" id="${id}-range"
+          data-quick-slider="${id}" data-unit="${unit}"
+          min="${min}" max="${max}" step="${step}" value="${value}"
+          aria-label="${Utils.escapeAttr(label)}">
+      </div>`;
+  }
+
+  function expandButton() {
+    return `
+      <button class="btn btn-glow quick-expand-btn" id="expand-settings-btn" type="button">
+        Expand Settings
+      </button>`;
+  }
+
+  // ---------------------------------------------------------------
+  // Full settings
+  // ---------------------------------------------------------------
+
+  function buildSectionNav() {
+    const nav = document.getElementById('full-settings-nav');
+    if (!nav) return;
+    nav.innerHTML = SECTIONS.map(section => `
+      <button type="button" class="full-settings-nav-item" data-section-target="${section.id}">
+        ${Utils.escapeHTML(section.label)}
+      </button>
+    `).join('');
+  }
+
+  function showSection(id) {
+    const found = SECTIONS.some(section => section.id === id) ? id : SECTIONS[0].id;
+    activeSection = found;
+
+    document.querySelectorAll('#full-settings-panes > .full-settings-pane').forEach(pane => {
+      pane.hidden = pane.dataset.section !== found;
+    });
+    document.querySelectorAll('#full-settings-nav .full-settings-nav-item').forEach(item => {
+      const isActive = item.dataset.sectionTarget === found;
+      item.classList.toggle('active', isActive);
+      item.setAttribute('aria-current', isActive ? 'true' : 'false');
+    });
+
+    document.getElementById('settings-panel-title').textContent = 'Settings';
+    if (found === 'storage') {
+      resetStorageState();
+      renderStorageStats();
+    }
+    if (found === 'about') renderAbout();
+  }
+
+  let activeShortcutCategory = 'all';
+  let shortcutSearchTerm = '';
+
+  function buildStaticControls() {
+    buildGeneralControls();
+    buildAppThemeControls();
+    buildAppearanceAdvancedControls();
+    buildReadingAdvancedControls();
+    buildTtsControls();
+    buildLibraryControls();
+    buildAccessibilityControls();
+    renderShortcuts();
+  }
+
+  function buildTtsControls() {
+    const host = document.getElementById('tts-settings-controls');
+    if (!host) return;
+    const ttsPrefs = typeof ReadAloud !== 'undefined' ? ReadAloud.getPrefs() : {
+      rate: 1.0, pitch: 1.0, volume: 1.0, highlight: true, autoAdvance: true, voiceURI: ''
+    };
+    const voices = typeof ReadAloud !== 'undefined' ? ReadAloud.getVoices() : [];
+    const voiceOptions = voices.length > 0
+      ? voices.map(v => {
+          const cleanName = v.name.replace(/Microsoft\s+|Google\s+/g, '');
+          const lang = v.lang ? ` (${v.lang})` : '';
+          return { value: v.voiceURI, label: `${cleanName}${lang}` };
+        })
+      : [{ value: '', label: 'Default system voice' }];
+
+    host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Voice &amp; speech synthesis</div>
+        <p class="setting-hint">Choose your preferred voice, speed, and pitch. All voices run locally on your device with no data sent online.</p>
+      </div>
+      ${selectRow('fs-tts-voice', 'Voice', voiceOptions, ttsPrefs.voiceURI)}
+      ${sliderRow('fs-tts-rate', 'Speed', ttsPrefs.rate, 0.5, 2.5, 0.1, `${ttsPrefs.rate}x`, 'x')}
+      ${sliderRow('fs-tts-pitch', 'Pitch', ttsPrefs.pitch, 0.5, 1.5, 0.1, `${ttsPrefs.pitch}`, '')}
+      ${sliderRow('fs-tts-volume', 'Volume', Math.round(ttsPrefs.volume * 100), 0, 100, 5, `${Math.round(ttsPrefs.volume * 100)}%`, '%')}
+      ${switchRow('fs-tts-highlight', 'Highlight spoken text', 'Visually highlight sentences as they are being read aloud', ttsPrefs.highlight)}
+      ${switchRow('fs-tts-autoadvance', 'Auto-advance pages', 'Automatically turn to the next page or chapter when speech reaches the end', ttsPrefs.autoAdvance)}
+      <div style="margin-top:var(--sp-3); display:flex; gap:var(--sp-2);">
+        <button class="btn btn-glass" id="fs-tts-preview-btn" type="button" style="padding:var(--sp-2) var(--sp-4);">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          Listen to sample
+        </button>
+      </div>
+    `;
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
+      Utils.enhanceAllSelects(host);
+    }
+  }
+
+  function buildAppThemeControls() {
+    const grid = document.getElementById('app-theme-grid');
+    if (!grid) return;
+    grid.innerHTML = ThemeManager.APP_THEMES.map(theme => `
+      <button type="button" class="layout-opt" data-app-theme="${theme}" aria-pressed="false">
+        <span class="app-theme-swatch" data-swatch="${theme}" aria-hidden="true"></span>
+        <span>${Utils.escapeHTML(theme === 'dark' ? 'Dark' : 'Light')}</span>
+      </button>
+    `).join('');
+  }
+
+  function buildAppearanceAdvancedControls() {
+    const host = document.getElementById('appearance-advanced-controls');
+    if (!host) return;
+    const prefs = AppPrefs.getAll();
+    host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Interface &amp; Visual Effects</div>
+        <p class="setting-hint">Control visual effects, window blur, and book card styling.</p>
+      </div>
+      ${switchRow('fs-follow-system', 'Follow system theme', 'Automatically match light or dark mode to operating system appearance', prefs.followSystemTheme)}
+      ${switchRow('fs-glass-effect', 'Glassmorphism blur effects', 'Enable frosted translucent blur on sidebars, modals, and panel headers', prefs.glassEffect)}
+      ${switchRow('fs-rounded-covers', 'Smooth rounded book covers', 'Apply modern curvature to all book covers across the library shelf', prefs.roundedCovers)}
+      ${switchRow('fs-card-shadows', 'Elevated card depth shadows', 'Render subtle depth and ambient elevation under library book cards', prefs.elevatedCardShadows)}
+    `;
+  }
+
+  function buildReadingAdvancedControls() {
+    const host = document.getElementById('reading-advanced-controls');
+    if (!host) return;
+    const prefs = AppPrefs.getAll();
+    host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Reading interaction &amp; comfort</div>
+        <p class="setting-hint">Fine-tune page-turning, reading progress bars, and scrolling behavior.</p>
+      </div>
+      ${switchRow('fs-tap-to-turn', 'Tap edges to turn pages', 'Tap left or right screen borders to advance or go back in paginated mode', prefs.tapToTurn)}
+      ${switchRow('fs-reading-bar', 'Reading progress bar', 'Show the progress strip at the top of the reader', prefs.readingFooterBar)}
+      ${switchRow('fs-smooth-scroll', 'Smooth momentum scrolling', 'Enable fluid continuous motion when scrolling through chapters', prefs.smoothScroll)}
+      ${switchRow('fs-auto-hyphenation', 'Automatic text hyphenation', 'Balance text margins with automatic word breaking at line ends', prefs.autoHyphenation)}
+    `;
+  }
+
+  function buildGeneralControls() {
+    const host = document.getElementById('general-controls');
+    if (!host) return;
+    const prefs = AppPrefs.getAll();
+    host.innerHTML = `
+      ${switchRow('fs-confirm-delete', 'Confirm book removal', 'Show a confirmation dialog before deleting books from your library', prefs.confirmDelete)}
+      ${switchRow('fs-restore-last', 'Reopen last book on startup', 'Automatically open the most recently read book when Lirune launches', prefs.restoreLastBook)}
+      ${switchRow('fs-save-progress', 'Auto-save reading position', 'Continuously record exact reading progress across reading sessions', prefs.saveProgress)}
+      ${switchRow('fs-esc-to-library', 'Press Escape to return to library', 'Close the active book and return to shelf using the Esc key', prefs.escToLibrary)}
+      ${switchRow('fs-title-progress', 'Show progress in window title', 'Display active book title and percentage completion in title bar', prefs.windowTitleProgress)}
+      ${switchRow('fs-open-shelf', 'Open library shelf after import', 'Immediately return to the shelf view whenever new books are imported', prefs.openShelfAfterImport)}
+    `;
+  }
+
+  function buildLibraryControls() {
+    const host = document.getElementById('library-view-controls');
+    if (!host) return;
+    const prefs = AppPrefs.getAll();
+    host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Shelf layout &amp; density</div>
+        <p class="setting-hint">Configure grid arrangement, sort ordering, and card density.</p>
+      </div>
+      ${segmentRow('fs-view', 'Default view', [
+        { value: 'grid', label: 'Grid' },
+        { value: 'list', label: 'List' }
+      ], Library.getViewState().view)}
+      ${selectRow('fs-sort', 'Sort by', SORT_OPTIONS, Library.getViewState().sortBy)}
+      ${segmentRow('fs-order', 'Sort order', [
+        { value: 'desc', label: 'Descending' },
+        { value: 'asc', label: 'Ascending' }
+      ], Library.getViewState().sortOrder)}
+      ${segmentRow('fs-density', 'Display density', [
+        { value: 'comfortable', label: 'Comfortable' },
+        { value: 'compact', label: 'Compact' }
+      ], Library.getViewState().density)}
+      ${segmentRow('fs-cover-fit', 'Cover image presentation', [
+        { value: 'cover', label: 'Fill card' },
+        { value: 'contain', label: 'Fit book' }
+      ], prefs.coverFit)}
+      <div class="settings-group-header" style="margin-top:var(--sp-4);">
+        <div class="setting-section-title">Book information &amp; badges</div>
+        <p class="setting-hint">Control metadata chips, progress indicators, and shelves.</p>
+      </div>
+      ${switchRow('fs-metadata', 'Show book metadata', 'Author and file format on every cover', Library.getViewState().showMetadata)}
+      ${switchRow('fs-group-by-type', 'Group by type', 'Visually group books by file format (EPUB, PDF, TXT, CBZ, FB2, HTML)', Library.getViewState().groupByType)}
+      ${switchRow('fs-progress-badges', 'Show reading progress badges', 'Display completion percentage indicators on book cards', prefs.showProgressBadge)}
+      ${switchRow('fs-format-badges', 'Show format indicator chips', 'Display format tags (EPUB, PDF, etc.) on cover cards', prefs.showFormatBadge)}
+      ${switchRow('fs-continue-reading', 'Show Continue Reading shelf', 'Display recently opened books carousel at the top of the shelf', prefs.showContinueReading)}
+    `;
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceAllSelects === 'function') {
+      Utils.enhanceAllSelects(host);
+    }
+  }
+
+  function buildAccessibilityControls() {
+    const host = document.getElementById('accessibility-controls');
+    if (!host) return;
+    const prefs = AppPrefs.getAll();
+    host.innerHTML = `
+      <div class="settings-group-header">
+        <div class="setting-section-title">Reading accommodations</div>
+        <p class="setting-hint">High legibility typefaces, contrast, and sizing adaptations.</p>
+      </div>
+      ${switchRow('fs-dyslexic-font', 'Dyslexic-friendly typeface', 'Override reading text with high-legibility letterforms', prefs.dyslexicFont)}
+      ${switchRow('fs-high-contrast', 'High contrast mode', 'Increases text contrast and sharpens border dividers', prefs.highContrast)}
+      ${switchRow('fs-large-controls', 'Larger UI controls', 'Increases touch and click target sizes for buttons and menus', prefs.largeControls)}
+      <div class="settings-group-header" style="margin-top:var(--sp-4);">
+        <div class="setting-section-title">Navigation &amp; motion</div>
+        <p class="setting-hint">Focus visibility, motion reduction, and keyboard cues.</p>
+      </div>
+      ${switchRow('fs-reduce-motion', 'Reduce motion', 'Turns off interface animations and transitions', prefs.reduceMotion)}
+      ${switchRow('fs-focus-outlines', 'Stronger focus visibility', 'Highlights active keyboard focus outlines prominently', prefs.focusOutlines)}
+      ${switchRow('fs-underline-links', 'Underline all hyperlinks', 'Enforce distinct visible underlines on every link and button', prefs.underlineLinks)}
+      ${switchRow('fs-keyboard-cues', 'Keyboard navigation cues', 'Display prominent shortcut badges and focus hints', prefs.keyboardNavCues)}
+    `;
+  }
+
+  function renderShortcuts() {
+    const host = document.getElementById('shortcuts-list');
+    if (!host) return;
+    const context = typeof App !== 'undefined' ? App.getSettingsContext() : 'library';
+    let shortcuts = typeof App !== 'undefined' ? App.getShortcuts() : [];
+
+    if (activeShortcutCategory === 'library') {
+      shortcuts = shortcuts.filter(s => s.contexts.includes('library') || !s.contexts.includes('reader'));
+    } else if (activeShortcutCategory === 'reader') {
+      shortcuts = shortcuts.filter(s => s.contexts.includes('reader'));
+    }
+
+    if (shortcutSearchTerm) {
+      const term = shortcutSearchTerm.toLowerCase();
+      shortcuts = shortcuts.filter(s =>
+        s.description.toLowerCase().includes(term) ||
+        s.keys.some(k => k.toLowerCase().includes(term))
+      );
+    }
+
+    host.innerHTML = shortcuts.length
+      ? shortcuts.map(shortcut => `
+          <div class="shortcut-row">
+            <span class="shortcut-desc">${Utils.escapeHTML(shortcut.description)}</span>
+            <span class="shortcut-keys">${shortcut.keys.map(key => `<kbd class="kbd">${Utils.escapeHTML(key)}</kbd>`).join('')}</span>
+          </div>
+        `).join('')
+      : '<p class="setting-hint" style="padding: 16px; text-align: center;">No shortcuts matching search criteria.</p>';
+  }
+
+  let integrityReport = null;
+  let restoreInspection = null;
+
+  /**
+   * Storage & Data is the only section that can remove things, so it keeps its
+   * own state and never reuses a decision from a previous visit.
+   */
+  function resetStorageState() {
+    integrityReport = null;
+    restoreInspection = null;
+    document.getElementById('integrity-repair-btn')?.setAttribute('disabled', '');
+    const progress = document.getElementById('integrity-progress');
+    if (progress) progress.hidden = true;
+    setContainerHTML('integrity-results', '');
+    setContainerHTML('restore-preview', '');
+    const orphans = document.getElementById('storage-orphans');
+    if (orphans) orphans.hidden = true;
+  }
+
+  function setContainerHTML(id, html) {
+    const host = document.getElementById(id);
+    if (host) host.innerHTML = html;
+  }
+
+  /**
+   * Asks before anything is removed. The caller supplies the wording so the
+   * confirmation always describes the specific action, including how many items
+   * it affects, rather than a generic warning.
+   */
+  function confirmAction({ title, subtitle = '', message, confirmLabel = 'Continue' }) {
+    const modal = document.getElementById('confirm-action-modal');
+    if (!modal) return Promise.resolve(false);
+
+    const titleEl = document.getElementById('confirm-action-title');
+    const subtitleEl = document.getElementById('confirm-action-subtitle');
+    const messageEl = document.getElementById('confirm-action-message');
+    const confirmButton = document.getElementById('confirm-confirm-action-btn');
+    const cancelButton = document.getElementById('cancel-confirm-action-btn');
+
+    titleEl.textContent = title;
+    subtitleEl.textContent = subtitle;
+    messageEl.textContent = message;
+    confirmButton.textContent = confirmLabel;
+
+    return new Promise(resolve => {
+      const finish = confirmed => {
+        modal.classList.add('hidden');
+        cancelButton?.removeEventListener('click', onCancel);
+        confirmButton?.removeEventListener('click', onConfirm);
+        modal.removeEventListener('click', onBackdrop);
+        resolve(confirmed);
+      };
+      const onCancel = () => finish(false);
+      const onConfirm = () => finish(true);
+      const onBackdrop = event => { if (event.target === modal) finish(false); };
+
+      cancelButton?.addEventListener('click', onCancel);
+      confirmButton?.addEventListener('click', onConfirm);
+      modal.addEventListener('click', onBackdrop);
+      modal.classList.remove('hidden');
+      confirmButton.focus();
+    });
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === null || bytes === undefined || !Number.isFinite(Number(bytes))) return 'Unknown';
+    const value = Number(bytes);
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
+  /**
+   * Storage figures. Every value shown here was measured during this render;
+   * anything that could not be measured is written as "Unknown" rather than
+   * being replaced with a plausible-looking number.
+   */
+  async function renderStorageStats() {
+    const host = document.getElementById('storage-stats');
+    if (!host) return;
+    host.innerHTML = '<p class="setting-hint">Measuring storage…</p>';
+
+    const stats = await Library.getBookStats();
+    const formats = Object.entries(stats.byFormat)
+      .map(([id, count]) => `${count} ${BookFormat.describe(id).label}`)
+      .join(' · ');
+
+    // Recorded size is what the library believes it stored; actual size is what
+    // the files measure now. Showing both makes a discrepancy visible instead of
+    // hiding it behind whichever number looks tidier.
+    const usageRows = [
+      ['Books', String(stats.books)],
+      ['Collections', String(stats.collections)],
+      ['Highlights & notes', String(stats.annotations)],
+      ['On disk now', formatBytes(stats.actualBytes)],
+      ['Recorded total', formatBytes(stats.recordedBytes)],
+      ['Files in storage', stats.managedFiles === null ? 'Unknown' : String(stats.managedFiles)]
+    ];
+
+    host.innerHTML = `
+      <div class="storage-grid">
+        ${usageRows.map(([label, value]) => `
+          <div class="storage-stat">
+            <span class="storage-value">${Utils.escapeHTML(value)}</span>
+            <span class="storage-label">${Utils.escapeHTML(label)}</span>
+          </div>`).join('')}
+      </div>
+      <p class="setting-hint">${formats || 'No books stored yet.'}</p>
+      ${stats.pendingAvailability > 0
+        ? `<p class="setting-hint storage-warning">${stats.pendingAvailability} book${stats.pendingAvailability === 1 ? '' : 's'} marked as unavailable. Run a check below for the details.</p>`
+        : ''}
+      ${stats.storageLocation
+        ? `<div class="storage-location">
+             <span class="storage-path-label">Library files</span>
+             <code class="storage-path" id="storage-path-text">${Utils.escapeHTML(stats.storageLocation)}</code>
+             <button class="btn btn-ghost" id="reveal-storage-btn" type="button">Show in folder</button>
+           </div>`
+        : ''}
+    `;
+
+    document.getElementById('reveal-storage-btn')?.addEventListener('click', async () => {
+      if (!stats.storageLocation) return;
+      try {
+        await window.noveraDesktop?.showInExplorer?.(stats.storageLocation);
+      } catch {
+        Utils.toast('Could not open that folder', 'error');
+      }
+    });
+  }
+
+  async function startIntegrityCheck() {
+    const button = document.getElementById('integrity-check-btn');
+    const progress = document.getElementById('integrity-progress');
+    const barFill = document.getElementById('integrity-bar-fill');
+    const progressText = document.getElementById('integrity-progress-text');
+    const repairButton = document.getElementById('integrity-repair-btn');
+
+    if (button) button.disabled = true;
+    repairButton?.setAttribute('disabled', '');
+    setContainerHTML('integrity-results', '');
+    if (progress) progress.hidden = false;
+    if (barFill) barFill.style.width = '0%';
+
+    const report = await Library.runIntegrityCheck(({ done, total, title }) => {
+      const percent = total ? Math.round((done / total) * 100) : 100;
+      if (barFill) barFill.style.width = `${percent}%`;
+      if (progressText) progressText.textContent = total
+        ? `Checking ${done + 1} of ${total} — ${title}`
+        : 'Checking…';
+    });
+
+    if (button) button.disabled = false;
+    if (progress) progress.hidden = true;
+
+    if (!report.supported) {
+      setContainerHTML('integrity-results', '<p class="setting-hint">Integrity checks need the desktop app\'s file access.</p>');
+      return;
+    }
+
+    integrityReport = report;
+    renderIntegrityResults(report);
+    renderOrphans(report.orphans);
+  }
+
+  function renderIntegrityResults(report) {
+    const groups = [
+      { label: 'Healthy', count: report.healthy.length, tone: 'ok' },
+      { label: 'File missing', count: report.missingFile.length, tone: report.missingFile.length ? 'bad' : 'ok', entries: report.missingFile, note: 'The stored file is not on this computer. Re-import the book to read it again.' },
+      { label: 'Damaged', count: report.damaged.length, tone: report.damaged.length ? 'bad' : 'ok', entries: report.damaged, note: 'The stored file no longer matches the book. Re-import the book to replace it.' },
+      { label: 'Unreadable', count: report.unreadable.length, tone: report.unreadable.length ? 'bad' : 'ok', entries: report.unreadable, note: 'The file exists but could not be read.' },
+      { label: 'Details only', count: report.noFile.length, tone: report.noFile.length ? 'warn' : 'ok', entries: report.noFile, note: 'Restored from a backup, so there is a record but no book file. Re-import the book to read it.' },
+      { label: 'Needs migration', count: report.needsMigration.length, tone: report.needsMigration.length ? 'warn' : 'ok', entries: report.needsMigration, note: 'Stored from an older version, before files were managed separately.' }
+    ];
+
+    const problem = report.issues > 0 || report.orphans.length > 0;
+    const summary = report.issues === 0 && report.orphans.length === 0
+      ? `<p class="integrity-verdict ok">Everything checks out. All ${report.total} book${report.total === 1 ? '' : 's'} match the files stored on this computer.</p>`
+      : `<p class="integrity-verdict ${report.issues ? 'bad' : 'warn'}">
+           ${report.issues
+             ? `${report.issues} of ${report.total} book${report.total === 1 ? '' : 's'} need attention.`
+             : `All ${report.total} book${report.total === 1 ? '' : 's'} are readable.`}
+           ${report.orphans.length ? ` ${report.orphans.length} unused file${report.orphans.length === 1 ? '' : 's'} found.` : ''}
+         </p>`;
+
+    setContainerHTML('integrity-results', `
+      <p class="setting-hint">Checked ${report.total} book${report.total === 1 ? '' : 's'} just now.</p>
+      ${summary}
+      <div class="integrity-groups">
+        ${groups.map(group => `
+          <div class="integrity-group ${group.tone}">
+            <div class="integrity-group-head">
+              <span class="integrity-group-label">${Utils.escapeHTML(group.label)}</span>
+              <span class="integrity-group-count">${group.count}</span>
+            </div>
+            ${group.count && group.note ? `<p class="setting-hint">${Utils.escapeHTML(group.note)}</p>` : ''}
+            ${group.entries?.length ? `
+              <ul class="integrity-list">
+                ${group.entries.slice(0, 12).map(entry => `
+                  <li>
+                    <span class="integrity-book">${Utils.escapeHTML(entry.title)}</span>
+                    ${entry.detail ? `<span class="integrity-detail">${Utils.escapeHTML(entry.detail)}</span>` : ''}
+                  </li>`).join('')}
+              </ul>
+              ${group.entries.length > 12 ? `<p class="setting-hint">and ${group.entries.length - 12} more</p>` : ''}` : ''}
+          </div>`).join('')}
+      </div>
+    `);
+
+    // Repair only has something real to offer when a book is marked unavailable
+    // but its file turns out to be intact. It is never offered as a way to
+    // recover a file that is genuinely gone.
+    const repairable = report.healthy.some(entry => entry.availability === 'unavailable');
+    const repairButton = document.getElementById('integrity-repair-btn');
+    if (repairButton) {
+      if (repairable) repairButton.removeAttribute('disabled');
+      else repairButton.setAttribute('disabled', '');
+    }
+
+    const markButton = document.getElementById('integrity-mark-btn');
+    if (markButton) markButton.hidden = report.issues === 0;
+  }
+
+  function renderOrphans(orphans) {
+    const section = document.getElementById('storage-orphans');
+    if (!section) return;
+    if (!orphans || orphans.length === 0) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    document.getElementById('orphan-summary').textContent =
+      `${orphans.length} file${orphans.length === 1 ? '' : 's'} in the library folder ${orphans.length === 1 ? 'is' : 'are'} not connected to any book in your library. They can be removed safely.`;
+
+    setContainerHTML('orphan-list', `
+      <ul class="integrity-list">
+        ${orphans.slice(0, 10).map(storageId => `<li><code class="integrity-book">${Utils.escapeHTML(`${storageId.slice(0, 12)}…${storageId.slice(-6)}`)}</code></li>`).join('')}
+      </ul>
+      ${orphans.length > 10 ? `<p class="setting-hint">and ${orphans.length - 10} more</p>` : ''}
+    `);
+  }
+
+  async function runRepair() {
+    if (!integrityReport) return;
+    const result = await Library.repairLibrary(integrityReport);
+    if (result.notRepairable > 0) {
+      Utils.toast(
+        `${result.repaired} restored. ${result.notRepairable} need the original file re-imported.`,
+        'info', 6000
+      );
+    } else {
+      Utils.toast(result.repaired ? `${result.repaired} book${result.repaired === 1 ? '' : 's'} restored` : 'Nothing needed repairing', 'success');
+    }
+    // Re-check rather than patching the old report, so what is shown afterwards
+    // is always the true current state of the library.
+    await startIntegrityCheck();
+  }
+
+  async function runOrphanCleanup() {
+    const orphans = integrityReport?.orphans || [];
+    if (orphans.length === 0) return;
+
+    const confirmed = await confirmAction({
+      title: 'Remove unused files?',
+      subtitle: `${orphans.length} file${orphans.length === 1 ? '' : 's'}`,
+      message: `These ${orphans.length} file${orphans.length === 1 ? '' : 's'} are not used by any book in your library and will be permanently deleted. Books in your library are never removed by this action.`,
+      confirmLabel: `Remove ${orphans.length} file${orphans.length === 1 ? '' : 's'}`
+    });
+    if (!confirmed) return;
+
+    const result = await Library.cleanupOrphans(orphans);
+    Utils.toast(`Removed ${result.removed.length} unused file${result.removed.length === 1 ? '' : 's'}`, 'success');
+    await startIntegrityCheck();
+    await renderStorageStats();
+  }
+
+  async function handleRestoreFile(event) {
+    const input = event.target;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    setContainerHTML('restore-preview', '<p class="setting-hint">Reading backup…</p>');
+    const inspection = await Library.inspectBackupFile(file);
+
+    if (!inspection.ok) {
+      restoreInspection = null;
+      setContainerHTML('restore-preview', `<p class="integrity-verdict bad">${Utils.escapeHTML(inspection.error)}</p>`);
+      return;
+    }
+
+    restoreInspection = inspection;
+    const s = inspection.summary;
+    setContainerHTML('restore-preview', `
+      <div class="restore-summary">
+        <div class="setting-section-title">This backup contains</div>
+        <ul class="integrity-list">
+          <li><span class="integrity-book">${s.books} book${s.books === 1 ? '' : 's'}</span>
+            <span class="integrity-detail">${s.newBooks} new, ${s.alreadyPresent} already in your library</span></li>
+          <li><span class="integrity-book">${s.newAnnotations} new highlight${s.newAnnotations === 1 ? '' : 's'} or note${s.newAnnotations === 1 ? '' : 's'}</span></li>
+          <li><span class="integrity-book">${s.newCollections} new collection${s.newCollections === 1 ? '' : 's'}</span></li>
+          <li><span class="integrity-book">${s.preferences} setting${s.preferences === 1 ? '' : 's'}</span></li>
+        </ul>
+        <p class="setting-hint">
+          Restoring only adds things. Books already in your library, and everything currently in it, are left exactly as they are.
+          Restored books arrive as details only, because a backup does not contain book files — re-import a book to read it again.
+        </p>
+        <div class="storage-actions">
+          <button class="btn btn-glow" id="restore-confirm-btn" type="button">Restore backup</button>
+          <button class="btn btn-ghost" id="restore-cancel-btn" type="button">Cancel</button>
+        </div>
+      </div>
+    `);
+
+    document.getElementById('restore-cancel-btn')?.addEventListener('click', () => {
+      restoreInspection = null;
+      setContainerHTML('restore-preview', '');
+    });
+    document.getElementById('restore-confirm-btn')?.addEventListener('click', async event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      const result = await Library.applyBackup(restoreInspection, { includePreferences: true });
+      button.disabled = false;
+      restoreInspection = null;
+      if (result?.ok) {
+        Utils.toast(`Restored ${result.booksAdded} books, ${result.annotationsAdded} annotations, ${result.collectionsAdded} collections`, 'success', 6000);
+        setContainerHTML('restore-preview', '');
+        await renderStorageStats();
+      } else {
+        setContainerHTML('restore-preview', `<p class="integrity-verdict bad">${Utils.escapeHTML(result?.error || 'The backup could not be restored.')}</p>`);
+      }
+    });
+  }
+
+  function renderAbout() {
+    const host = document.getElementById('about-extra');
+    if (!host) return;
+    host.innerHTML = `
+      <div class="about-list">
+        <div class="about-list-row"><span>Application</span><strong>Lirune Reader</strong></div>
+        <div class="about-list-row"><span>Version</span><strong id="about-version-full">…</strong></div>
+        <div class="about-list-row"><span>Author</span><strong>Vasanth Gajavelly</strong></div>
+        <div class="about-list-row"><span>Licence</span><strong>GNU GPL v3.0</strong></div>
+      </div>
+      <div class="about-block">
+        <div class="setting-section-title">Third-party notices</div>
+        <p class="setting-hint">Lirune Reader bundles epub.js (BSD-2-Clause), PDF.js (Apache-2.0) and JSZip (MIT or GPL-3.0). Fonts are used under the SIL Open Font License.</p>
+      </div>
+      <div class="about-block">
+        <div class="setting-section-title">Privacy</div>
+        <p class="setting-hint">Lirune Reader works entirely offline. Your books, reading positions and annotations stay on this computer and are never uploaded.</p>
+      </div>
+    `;
+    syncVersion();
+  }
+
+  function syncVersion() {
+    window.noveraDesktop?.getVersion?.().then(version => {
+      for (const id of ['about-version', 'about-version-full']) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = version;
+      }
+    }).catch(() => {});
+  }
+
+  /** Keeps the full settings controls showing the current values. */
+  function syncFullControls() {
+    const view = Library.getViewState();
+    setSegment('fs-view', view.view);
+    setSelect('fs-sort', view.sortBy);
+    setSegment('fs-order', view.sortOrder);
+    setSegment('fs-density', view.density);
+    setSwitch('fs-metadata', view.showMetadata);
+    setSwitch('fs-group-by-type', view.groupByType);
+
+    const prefs = AppPrefs.getAll();
+    setSwitch('fs-confirm-delete', prefs.confirmDelete);
+    setSwitch('fs-restore-last', prefs.restoreLastBook);
+    setSwitch('fs-save-progress', prefs.saveProgress);
+    setSwitch('fs-esc-to-library', prefs.escToLibrary);
+    setSwitch('fs-title-progress', prefs.windowTitleProgress);
+    setSwitch('fs-open-shelf', prefs.openShelfAfterImport);
+
+    setSwitch('fs-follow-system', prefs.followSystemTheme);
+    setSwitch('fs-glass-effect', prefs.glassEffect);
+    setSwitch('fs-rounded-covers', prefs.roundedCovers);
+    setSwitch('fs-card-shadows', prefs.elevatedCardShadows);
+
+    setSwitch('fs-tap-to-turn', prefs.tapToTurn);
+    setSwitch('fs-reading-bar', prefs.readingFooterBar);
+    setSwitch('fs-smooth-scroll', prefs.smoothScroll);
+    setSwitch('fs-auto-hyphenation', prefs.autoHyphenation);
+
+    const tts = typeof ReadAloud !== 'undefined' ? ReadAloud.getPrefs() : {};
+    setSwitch('fs-tts-highlight', tts.highlight !== false);
+    setSwitch('fs-tts-autoadvance', tts.autoAdvance !== false);
+
+    setSwitch('fs-progress-badges', prefs.showProgressBadge);
+    setSwitch('fs-format-badges', prefs.showFormatBadge);
+    setSwitch('fs-continue-reading', prefs.showContinueReading);
+    setSegment('fs-cover-fit', prefs.coverFit);
+
+    setSwitch('fs-reduce-motion', prefs.reduceMotion);
+    setSwitch('fs-focus-outlines', prefs.focusOutlines);
+    setSwitch('fs-large-controls', prefs.largeControls);
+    setSwitch('fs-high-contrast', prefs.highContrast);
+    setSwitch('fs-dyslexic-font', prefs.dyslexicFont);
+    setSwitch('fs-underline-links', prefs.underlineLinks);
+    setSwitch('fs-keyboard-cues', prefs.keyboardNavCues);
+
+    if (typeof ReaderSettings !== 'undefined') {
+      const reader = ReaderSettings.getSettings();
+      // Flow & spread buttons
+      const flowPag = document.getElementById('flow-paginated-btn');
+      const flowScr = document.getElementById('flow-scrolled-btn');
+      if (flowPag) flowPag.classList.toggle('active', reader.flow !== 'scrolled');
+      if (flowScr) flowScr.classList.toggle('active', reader.flow === 'scrolled');
+
+      const spreadAuto = document.getElementById('spread-auto-btn');
+      const spreadSing = document.getElementById('spread-single-btn');
+      if (spreadAuto) spreadAuto.classList.toggle('active', reader.spread !== 'none');
+      if (spreadSing) spreadSing.classList.toggle('active', reader.spread === 'none');
+
+      // Alignment options
+      document.querySelectorAll('[data-alignment]').forEach(btn => {
+        const active = btn.dataset.alignment === reader.alignment;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+
+      // Typeface
+      document.querySelectorAll('.font-opt').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.font === reader.fontFamily);
+      });
+
+      // Typography displays & sliders
+      const fontDisp = document.getElementById('font-size-display');
+      if (fontDisp) fontDisp.textContent = `${reader.fontSize}px`;
+
+      const spacingSlider = document.getElementById('spacing-slider');
+      const spacingVal = document.getElementById('spacing-val');
+      if (spacingSlider) spacingSlider.value = reader.lineHeight;
+      if (spacingVal) spacingVal.textContent = reader.lineHeight.toFixed(1);
+
+      const paraSlider = document.getElementById('para-spacing-slider');
+      const paraVal = document.getElementById('para-spacing-val');
+      if (paraSlider) paraSlider.value = reader.paragraphSpacing ?? 1.0;
+      if (paraVal) paraVal.textContent = `${(reader.paragraphSpacing ?? 1.0).toFixed(1)}em`;
+
+      const wordSlider = document.getElementById('word-spacing-slider');
+      const wordVal = document.getElementById('word-spacing-val');
+      if (wordSlider) wordSlider.value = reader.wordSpacing ?? 0.0;
+      if (wordVal) wordVal.textContent = `${(reader.wordSpacing ?? 0.0).toFixed(2)}em`;
+
+      const letterSlider = document.getElementById('letter-spacing-slider');
+      const letterVal = document.getElementById('letter-spacing-val');
+      if (letterSlider) letterSlider.value = reader.letterSpacing ?? 0.0;
+      if (letterVal) letterVal.textContent = `${(reader.letterSpacing ?? 0.0).toFixed(2)}em`;
+
+      const marginSlider = document.getElementById('margin-slider');
+      const marginVal = document.getElementById('margin-val');
+      if (marginSlider) marginSlider.value = reader.margin ?? 10;
+      if (marginVal) marginVal.textContent = `${reader.margin ?? 10}%`;
+
+      // Status display switches
+      setSwitch('fs-progress-chapter', reader.progressShowChapter !== false);
+      setSwitch('fs-progress-page', reader.progressShowPage !== false);
+      setSwitch('fs-progress-percent', reader.progressShowPercent !== false);
+
+      // Per-book override
+      setSwitch('fs-per-book-override', reader.perBookOverride === true);
+
+      // Profile selector
+      const profSelect = document.getElementById('reading-profile-select');
+      if (profSelect && ReaderSettings.getActiveProfileId) {
+        profSelect.value = ReaderSettings.getActiveProfileId();
+      }
+    }
+
+    document.querySelectorAll('#app-theme-grid [data-app-theme]').forEach(button => {
+      const isActive = button.dataset.appTheme === ThemeManager.getAppTheme();
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+  }
+
+  function setSegment(id, value) {
+    document.querySelectorAll(`[data-quick-segment="${id}"] .segment-opt`).forEach(button => {
+      const isActive = button.dataset.value === value;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+  }
+
+  function setSelect(id, value) {
+    const select = document.getElementById(`${id}-select`);
+    if (select && select.value !== value) {
+      select.value = value;
+      select._customDropdownSync?.();
+    }
+  }
+
+  function setSwitch(id, checked) {
+    const control = document.getElementById(id);
+    if (control) control.setAttribute('aria-checked', checked ? 'true' : 'false');
+  }
+
+  // ---------------------------------------------------------------
+  // Expand / collapse
+  // ---------------------------------------------------------------
+
+  function expand() {
+    expanded = true;
+    document.getElementById('full-settings')?.classList.remove('hidden');
+    document.getElementById('quick-settings')?.classList.add('hidden');
+    document.getElementById('settings-panel')?.classList.add('panel-expanded');
+    document.getElementById('settings-back-btn')?.classList.remove('hidden');
+    renderShortcuts();
+    syncFullControls();
+    showSection(currentContext === 'reader' ? 'reading' : 'library');
+  }
+
+  function collapse() {
+    // Panels are closed on every view change and overlay click, so this runs
+    // far more often than the user pressed back. Returning early when the
+    // panel is already collapsed avoids rebuilding the quick settings for no
+    // reason.
+    if (!expanded) return;
+    expanded = false;
+    document.getElementById('full-settings')?.classList.add('hidden');
+    document.getElementById('quick-settings')?.classList.remove('hidden');
+    document.getElementById('settings-panel')?.classList.remove('panel-expanded');
+    document.getElementById('settings-back-btn')?.classList.add('hidden');
+    renderQuick();
+  }
+
+  // ---------------------------------------------------------------
+  // Events
+  // ---------------------------------------------------------------
+
+  async function exportCatalogJSON() {
+    try {
+      const books = await NoveraDB.getAllBooks();
+      const catalog = books.map(b => ({
+        id: b.id,
+        title: b.title || 'Untitled',
+        author: b.author || 'Unknown',
+        format: b.format || 'unknown',
+        progress: b.progress || 0,
+        dateAdded: b.dateAdded ? new Date(b.dateAdded).toISOString() : null,
+        lastRead: b.lastRead ? new Date(b.lastRead).toISOString() : null
+      }));
+      const blob = new Blob([JSON.stringify(catalog, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lirune-catalog-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (typeof Utils !== 'undefined' && Utils.toast) {
+        Utils.toast(`Exported ${catalog.length} books to catalog JSON`, 'success');
+      }
+    } catch (e) {
+      console.error('Failed to export catalog:', e);
+      if (typeof Utils !== 'undefined' && Utils.toast) {
+        Utils.toast('Could not export catalog', 'error');
+      }
+    }
+  }
+
+  function bindEvents() {
+    const panel = document.getElementById('settings-panel');
+    if (!panel) return;
+
+    panel.addEventListener('click', async event => {
+      const segment = event.target.closest('.segment-opt');
+      if (segment) {
+        const catBtn = segment.closest('[data-shortcut-cat]');
+        if (catBtn || segment.dataset.shortcutCat) {
+          activeShortcutCategory = segment.dataset.shortcutCat;
+          document.querySelectorAll('[data-shortcut-cat]').forEach(b => {
+            const isActive = b.dataset.shortcutCat === activeShortcutCategory;
+            b.classList.toggle('active', isActive);
+            b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+          });
+          renderShortcuts();
+          return;
+        }
+
+        applySegment(segment.closest('[data-quick-segment]')?.dataset.quickSegment, segment.dataset.value);
+        return;
+      }
+
+      if (event.target.closest('#expand-settings-btn')) {
+        expand();
+        return;
+      }
+      if (event.target.closest('#settings-back-btn')) {
+        collapse();
+        return;
+      }
+      if (event.target.closest('#qs-reset-reader') || event.target.closest('#reset-reader-settings-btn')) {
+        resetReader();
+        return;
+      }
+      if (event.target.closest('#reset-library-view-btn') || event.target.closest('#qs-reset-library-btn')) {
+        await Library.resetView();
+        refresh();
+        return;
+      }
+
+      const navItem = event.target.closest('[data-section-target]');
+      if (navItem) {
+        showSection(navItem.dataset.sectionTarget);
+        return;
+      }
+
+      const appTheme = event.target.closest('[data-app-theme]');
+      if (appTheme) {
+        ThemeManager.setAppTheme(appTheme.dataset.appTheme);
+        syncFullControls();
+        return;
+      }
+
+      const toggle = event.target.closest('.setting-switch');
+      if (toggle && SWITCH_ACTIONS[toggle.id]) {
+        SWITCH_ACTIONS[toggle.id]();
+        refresh();
+        return;
+      }
+
+      const deleteAll = event.target.closest('#delete-all-data-btn, #general-reset-library-btn');
+      if (deleteAll) {
+        requestDeleteAll();
+        return;
+      }
+
+      if (event.target.closest('#general-export-backup-btn, #modal-export-backup-btn')) {
+        Library.backupMetadata();
+        return;
+      }
+
+      if (event.target.closest('#clear-cache-btn')) {
+        sessionStorage.clear();
+        if (typeof Utils !== 'undefined' && Utils.toast) {
+          Utils.toast('Session cache cleared successfully', 'success');
+        }
+        return;
+      }
+
+      if (event.target.closest('#export-catalog-btn')) {
+        exportCatalogJSON();
+        return;
+      }
+
+      if (event.target.closest('#integrity-check-btn')) {
+        startIntegrityCheck();
+        return;
+      }
+      if (event.target.closest('#integrity-repair-btn')) {
+        runRepair();
+        return;
+      }
+      if (event.target.closest('#orphan-cleanup-btn')) {
+        runOrphanCleanup();
+        return;
+      }
+      if (event.target.closest('#backup-library-btn')) {
+        Library.backupMetadata();
+        return;
+      }
+      if (event.target.closest('#export-annotations-btn')) {
+        Library.exportAnnotations();
+        return;
+      }
+      if (event.target.closest('#fs-tts-preview-btn')) {
+        const p = typeof ReadAloud !== 'undefined' ? ReadAloud.getPrefs() : {};
+        ReadAloud?.previewVoice?.(p.voiceURI, p.rate, p.pitch, p.volume);
+        return;
+      }
+    });
+
+    // The restore control is a file input, so it is handled on change rather
+    // than on click, and only after the user has picked a file.
+    document.getElementById('restore-library-input')?.addEventListener('change', handleRestoreFile);
+
+    const shortcutsSearch = document.getElementById('shortcuts-search');
+    if (shortcutsSearch) {
+      shortcutsSearch.addEventListener('input', event => {
+        shortcutSearchTerm = event.target.value.trim();
+        renderShortcuts();
+      });
+    }
+
+    panel.addEventListener('change', event => {
+      const select = event.target.closest('[data-quick-select]');
+      if (!select) return;
+      const id = select.dataset.quickSelect;
+      if (id === 'qs-sort' || id === 'fs-sort') {
+        Library.setView({ sortBy: select.value });
+        refresh();
+        return;
+      }
+      if (id === 'qs-theme') {
+        ThemeManager.setReaderTheme(select.value);
+        syncQuickControls();
+        if (expanded) syncFullControls();
+        return;
+      }
+      if (id === 'qs-font') {
+        ReaderSettings.setSetting('fontFamily', select.value);
+        syncQuickControls();
+        if (expanded) syncFullControls();
+        return;
+      }
+      if (id === 'qs-profile') {
+        if (typeof ReaderSettings !== 'undefined' && ReaderSettings.applyProfile) {
+          ReaderSettings.applyProfile(select.value);
+        }
+        syncQuickControls();
+        if (expanded) syncFullControls();
+        return;
+      }
+      if (id === 'fs-tts-voice') {
+        if (typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ voiceURI: select.value });
+        return;
+      }
+    });
+
+    panel.addEventListener('input', event => {
+      const slider = event.target.closest('[data-quick-slider]');
+      if (!slider) return;
+      const id = slider.dataset.quickSlider;
+      const value = Number(slider.value);
+      const unit = slider.dataset.unit || '';
+
+      const readout = document.getElementById(`${id}-value`);
+      if (readout) {
+        const formatted = (id === 'qs-word-spacing' || id === 'qs-letter-spacing')
+          ? value.toFixed(2)
+          : ((id === 'qs-line-height' || id === 'qs-para-spacing') ? value.toFixed(1) : value);
+        readout.textContent = `${formatted}${unit}`;
+      }
+
+      if (id === 'qs-font-size') ReaderSettings.setSetting('fontSize', value);
+      if (id === 'qs-line-height') ReaderSettings.setSetting('lineHeight', value);
+      if (id === 'qs-para-spacing') ReaderSettings.setSetting('paragraphSpacing', value);
+      if (id === 'qs-word-spacing') ReaderSettings.setSetting('wordSpacing', value);
+      if (id === 'qs-letter-spacing') ReaderSettings.setSetting('letterSpacing', value);
+      if (id === 'qs-margin') ReaderSettings.setSetting('margin', value);
+      if (id === 'fs-tts-rate' && typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ rate: value });
+      if (id === 'fs-tts-pitch' && typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ pitch: value });
+      if (id === 'fs-tts-volume' && typeof ReadAloud !== 'undefined') ReadAloud.updatePrefs({ volume: value / 100 });
+    });
+
+    const appThemeSwitch = document.getElementById('app-theme-switch');
+    if (appThemeSwitch) {
+      appThemeSwitch.addEventListener('click', () => {
+        if (expanded) syncFullControls();
+      });
+    }
+
+    window.addEventListener('novera:readerThemeChange', (e) => {
+      const sel = document.getElementById('qs-theme-select');
+      if (sel && e.detail?.theme) {
+        sel.value = e.detail.theme;
+        sel._customDropdownSync?.();
+      }
+    });
+  }
+
+  function applySegment(id, value) {
+    if (!id) return;
+
+    if (id === 'fs-cover-fit') {
+      AppPrefs.set({ coverFit: value });
+      refresh();
+      return;
+    }
+
+    const readerKeys = {
+      'qs-alignment': 'alignment',
+      'qs-flow': 'flow',
+      'qs-spread': 'spread'
+    };
+    if (readerKeys[id]) {
+      ReaderSettings.setSetting(readerKeys[id], value);
+      // Flow and column changes need a re-render, which the existing settings
+      // controls already do.
+      if (readerKeys[id] === 'flow' || readerKeys[id] === 'spread') Reader.reRender();
+      syncQuickControls();
+      if (expanded) syncFullControls();
+      return;
+    }
+
+    const viewKeys = {
+      'qs-view': 'view',
+      'fs-view': 'view',
+      'qs-order': 'sortOrder',
+      'fs-order': 'sortOrder',
+      'qs-density': 'density',
+      'fs-density': 'density'
+    };
+    if (viewKeys[id]) {
+      Library.setView({ [viewKeys[id]]: value });
+      refresh();
+    }
+  }
+
+  function resetReader() {
+    ReaderSettings.reset();
+    refresh();
+    Utils.toast('Reading preferences reset', 'success');
+  }
+
+  async function requestDeleteAll() {
+    if (!await confirmDeleteAll()) return;
+    const result = await Library.deleteAllBooks();
+    Library.resetView?.();
+    Utils.toast(
+      result.failed
+        ? `Library reset: ${result.removed} books removed, ${result.failed} failed`
+        : `✓ Entire library reset to clean state (${result.removed} books removed)`,
+      result.failed ? 'error' : 'success'
+    );
+    renderStorageStats();
+  }
+
+  /**
+   * Deleting every book is the one action here that cannot be undone, so it
+   * uses the application's own confirmation dialog rather than a silent click.
+   */
+  function confirmDeleteAll() {
+    const modal = document.getElementById('delete-all-modal');
+    if (!modal) return Promise.resolve(false);
+
+    return new Promise(resolve => {
+      const finish = confirmed => {
+        modal.classList.add('hidden');
+        cancelButton?.removeEventListener('click', onCancel);
+        confirmButton?.removeEventListener('click', onConfirm);
+        exportButton?.removeEventListener('click', onExport);
+        modal.removeEventListener('click', onBackdrop);
+        resolve(confirmed);
+      };
+      const onCancel = () => finish(false);
+      const onConfirm = () => finish(true);
+      const onExport = () => { Library.backupMetadata?.(); };
+      const onBackdrop = event => { if (event.target === modal) finish(false); };
+
+      const cancelButton = document.getElementById('cancel-delete-all-btn');
+      const confirmButton = document.getElementById('confirm-delete-all-btn');
+      const exportButton = document.getElementById('modal-export-backup-btn');
+      cancelButton?.addEventListener('click', onCancel);
+      confirmButton?.addEventListener('click', onConfirm);
+      exportButton?.addEventListener('click', onExport);
+      modal.addEventListener('click', onBackdrop);
+      modal.classList.remove('hidden');
+    });
+  }
+
+  return { init, refresh, expand, collapse, isExpanded, getContext };
+})();

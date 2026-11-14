@@ -98,6 +98,8 @@ Lirune Reader does not collect telemetry, make remote API requests, or send read
 
 ## License
 
-Copyright © 2026 Lirune Reader contributors.
+Copyright © 2026 Vasanth Gajavelly.
 
-Lirune Reader is licensed under the [GNU General Public License v3.0 only](LICENSE). See [COPYRIGHT.md](COPYRIGHT.md) for the project notice.
+Lirune Reader is licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
+
+See [LICENSE](LICENSE) and [COPYRIGHT.md](COPYRIGHT.md) for licensing and copyright information. Third-party components retain their respective licences and copyright notices.

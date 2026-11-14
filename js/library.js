@@ -16,17 +16,160 @@ const Library = (() => {
   let deleteConfirmationResolver = null;
   let isLoading = true;
 
+  // ── Library display settings ────────────────────────────────
+  // These are real presentation preferences, persisted through the
+  // existing NoveraDB preference store under a single key so the
+  // library keeps one source of truth. Density and metadata are
+  // applied as attributes on the grid, which changes how the library
+  // looks without re-rendering 300+ cards.
+  const DEFAULT_VIEW = {
+    view: 'grid',
+    sortBy: 'recent',
+    sortOrder: 'desc',
+    density: 'comfortable',
+    showMetadata: true,
+    groupByType: false
+  };
+
+  let viewPrefs = { ...DEFAULT_VIEW };
+
+  async function loadViewPrefs() {
+    const saved = await NoveraDB.getPref('libraryView', DEFAULT_VIEW);
+    viewPrefs = normalizeViewPrefs(saved);
+    return { ...viewPrefs };
+  }
+
+  function normalizeViewPrefs(prefs) {
+    const source = prefs || {};
+    return {
+      view: source.view === 'list' ? 'list' : 'grid',
+      sortBy: ['recent', 'added', 'title', 'author', 'type', 'progress'].includes(source.sortBy) ? source.sortBy : DEFAULT_VIEW.sortBy,
+      sortOrder: source.sortOrder === 'asc' ? 'asc' : 'desc',
+      density: source.density === 'compact' ? 'compact' : 'comfortable',
+      showMetadata: source.showMetadata !== false,
+      groupByType: source.groupByType === true
+    };
+  }
+
+  function persistViewPrefs() {
+    NoveraDB.setPref('libraryView', { ...viewPrefs });
+  }
+
+  function getViewState() {
+    return { ...viewPrefs };
+  }
+
+  /**
+   * Applies library display settings. Attributes are used for the
+   * purely visual preferences so a density or metadata change never
+   * rebuilds the card grid; view and sort go through the existing
+   * render path, which is what keeps favourites, collections,
+   * filters and chapter counts intact.
+   */
+  function setView(patch) {
+    if (!patch || typeof patch !== 'object') return getViewState();
+    const previous = { ...viewPrefs };
+    const next = normalizeViewPrefs({ ...viewPrefs, ...patch });
+    viewPrefs = next;
+
+    if (next.view !== previous.view) isListView = next.view === 'list';
+    if (next.sortBy !== previous.sortBy) currentSort = next.sortBy;
+    applyViewAttributes();
+    syncViewControls();
+    persistViewPrefs();
+
+    if (next.view !== previous.view || next.sortBy !== previous.sortBy || next.sortOrder !== previous.sortOrder || next.groupByType !== previous.groupByType) {
+      renderLibraryUI();
+    }
+    return getViewState();
+  }
+
+  function applyViewAttributes() {
+    const grid = document.getElementById('books-grid');
+    if (!grid) return;
+    grid.dataset.density = viewPrefs.density;
+    grid.dataset.metadata = viewPrefs.showMetadata ? 'shown' : 'hidden';
+    // The list class is applied here rather than only while rendering cards so
+    // an empty or filtered-to-nothing shelf still shows the chosen layout.
+    grid.classList.toggle('list-view', viewPrefs.view === 'list');
+  }
+
+  /** Keeps the existing toolbar controls in step with the stored settings. */
+  function syncViewControls() {
+    const sortSelect = document.getElementById('sort-select');
+    if (sortSelect && sortSelect.value !== viewPrefs.sortBy) sortSelect.value = viewPrefs.sortBy;
+    sortSelect?._customDropdownSync?.();
+    const filterSelect = document.getElementById('filter-select');
+    if (filterSelect && filterSelect.value !== currentFilter) filterSelect.value = currentFilter;
+    filterSelect?._customDropdownSync?.();
+    const collectionSelect = document.getElementById('collection-select');
+    if (collectionSelect && collectionSelect.value !== currentCollection) collectionSelect.value = currentCollection;
+    collectionSelect?._customDropdownSync?.();
+    const searchInput = document.getElementById('lib-search-input');
+    if (searchInput && searchInput.value !== searchQuery) searchInput.value = searchQuery;
+    const viewToggle = document.getElementById('view-toggle-btn');
+    if (viewToggle) viewToggle.classList.toggle('active', isListView);
+  }
+
+  async function resetView() {
+    viewPrefs = { ...DEFAULT_VIEW };
+    isListView = false;
+    currentSort = DEFAULT_VIEW.sortBy;
+    currentFilter = 'all';
+    currentCollection = 'all';
+    searchQuery = '';
+    const searchInput = document.getElementById('lib-search-input');
+    if (searchInput) searchInput.value = '';
+    const filterSelect = document.getElementById('filter-select');
+    if (filterSelect) {
+      filterSelect.value = 'all';
+      filterSelect._customDropdownSync?.();
+    }
+    const collectionSelect = document.getElementById('collection-select');
+    if (collectionSelect) {
+      collectionSelect.value = 'all';
+      collectionSelect._customDropdownSync?.();
+    }
+    const sortSelect = document.getElementById('sort-select');
+    if (sortSelect) {
+      sortSelect.value = DEFAULT_VIEW.sortBy;
+      sortSelect._customDropdownSync?.();
+    }
+    applyViewAttributes();
+    syncViewControls();
+    persistViewPrefs();
+    renderLibraryUI();
+    if (typeof Utils !== 'undefined' && typeof Utils.toast === 'function') {
+      Utils.toast('Library view reset to defaults', 'success');
+    }
+    return getViewState();
+  }
+
+  let libraryInitialized = false;
+  let libraryInitPromise = null;
+
   async function init() {
-    bindDropAndFileInput();
-    bindSearchAndSort();
-    bindModals();
-    document.getElementById('integrity-check-btn')?.addEventListener('click', checkIntegrity);
-    document.getElementById('export-annotations-btn')?.addEventListener('click', exportAnnotations);
-    document.getElementById('backup-library-btn')?.addEventListener('click', backupMetadata);
-    document.getElementById('restore-library-input')?.addEventListener('change', restoreMetadata);
-    collections = await NoveraDB.getCollections();
-    renderCollectionOptions();
-    await loadAndRenderBooks();
+    let resolveInit;
+    libraryInitPromise = new Promise(r => { resolveInit = r; });
+    try {
+      await loadViewPrefs();
+      isListView = viewPrefs.view === 'list';
+      currentSort = viewPrefs.sortBy;
+      bindDropAndFileInput();
+      bindSearchAndSort();
+      bindModals();
+      // The Storage & Data controls live in the settings panel and are owned by
+      // SettingsUI, which needs to show progress, previews and confirmations that
+      // a plain listener callback cannot.
+      collections = await NoveraDB.getCollections();
+      renderCollectionOptions();
+      applyViewAttributes();
+      syncViewControls();
+      await loadAndRenderBooks();
+      libraryInitialized = true;
+    } finally {
+      resolveInit();
+    }
   }
 
   async function loadAndRenderBooks() {
@@ -64,7 +207,7 @@ const Library = (() => {
     });
 
     // Sort books
-    sortBooks(filtered, currentSort);
+    sortBooks(filtered, currentSort, viewPrefs.sortOrder);
 
     if (allBooks.length === 0) {
       // Empty library: show hero drop zone
@@ -100,29 +243,16 @@ const Library = (() => {
     renderBookCards(filtered);
   }
 
-  function renderContinueReading() {
-    const continueSection = document.getElementById('continue-section');
-    const continueCard = document.getElementById('continue-card');
-    if (!continueSection || !continueCard) return;
-
-    // Find the book with most recent lastReadDate > 0
-    const readBooks = allBooks.filter(b => b.lastReadDate && b.lastReadDate > 0);
-    if (readBooks.length === 0) {
-      continueSection.classList.remove('visible');
-      return;
-    }
-
-    readBooks.sort((a, b) => b.lastReadDate - a.lastReadDate);
-    const book = readBooks[0];
-
-    const pct = book.progressPercent || 0;
-    const coverHtml = book.coverDataUrl
-      ? `<img src="${book.coverDataUrl}" alt="${Utils.escapeHTML(book.title)}" class="continue-cover">`
+  function createContinueCardHtml(book) {
+    const pct = Math.max(0, Math.min(100, Math.round(Number(book.progressPercent) || 0)));
+    const safeCoverUrl = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(book.coverDataUrl) : null;
+    const coverHtml = safeCoverUrl
+      ? `<img src="${Utils.escapeAttr(safeCoverUrl)}" alt="${Utils.escapeAttr(book.title)}" class="continue-cover">`
       : `<div class="continue-cover-fallback">
            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
          </div>`;
 
-    continueCard.innerHTML = `
+    return `
       ${coverHtml}
       <div class="continue-info">
         <div class="continue-title">${Utils.escapeHTML(book.title)}</div>
@@ -139,97 +269,371 @@ const Library = (() => {
         <button class="btn btn-accent btn-sm" aria-label="Resume reading">Resume</button>
       </div>
     `;
+  }
 
-    continueCard.onclick = () => App.openReader(book.id);
+  function renderContinueReading() {
+    const continueSection = document.getElementById('continue-section');
+    if (!continueSection) return;
+
+    // Find books with recent lastReadDate > 0
+    const readBooks = allBooks.filter(b => b.lastReadDate && b.lastReadDate > 0);
+    if (readBooks.length === 0) {
+      continueSection.classList.remove('visible');
+      return;
+    }
+
+    readBooks.sort((a, b) => (b.lastReadDate || 0) - (a.lastReadDate || 0));
+
+    // Deduplicate by book id and take up to 2 books
+    const seenIds = new Set();
+    const booksToDisplay = [];
+    for (const b of readBooks) {
+      if (!seenIds.has(b.id)) {
+        seenIds.add(b.id);
+        booksToDisplay.push(b);
+        if (booksToDisplay.length === 2) break;
+      }
+    }
+
+    const cardsWrapper = document.getElementById('continue-cards');
+    if (cardsWrapper) {
+      cardsWrapper.innerHTML = '';
+      booksToDisplay.forEach((b, idx) => {
+        const card = document.createElement('div');
+        card.className = 'continue-card';
+        if (idx === 0) card.id = 'continue-card';
+        card.tabIndex = 0;
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-label', `Continue reading ${b.title || 'current book'}`);
+        card.innerHTML = createContinueCardHtml(b);
+        card.onclick = () => App.openReader(b.id);
+        card.onkeydown = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            App.openReader(b.id);
+          }
+        };
+        cardsWrapper.appendChild(card);
+      });
+    } else {
+      const continueCard = document.getElementById('continue-card');
+      if (continueCard) {
+        continueCard.innerHTML = createContinueCardHtml(booksToDisplay[0]);
+        continueCard.onclick = () => App.openReader(booksToDisplay[0].id);
+      }
+    }
+
     continueSection.classList.add('visible');
+  }
+
+  async function hydrateChapterCount(book, card) {
+    if (!book || Number.isFinite(Number(book.chapterCount))) return;
+    if (book.format && book.format !== 'epub') return;
+    if (!window.ePub) return;
+    try {
+      let epubData = book.fileData;
+      if (!epubData && book.storageId && window.noveraDesktop?.readManagedBook) {
+        epubData = await window.noveraDesktop.readManagedBook(book.storageId, book.fingerprint, book.fileSize);
+      }
+      if (!epubData) return;
+
+      const tempBook = ePub(epubData);
+      let count = 0;
+      try {
+        const navigation = await tempBook.loaded.navigation;
+        const flatten = (items) => {
+          let total = 0;
+          for (const item of (items || [])) {
+            total += 1;
+            if (item.subitems?.length) total += flatten(item.subitems);
+          }
+          return total;
+        };
+        count = flatten(navigation?.toc);
+        if (!count) {
+          await tempBook.ready;
+          count = tempBook.spine?.spineItems?.length || 0;
+        }
+      } finally {
+        tempBook.destroy();
+      }
+
+      if (!count) return;
+      book.chapterCount = count;
+      await NoveraDB.updateBookMetadata(book.id, { chapterCount: count });
+
+      const chapterEl = card?.querySelector('.card-chapter-count');
+      if (chapterEl) {
+        chapterEl.textContent = `${count} chapter${count === 1 ? '' : 's'}`;
+        chapterEl.classList.remove('is-loading');
+      }
+    } catch (error) {
+      console.warn(`Could not determine chapter count for ${book.title || book.id}:`, error);
+    }
+  }
+
+  function observeMissingChapterCounts(books, grid) {
+    if (!isListView || !('IntersectionObserver' in window)) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const card = entry.target;
+        observer.unobserve(card);
+        const book = books.find(item => item.id === card.dataset.bookId);
+        if (book && !Number.isFinite(Number(book.chapterCount))) {
+          hydrateChapterCount(book, card);
+        }
+      });
+    }, { root: null, rootMargin: '160px 0px' });
+
+    grid.querySelectorAll('.book-card[data-book-id]').forEach(card => {
+      const book = books.find(item => item.id === card.dataset.bookId);
+      if (book && !Number.isFinite(Number(book.chapterCount))) observer.observe(card);
+    });
+  }
+
+  let renderBatchTimer = null;
+let renderBatchIndex = 0;
+const RENDER_BATCH_SIZE = 50;
+
+  function renderBatch(grid, books) {
+    const start = renderBatchIndex;
+    const end = Math.min(start + RENDER_BATCH_SIZE, books.length);
+    const fragment = document.createDocumentFragment();
+
+    for (let i = start; i < end; i++) {
+      fragment.appendChild(createBookCard(books[i]));
+    }
+    grid.appendChild(fragment);
+    renderBatchIndex = end;
+
+    if (end < books.length) {
+      renderBatchTimer = requestAnimationFrame(() => renderBatch(grid, books));
+    } else if (isListView) {
+      observeMissingChapterCounts(books, grid);
+    }
+  }
+
+  function renderAllBooks(grid, books) {
+    if (viewPrefs.groupByType) {
+      renderGroupedBooks(grid, books);
+    } else {
+      const fragment = document.createDocumentFragment();
+      books.forEach(book => fragment.appendChild(createBookCard(book)));
+      grid.appendChild(fragment);
+    }
+    if (isListView) {
+      observeMissingChapterCounts(books, grid);
+    }
+  }
+
+  function renderGroupedBooks(grid, books) {
+    // Group books by type while preserving their sorted order within each group
+    const groups = new Map();
+    books.forEach(book => {
+      const format = (book.format || 'epub').toUpperCase();
+      if (!groups.has(format)) groups.set(format, []);
+      groups.get(format).push(book);
+    });
+
+    // Sort group keys deterministically
+    const sortedFormats = Array.from(groups.keys()).sort();
+    const fragment = document.createDocumentFragment();
+
+    sortedFormats.forEach(fmt => {
+      const groupBooks = groups.get(fmt);
+      if (!groupBooks.length) return;
+
+      const header = document.createElement('div');
+      header.className = 'library-group-header';
+      header.setAttribute('role', 'heading');
+      header.setAttribute('aria-level', '2');
+      header.innerHTML = `
+        <span class="library-group-title">${Utils.escapeHTML(fmt)}</span>
+        <span class="library-group-count">(${groupBooks.length})</span>
+      `;
+      fragment.appendChild(header);
+
+      groupBooks.forEach(book => fragment.appendChild(createBookCard(book)));
+    });
+
+    grid.appendChild(fragment);
+  }
+
+  function createBookCard(book) {
+    const card = document.createElement('div');
+    card.className = 'book-card';
+    card.dataset.bookId = book.id;
+    card.dataset.format = book.format || 'epub';
+    card.setAttribute('role', 'listitem');
+    card.setAttribute('tabindex', '0');
+
+    const pct = book.progressPercent || 0;
+    const unavailable = book.availability === 'unavailable';
+    const formatLabel = BookFormat.describe(book.format || 'epub');
+    const chapterText = Number.isFinite(Number(book.chapterCount))
+      ? `${book.chapterCount} ${book.format === 'cbz' || book.format === 'pdf' ? (book.chapterCount === 1 ? 'page' : 'pages') : (book.chapterCount === 1 ? 'chapter' : 'chapters')}`
+      : (book.format === 'epub' ? 'Chapters' : 'Pages');
+
+    const safeCoverUrl = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(book.coverDataUrl) : null;
+    const coverHtml = safeCoverUrl
+      ? `<img src="${Utils.escapeAttr(safeCoverUrl)}" alt="${Utils.escapeAttr(book.title)}" class="card-cover" loading="lazy">`
+      : `<div class="card-cover-fallback">
+           <svg class="card-fallback-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+           <span class="card-fallback-title">${Utils.escapeHTML(book.title)}</span>
+         </div>`;
+
+    card.innerHTML = `
+      <div class="card-cover-wrap">
+        ${coverHtml}
+        ${unavailable ? '<div class="card-badge card-badge-warning">File unavailable</div>' : ''}
+        <button class="card-fav ${book.favorite ? 'visible' : ''}" type="button" aria-label="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}" title="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${book.favorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.8 8.8c0 5.5-8.8 10.2-8.8 10.2S3.2 14.3 3.2 8.8A4.6 4.6 0 0 1 12 6.1a4.6 4.6 0 0 1 8.8 2.7Z"/></svg>
+        </button>
+        ${pct > 0 ? `<div class="card-progress-bar"><div class="card-progress-fill" style="width:${pct}%"></div></div>` : ''}
+        ${pct >= 100 ? '<div class="card-badge">Completed</div>' : (pct > 0 ? `<div class="card-badge">${pct}%</div>` : '')}
+        <span class="card-format-badge" title="File format">${Utils.escapeHTML(formatLabel)}</span>
+      </div>
+      <div class="card-meta">
+        <div class="card-title" title="${Utils.escapeAttr(book.title)}">${Utils.escapeHTML(book.title)}</div>
+        <div class="card-author-row">
+          <span class="card-author">${Utils.escapeHTML(book.author || 'Unknown')}</span>
+          <span class="card-format-pill">${Utils.escapeHTML(formatLabel)}</span>
+        </div>
+        <div class="card-progress-list">
+          <div class="card-progress-list-bar">
+            <div class="card-progress-list-fill" style="width:${pct}%"></div>
+          </div>
+          <span class="card-progress-pct">${pct > 0 ? `${pct}%` : 'Unread'}</span>
+        </div>
+      </div>
+      <div class="card-chapter-count ${Number.isFinite(Number(book.chapterCount)) ? '' : 'is-loading'}">${chapterText}</div>
+      <div class="card-actions">
+        <button class="card-fav-btn ${book.favorite ? 'is-fav' : ''}" type="button" aria-label="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}" title="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${book.favorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.8 8.8c0 5.5-8.8 10.2-8.8 10.2S3.2 14.3 3.2 8.8A4.6 4.6 0 0 1 12 6.1a4.6 4.6 0 0 1 8.8 2.7Z"/></svg>
+        </button>
+        <button class="list-read-btn" type="button" aria-label="${pct > 0 ? 'Resume reading' : 'Read book'}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          <span>${pct > 0 ? 'Resume' : 'Read'}</span>
+        </button>
+        <button class="card-more-btn" type="button" aria-label="Book options" title="Book options">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+        </button>
+      </div>
+    `;
+
+    const favButtons = card.querySelectorAll('.card-fav, .card-fav-btn');
+    favButtons.forEach(btn => {
+      btn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        favButtons.forEach(b => { b.disabled = true; });
+        try {
+          const newFavorite = await NoveraDB.updateFavorite(book.id, !book.favorite);
+          if (newFavorite === null) return;
+          book.favorite = newFavorite;
+          updateFavoriteCard(card, newFavorite);
+          if (currentFilter === 'favorites') renderLibraryUI();
+        } catch (error) {
+          console.error('Failed to update favorite:', error);
+          Utils.toast('Could not update favorite', 'error');
+        } finally {
+          favButtons.forEach(b => { b.disabled = false; });
+        }
+      });
+    });
+
+    card.querySelector('.list-read-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      App.openReader(book.id);
+    });
+
+    card.querySelector('.card-more-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openContextMenu(e.clientX, e.clientY, book);
+    });
+
+    // Click to open book
+    card.addEventListener('click', () => {
+      App.openReader(book.id);
+    });
+
+    // Context menu on right click
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openContextMenu(e.clientX, e.clientY, book);
+    });
+
+    // Keyboard support
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        App.openReader(book.id);
+      }
+    });
+
+    return card;
   }
 
   function renderBookCards(books) {
     const grid = document.getElementById('books-grid');
     if (!grid) return;
     grid.innerHTML = '';
-    grid.className = isListView ? 'books-grid list-view visible' : 'books-grid visible';
+    grid.classList.toggle('list-view', isListView);
+    grid.classList.add('visible');
 
-    books.forEach(book => {
-      const card = document.createElement('div');
-      card.className = 'book-card';
-      card.setAttribute('role', 'listitem');
-      card.setAttribute('tabindex', '0');
-
-      const pct = book.progressPercent || 0;
-      const unavailable = book.availability === 'unavailable';
-
-      const coverHtml = book.coverDataUrl
-        ? `<img src="${book.coverDataUrl}" alt="${Utils.escapeHTML(book.title)}" class="card-cover" loading="lazy">`
-        : `<div class="card-cover-fallback">
-             <svg class="card-fallback-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-             <span class="card-fallback-title">${Utils.escapeHTML(book.title)}</span>
-           </div>`;
-
-      card.innerHTML = `
-        <div class="card-cover-wrap">
-          ${coverHtml}
-          ${unavailable ? '<div class="card-badge card-badge-warning">File unavailable</div>' : ''}
-            <button class="card-fav ${book.favorite ? 'visible' : ''}" type="button" aria-label="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}" title="${book.favorite ? 'Remove from favorites' : 'Add to favorites'}">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${book.favorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.8 8.8c0 5.5-8.8 10.2-8.8 10.2S3.2 14.3 3.2 8.8A4.6 4.6 0 0 1 12 6.1a4.6 4.6 0 0 1 8.8 2.7Z"/></svg>
-            </button>
-          ${pct > 0 ? `<div class="card-progress-bar"><div class="card-progress-fill" style="width:${pct}%"></div></div>` : ''}
-          ${pct >= 100 ? `<div class="card-badge">Completed</div>` : (pct > 0 ? `<div class="card-badge">${pct}%</div>` : '')}
-        </div>
-        <div class="card-meta">
-          <div class="card-title" title="${Utils.escapeHTML(book.title)}">${Utils.escapeHTML(book.title)}</div>
-          <div class="card-author">${Utils.escapeHTML(book.author || 'Unknown')}</div>
-        </div>
-      `;
-
-      const favoriteButton = card.querySelector('.card-fav');
-      favoriteButton?.addEventListener('click', async (event) => {
-        event.stopPropagation();
-        book.favorite = await NoveraDB.updateFavorite(book.id, !book.favorite);
-        renderLibraryUI();
-      });
-
-      // Click to open book
-      card.addEventListener('click', (e) => {
-        App.openReader(book.id);
-      });
-
-      // Context menu on right click
-      card.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        openContextMenu(e.clientX, e.clientY, book);
-      });
-
-      // Keyboard support
-      card.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          App.openReader(book.id);
-        }
-      });
-
-      grid.appendChild(card);
-    });
+    // For large libraries in grid view, render in batches to avoid blocking the main thread (unless grouped)
+    if (books.length > RENDER_BATCH_SIZE && !isListView && !viewPrefs.groupByType) {
+      renderBatchIndex = 0;
+      renderBatch(grid, books);
+    } else {
+      renderAllBooks(grid, books);
+    }
   }
 
-  function sortBooks(books, criterion) {
-    switch (criterion) {
-      case 'recent':
-        books.sort((a, b) => (b.lastReadDate || 0) - (a.lastReadDate || 0));
-        break;
-      case 'added':
-        books.sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0));
-        break;
-      case 'title':
-        books.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-        break;
-      case 'author':
-        books.sort((a, b) => (a.author || '').localeCompare(b.author || ''));
-        break;
-      case 'progress':
-        books.sort((a, b) => (b.progressPercent || 0) - (a.progressPercent || 0));
-        break;
+  function updateFavoriteCard(card, isFavorite) {
+    const favBtn = card.querySelector('.card-fav');
+    if (favBtn) {
+      favBtn.classList.toggle('visible', isFavorite);
+      favBtn.setAttribute('aria-label', isFavorite ? 'Remove from favorites' : 'Add to favorites');
+      favBtn.setAttribute('title', isFavorite ? 'Remove from favorites' : 'Add to favorites');
+      const svg = favBtn.querySelector('svg');
+      if (svg) svg.setAttribute('fill', isFavorite ? 'currentColor' : 'none');
     }
+    const favListBtn = card.querySelector('.card-fav-btn');
+    if (favListBtn) {
+      favListBtn.classList.toggle('is-fav', isFavorite);
+      favListBtn.setAttribute('aria-label', isFavorite ? 'Remove from favorites' : 'Add to favorites');
+      favListBtn.setAttribute('title', isFavorite ? 'Remove from favorites' : 'Add to favorites');
+      const svg = favListBtn.querySelector('svg');
+      if (svg) svg.setAttribute('fill', isFavorite ? 'currentColor' : 'none');
+    }
+  }
+
+  /**
+   * Sorts the visible list. Every criterion is compared in one direction and
+   * then the whole list is reversed when the user asks for the other order, so
+   * ascending and descending always describe the same ranking.
+   */
+  function sortBooks(books, criterion, order) {
+    const direction = order === 'asc' ? 1 : -1;
+    const compare = {
+      recent: (a, b) => (a.lastReadDate || 0) - (b.lastReadDate || 0),
+      added: (a, b) => (a.dateAdded || 0) - (b.dateAdded || 0),
+      title: (a, b) => (a.title || '').localeCompare(b.title || ''),
+      author: (a, b) => (a.author || '').localeCompare(b.author || ''),
+      type: (a, b) => {
+        const typeA = (a.format || 'epub').toUpperCase();
+        const typeB = (b.format || 'epub').toUpperCase();
+        const diff = typeA.localeCompare(typeB);
+        return diff !== 0 ? diff : (a.title || '').localeCompare(b.title || '');
+      },
+      progress: (a, b) => (a.progressPercent || 0) - (b.progressPercent || 0)
+    }[criterion];
+
+    if (!compare) return;
+    books.sort((a, b) => compare(a, b) * direction);
   }
 
   // File drag-and-drop & Picker handlers
@@ -241,7 +645,6 @@ const Library = (() => {
     const dropZone = document.getElementById('drop-zone');
 
     const importModal = document.getElementById('import-modal');
-    const importStatus = document.getElementById('import-status');
     const closeImportBtn = document.getElementById('close-import-btn');
     const importFileBtn = document.getElementById('import-file-btn');
     const importFolderBtn = document.getElementById('import-folder-btn');
@@ -252,7 +655,6 @@ const Library = (() => {
 
     const closeImport = () => importModal?.classList.add('hidden');
     const openImport = () => {
-      if (importStatus) importStatus.textContent = '';
       updateImportProgress(0, '', false);
       importModal?.classList.remove('hidden');
     };
@@ -260,9 +662,6 @@ const Library = (() => {
       if (!errors || errors.length === 0) return;
       const first = errors.slice(0, 3).map(item => `${item.name}: ${item.error}`).join(' | ');
       Utils.toast(`${errors.length} file${errors.length === 1 ? '' : 's'} skipped. ${first}`, 'error');
-    };
-    const setImportStatus = (message) => {
-      if (importStatus) importStatus.textContent = message;
     };
     const updateImportProgress = (percent, label = '', visible = true) => {
       const value = Math.max(0, Math.min(100, Math.round(percent)));
@@ -278,9 +677,28 @@ const Library = (() => {
       if (window.noveraDesktop?.openFileDialog) {
         const result = await window.noveraDesktop.openFileDialog();
         showImportErrors(result.errors);
-        if (!result.canceled && result.files?.length) await processNativeFiles(result.files, setImportStatus, updateImportProgress);
+        if (!result.canceled && result.files?.length) {
+          closeImport();
+          const archiveFiles = result.files.filter(f => isArchiveFilename(f.name || f.path));
+          const regularFiles = result.files.filter(f => !isArchiveFilename(f.name || f.path));
+          if (regularFiles.length) await processNativeFiles(regularFiles, null, updateImportProgress);
+          for (const arch of archiveFiles) {
+            await openArchiveInspection(arch);
+          }
+        }
       } else {
         closeImport();
+        fileInput?.click();
+      }
+    };
+    const handleArchiveChoice = async () => {
+      closeImport();
+      if (window.noveraDesktop?.openArchiveDialog) {
+        const result = await window.noveraDesktop.openArchiveDialog();
+        if (!result.canceled && result.file) {
+          await openArchiveInspection(result.file);
+        }
+      } else {
         fileInput?.click();
       }
     };
@@ -289,11 +707,14 @@ const Library = (() => {
         Utils.toast('Folder import is available in the desktop app', 'info');
         return;
       }
-      setImportStatus('Scanning folder...');
       const result = await window.noveraDesktop.openFolderDialog();
       showImportErrors(result.errors);
-      if (!result.canceled && result.files?.length) await processNativeFiles(result.files, setImportStatus, updateImportProgress);
-      else if (!result.canceled) setImportStatus('No EPUB files found in that folder.');
+      if (!result.canceled && result.files?.length) {
+        updateImportProgress(0, 'Scanning folder...');
+        await processNativeFiles(result.files, null, updateImportProgress);
+      } else if (!result.canceled) {
+        updateImportProgress(0, 'No supported book files found in that folder.');
+      }
     };
 
     [browseBtn, addBtn, addMoreBtn].forEach(btn => {
@@ -305,6 +726,8 @@ const Library = (() => {
     });
     importFileBtn?.addEventListener('click', handleFileChoice);
     importFolderBtn?.addEventListener('click', handleFolderChoice);
+    const importArchiveBtn = document.getElementById('import-archive-btn');
+    importArchiveBtn?.addEventListener('click', handleArchiveChoice);
 
     const sampleBookBtn = document.getElementById('sample-book-btn');
     if (sampleBookBtn) {
@@ -313,38 +736,134 @@ const Library = (() => {
       });
     }
 
+    BackgroundQueue.init();
+    initArchiveImportUI();
+
     // File input change (browser/fallback)
     if (fileInput) {
       fileInput.addEventListener('change', async (e) => {
         const files = Array.from(e.target.files || []);
         if (files.length > 0) {
-          await processFiles(files);
+          const archiveFiles = files.filter(f => isArchiveFilename(f.name));
+          const regularFiles = files.filter(f => !isArchiveFilename(f.name));
+          if (regularFiles.length > 0) {
+            await processFiles(regularFiles);
+          }
+          for (const arch of archiveFiles) {
+            await openArchiveInspection(arch);
+          }
           fileInput.value = '';
         }
       });
     }
 
-    // Windows OS launch / Double-click EPUB file listener
-    if (window.noveraDesktop && window.noveraDesktop.onOpenFile) {
-      window.noveraDesktop.onOpenFile(async (filePath) => {
-        Utils.toast('Opening book from Windows...', 'info');
-        const existing = allBooks.find(b => b.sourcePath === filePath || b.diskPath === filePath);
-        if (existing) {
-          App.openReader(existing.id);
-          return;
+    function showStorageOpenOverlay(filename, percent, status) {
+      const overlay = document.getElementById('storage-open-overlay');
+      if (!overlay) return;
+      const fnEl = document.getElementById('storage-open-filename');
+      const barEl = document.getElementById('storage-open-progress-bar');
+      const statusEl = document.getElementById('storage-open-status');
+      const pctEl = document.getElementById('storage-open-percent');
+      if (fnEl) fnEl.textContent = filename || '';
+      if (barEl) barEl.style.width = `${percent}%`;
+      if (statusEl) statusEl.textContent = status || '';
+      if (pctEl) pctEl.textContent = `${percent}%`;
+      overlay.removeAttribute('hidden');
+      overlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function hideStorageOpenOverlay() {
+      const overlay = document.getElementById('storage-open-overlay');
+      if (!overlay) return;
+      overlay.setAttribute('hidden', '');
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+
+    async function openBookFromFilePath(filePath) {
+      if (!filePath) return;
+      const fileName = filePath.replace(/^[\\/]/, '').split(/[\\/]/).pop() || 'Book';
+      if (isArchiveFilename(fileName)) {
+        await openArchiveInspection({ path: filePath, name: fileName });
+        return;
+      }
+      window.__externalFileOpening = true;
+      showStorageOpenOverlay(fileName, 15, 'Starting book loader…');
+
+      if (!libraryInitialized && libraryInitPromise) {
+        showStorageOpenOverlay(fileName, 25, 'Initializing storage…');
+        await libraryInitPromise;
+      }
+
+      const normalizedTarget = String(filePath).toLowerCase();
+      // 1. Check if book already matches by path
+      let existing = allBooks.find(b =>
+        (b.sourcePath && b.sourcePath.toLowerCase() === normalizedTarget) ||
+        (b.diskPath && b.diskPath.toLowerCase() === normalizedTarget)
+      );
+
+      if (existing) {
+        showStorageOpenOverlay(fileName, 90, 'Opening in reader…');
+        App.openReader(existing.id);
+        setTimeout(hideStorageOpenOverlay, 500);
+        return;
+      }
+
+      // 2. Read file to check fingerprint / import
+      try {
+        showStorageOpenOverlay(fileName, 35, 'Reading file from disk…');
+        const file = await window.noveraDesktop.readBookFile(filePath);
+        if (!file?.data) throw new Error('Could not read file data');
+
+        showStorageOpenOverlay(fileName, 65, 'Validating and importing…');
+        const imported = await importOneFile(file.data, file.name, file.size || file.data.byteLength, filePath);
+        if (imported === 'duplicate') {
+          showStorageOpenOverlay(fileName, 80, 'Matching existing library book…');
+          const fingerprint = await getFingerprint(file.data, file.size || file.data.byteLength, file.name);
+          const existingByFp = allBooks.find(b => b.fingerprint && b.fingerprint === fingerprint);
+          if (existingByFp) {
+            if (!existingByFp.sourcePath) {
+              existingByFp.sourcePath = filePath;
+              await NoveraDB.updateBook(existingByFp.id, { sourcePath: filePath });
+            }
+            showStorageOpenOverlay(fileName, 95, 'Opening in reader…');
+            App.openReader(existingByFp.id);
+            setTimeout(hideStorageOpenOverlay, 500);
+            return;
+          }
         }
 
-        try {
-          const file = await window.noveraDesktop.readEpubFile(filePath);
-          await processNativeFiles([file]);
-          await loadAndRenderBooks();
-          const imported = allBooks.find(b => b.sourcePath === file.path);
-          if (imported) App.openReader(imported.id);
-        } catch (err) {
-          console.error('Failed to open EPUB from Windows:', err);
-          Utils.toast('Could not open the selected EPUB', 'error');
+        if (imported && imported.id) {
+          showStorageOpenOverlay(fileName, 90, 'Saving to library…');
+          allBooks.unshift(imported);
+          renderLibraryUI();
+          showStorageOpenOverlay(fileName, 100, 'Opening in reader…');
+          App.openReader(imported.id);
+          setTimeout(hideStorageOpenOverlay, 500);
+        } else {
+          throw new Error('Could not persist book record');
         }
+      } catch (err) {
+        console.error('Failed to open book from OS:', err);
+        hideStorageOpenOverlay();
+        window.noveraDesktop?.revokePendingBookFile?.(filePath);
+        Utils.toast(err?.message || 'Could not open the selected file', 'error');
+      }
+    }
+
+    // Windows OS launch / Double-click EPUB file listener
+    if (window.noveraDesktop && window.noveraDesktop.onOpenFile) {
+      window.noveraDesktop.onOpenFile((filePath) => {
+        openBookFromFilePath(filePath);
       });
+    }
+
+    if (window.noveraDesktop && window.noveraDesktop.signalRendererReady) {
+      window.noveraDesktop.signalRendererReady().then(async () => {
+        const pending = await window.noveraDesktop.getPendingOpenFile?.();
+        if (pending) {
+          openBookFromFilePath(pending);
+        }
+      }).catch(err => console.warn('Could not signal renderer ready:', err));
     }
 
     // Drag-and-drop on entire document
@@ -375,57 +894,512 @@ const Library = (() => {
       if (dropZone) dropZone.classList.remove('drag-active');
 
       const files = Array.from(e.dataTransfer?.files || []);
-      const epubs = files.filter(f => f.name.toLowerCase().endsWith('.epub') || f.type.includes('epub'));
+      const archiveFiles = files.filter(f => isArchiveFilename(f.name || f.path));
+      const regularFiles = files.filter(f => isImportableFile(f) && !isArchiveFilename(f.name || f.path));
 
-      if (epubs.length === 0) {
-        Utils.toast('Please drop valid .epub files', 'error');
+      if (regularFiles.length === 0 && archiveFiles.length === 0) {
+        Utils.toast(await rejectionReason(files), 'error');
         return;
       }
 
-      await processFiles(epubs);
+      if (regularFiles.length > 0) {
+        await processFiles(regularFiles);
+      }
+      for (const arch of archiveFiles) {
+        await openArchiveInspection(arch);
+      }
     });
   }
 
-  async function processNativeFiles(fileList, setStatus = null, updateProgress = null) {
+  /**
+   * A dropped file the app recognised but cannot read gets that format's own
+   * reason, because "unsupported" without a cause is not an answer. Anything
+   * unrecognised falls back to the list of formats that do work.
+   */
+  async function rejectionReason(files) {
+    const supported = `Drop a supported book file (${BookFormat.importExtensions().map(e => '.' + e).join(', ')}, .zip, .7z, .rar)`;
+    const candidate = files.find(f => f && f.size);
+    if (!candidate) return supported;
+    try {
+      const buffer = await candidate.arrayBuffer();
+      const format = await BookFormat.detect(candidate.name, buffer);
+      if (format && format.supported === false && format.reason) {
+        return `${format.label}: ${format.reason}`;
+      }
+    } catch {
+      // Unreadable bytes are covered by the generic message.
+    }
+    return supported;
+  }
+
+  function isImportableFile(file) {
+    if (!file) return false;
+    const ext = BookFormat.extensionOf(file.name || file.path || '');
+    if (BookFormat.importExtensions().includes(ext)) return true;
+    if (['zip', '7z', 'rar'].includes(ext)) return true;
+    const type = (file.type || '').toLowerCase();
+    return Object.values(BookFormat.FORMATS).some(format => format.supported && format.mime === type);
+  }
+
+  /** Managed storage keeps the real extension so a book can be re-detected. */
+  function storageIdFor(fingerprint, extension) {
+    return `${fingerprint}.${extension || 'epub'}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Archive Inspection & Selective Import (.zip, .7z, .rar)
+  // ─────────────────────────────────────────────────────────────────────────────
+  function isArchiveFilename(name) {
+    if (!name || typeof name !== 'string') return false;
+    const ext = name.split('.').pop().toLowerCase();
+    return ['zip', '7z', 'rar'].includes(ext);
+  }
+
+  let currentArchiveContext = null;
+
+  async function openArchiveInspection(fileOrDescriptor) {
+    try {
+      const modal = document.getElementById('archive-import-modal');
+      const subtitleEl = document.getElementById('archive-modal-subtitle');
+      const listEl = document.getElementById('archive-book-list');
+      const selectAllCb = document.getElementById('archive-select-all-cb');
+      const countEl = document.getElementById('archive-selection-count');
+      const importSelBtn = document.getElementById('import-selected-archive-btn');
+
+      if (!modal) return;
+
+      Utils.toast('Inspecting archive contents...', 'info');
+
+      let inspectResult = null;
+      let archiveBuffer = null;
+      const archivePath = fileOrDescriptor?.path || (typeof fileOrDescriptor === 'string' ? fileOrDescriptor : null);
+      const archiveName = fileOrDescriptor?.name || (archivePath ? archivePath.replace(/^[\\/]/, '').split(/[\\/]/).pop() : 'archive');
+
+      const desktopApi = window.liruneDesktop || window.noveraDesktop;
+      if (desktopApi?.inspectArchive) {
+        inspectResult = await desktopApi.inspectArchive(archivePath || {
+          name: archiveName,
+          buffer: fileOrDescriptor instanceof File ? await fileOrDescriptor.arrayBuffer() : fileOrDescriptor?.data
+        });
+      } else if (fileOrDescriptor instanceof File || fileOrDescriptor?.data) {
+        archiveBuffer = fileOrDescriptor instanceof File ? await fileOrDescriptor.arrayBuffer() : fileOrDescriptor.data;
+        if (typeof JSZip !== 'undefined') {
+          const zip = await JSZip.loadAsync(archiveBuffer);
+          const found = [];
+          for (const [relPath, entry] of Object.entries(zip.files)) {
+            if (entry.dir) continue;
+            const normalized = relPath.replace(/\\/g, '/');
+            if (normalized.startsWith('__MACOSX/') || normalized.includes('/.') || normalized.startsWith('.')) continue;
+            const ext = normalized.split('.').pop().toLowerCase();
+            if (BookFormat.importExtensions().includes(ext)) {
+              found.push({
+                path: relPath,
+                name: relPath.split('/').pop(),
+                size: entry._data ? (entry._data.uncompressedSize || 0) : 0,
+                ext
+              });
+            }
+          }
+          inspectResult = { success: true, archiveName, books: found, totalEntries: found.length };
+        }
+      }
+
+      if (!inspectResult || !inspectResult.success) {
+        Utils.toast(inspectResult?.error || 'Could not read archive file', 'error');
+        return;
+      }
+
+      const books = inspectResult.books || [];
+      if (books.length === 0) {
+        Utils.toast(`No supported book files found inside ${inspectResult.archiveName || 'archive'}.`, 'warning');
+        return;
+      }
+
+      currentArchiveContext = {
+        archivePath: inspectResult.archivePath || archivePath,
+        archiveName: inspectResult.archiveName || archiveName,
+        buffer: archiveBuffer,
+        books,
+        selectedPaths: new Set(books.map(b => b.path))
+      };
+
+      if (subtitleEl) {
+        subtitleEl.textContent = `${currentArchiveContext.archiveName} · ${books.length} book${books.length === 1 ? '' : 's'} found`;
+      }
+
+      function updateArchiveModalUI() {
+        if (!currentArchiveContext) return;
+        const total = currentArchiveContext.books.length;
+        const selectedCount = currentArchiveContext.selectedPaths.size;
+        let totalSelectedBytes = 0;
+        for (const b of currentArchiveContext.books) {
+          if (currentArchiveContext.selectedPaths.has(b.path)) {
+            totalSelectedBytes += (b.size || 0);
+          }
+        }
+
+        if (countEl) {
+          countEl.textContent = `${selectedCount} of ${total} selected (${Utils.formatBytes(totalSelectedBytes)})`;
+        }
+        if (selectAllCb) {
+          selectAllCb.checked = selectedCount === total;
+          selectAllCb.indeterminate = selectedCount > 0 && selectedCount < total;
+        }
+        if (importSelBtn) {
+          importSelBtn.textContent = `Import Selected (${selectedCount})`;
+          importSelBtn.disabled = selectedCount === 0;
+        }
+
+        listEl?.querySelectorAll('.archive-book-item').forEach(row => {
+          const rowPath = row.dataset.path;
+          const isSel = currentArchiveContext.selectedPaths.has(rowPath);
+          row.classList.toggle('selected', isSel);
+          const cb = row.querySelector('input[type="checkbox"]');
+          if (cb) cb.checked = isSel;
+        });
+      }
+
+      if (listEl) {
+        listEl.innerHTML = books.map(book => {
+          const isChecked = currentArchiveContext.selectedPaths.has(book.path);
+          const safeName = Utils.escapeHTML(book.name);
+          const safeExt = Utils.escapeHTML((book.ext || 'epub').toUpperCase());
+          const safePath = Utils.escapeHTML(book.path);
+          const safeAttrPath = Utils.escapeAttr(book.path);
+          const safeAttrName = Utils.escapeAttr(book.name);
+          const formattedSize = Utils.formatBytes(book.size || 0);
+          return `
+            <div class="archive-book-item ${isChecked ? 'selected' : ''}" data-path="${safeAttrPath}" role="button" tabindex="0">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} aria-label="Select ${safeAttrName}">
+              <span class="archive-badge">${safeExt}</span>
+              <div class="archive-book-info">
+                <span class="archive-book-name" title="${safeAttrName}">${safeName}</span>
+                <span class="archive-book-meta">${formattedSize}${book.path !== book.name ? ` • ${safePath}` : ''}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        listEl.querySelectorAll('.archive-book-item').forEach(row => {
+          const rowPath = row.dataset.path;
+          const cb = row.querySelector('input[type="checkbox"]');
+          row.addEventListener('click', (e) => {
+            if (e.target === cb) return;
+            cb.checked = !cb.checked;
+            cb.dispatchEvent(new Event('change'));
+          });
+          cb?.addEventListener('change', () => {
+            if (cb.checked) {
+              currentArchiveContext.selectedPaths.add(rowPath);
+            } else {
+              currentArchiveContext.selectedPaths.delete(rowPath);
+            }
+            updateArchiveModalUI();
+          });
+        });
+      }
+
+      updateArchiveModalUI();
+      modal.classList.remove('hidden');
+    } catch (err) {
+      console.error('Error opening archive inspection:', err);
+      Utils.toast(err?.message || 'Failed to inspect archive', 'error');
+    }
+  }
+
+  function closeArchiveModal() {
+    const modal = document.getElementById('archive-import-modal');
+    if (modal) modal.classList.add('hidden');
+    currentArchiveContext = null;
+  }
+
+  async function executeArchiveImport(onlySelected = true) {
+    if (!currentArchiveContext) return;
+    const ctx = currentArchiveContext;
+    const targetPaths = onlySelected
+      ? Array.from(ctx.selectedPaths)
+      : ctx.books.map(b => b.path);
+
+    if (targetPaths.length === 0) {
+      Utils.toast('Please select at least one book to import.', 'warning');
+      return;
+    }
+
+    closeArchiveModal();
+    Utils.toast(`Extracting ${targetPaths.length} book${targetPaths.length === 1 ? '' : 's'} from ${ctx.archiveName}...`, 'info');
+
+    try {
+      let extractedFiles = [];
+      const desktopApi = window.liruneDesktop || window.noveraDesktop;
+      if (desktopApi?.extractArchiveFiles) {
+        const res = await desktopApi.extractArchiveFiles({
+          filePath: ctx.archivePath,
+          buffer: ctx.buffer,
+          selectedPaths: targetPaths,
+          archiveName: ctx.archiveName
+        });
+        if (!res || !res.success) {
+          throw new Error(res?.error || 'Failed to extract books from archive');
+        }
+        extractedFiles = res.files || [];
+      } else if (ctx.buffer && typeof JSZip !== 'undefined') {
+        const zip = await JSZip.loadAsync(ctx.buffer);
+        const set = new Set(targetPaths);
+        for (const [relPath, entry] of Object.entries(zip.files)) {
+          if (!set.has(relPath) || entry.dir) continue;
+          const ab = await entry.async('arraybuffer');
+          extractedFiles.push({
+            name: relPath.split('/').pop(),
+            path: null,
+            size: ab.byteLength,
+            data: ab
+          });
+        }
+      }
+
+      if (extractedFiles.length === 0) {
+        Utils.toast('No books were extracted from the archive.', 'warning');
+        return;
+      }
+
+      const nativeFilesToProcess = extractedFiles.map(f => {
+        let buf = f.data;
+        if (buf && buf.buffer && buf.byteOffset !== undefined) {
+          buf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        }
+        return {
+          name: f.name,
+          data: buf,
+          size: f.size || buf?.byteLength,
+          path: null
+        };
+      });
+
+      await processNativeFiles(nativeFilesToProcess, null, null);
+      Utils.toast(`✓ Successfully imported ${nativeFilesToProcess.length} book${nativeFilesToProcess.length === 1 ? '' : 's'} from ${ctx.archiveName}`);
+    } catch (err) {
+      console.error('Error during archive import:', err);
+      Utils.toast(err?.message || 'Error extracting archive', 'error');
+    }
+  }
+
+  function initArchiveImportUI() {
+    const archiveModal = document.getElementById('archive-import-modal');
+    const closeBtn = document.getElementById('close-archive-modal-btn');
+    const cancelBtn = document.getElementById('cancel-archive-import-btn');
+    const selectAllCb = document.getElementById('archive-select-all-cb');
+    const importAllBtn = document.getElementById('import-all-archive-btn');
+    const importSelBtn = document.getElementById('import-selected-archive-btn');
+
+    closeBtn?.addEventListener('click', closeArchiveModal);
+    cancelBtn?.addEventListener('click', closeArchiveModal);
+    archiveModal?.addEventListener('click', (e) => {
+      if (e.target === archiveModal) closeArchiveModal();
+    });
+
+    selectAllCb?.addEventListener('change', () => {
+      if (!currentArchiveContext) return;
+      const shouldSelect = selectAllCb.checked;
+      if (shouldSelect) {
+        currentArchiveContext.selectedPaths = new Set(currentArchiveContext.books.map(b => b.path));
+      } else {
+        currentArchiveContext.selectedPaths.clear();
+      }
+      const listEl = document.getElementById('archive-book-list');
+      listEl?.querySelectorAll('.archive-book-item').forEach(row => {
+        row.classList.toggle('selected', shouldSelect);
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = shouldSelect;
+      });
+      const total = currentArchiveContext.books.length;
+      const countEl = document.getElementById('archive-selection-count');
+      if (countEl) {
+        let totalBytes = 0;
+        if (shouldSelect) {
+          for (const b of currentArchiveContext.books) totalBytes += (b.size || 0);
+        }
+        countEl.textContent = `${shouldSelect ? total : 0} of ${total} selected (${Utils.formatBytes(totalBytes)})`;
+      }
+      if (importSelBtn) {
+        importSelBtn.textContent = `Import Selected (${shouldSelect ? total : 0})`;
+        importSelBtn.disabled = !shouldSelect;
+      }
+    });
+
+    importAllBtn?.addEventListener('click', () => executeArchiveImport(false));
+    importSelBtn?.addEventListener('click', () => executeArchiveImport(true));
+  }
+
+  const BackgroundQueue = (() => {
+    let queue = [];
+    let autoHideTimer = null;
+
+    function renderQueueModal() {
+      const listEl = document.getElementById('import-queue-list');
+      if (!listEl) return;
+      if (queue.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-tertiary);">No files in import queue.</div>';
+        return;
+      }
+      listEl.innerHTML = queue.map(item => {
+        let badgeHtml = '';
+        if (item.status === 'pending') {
+          badgeHtml = '<span class="import-queue-badge pending">Pending</span>';
+        } else if (item.status === 'importing') {
+          badgeHtml = '<span class="import-queue-badge importing"><span class="import-queue-spinner" style="width:10px;height:10px;"></span> Importing</span>';
+        } else if (item.status === 'completed') {
+          badgeHtml = '<span class="import-queue-badge completed">✓ Completed</span>';
+        } else {
+          badgeHtml = `<span class="import-queue-badge error" title="${Utils.escapeAttr(item.error || 'Failed')}">✗ Error</span>`;
+        }
+        return `
+          <div class="import-queue-item">
+            <div class="import-queue-item-info">
+              <span class="import-queue-item-name" title="${Utils.escapeAttr(item.name)}">${Utils.escapeHTML(item.name)}</span>
+              <span class="import-queue-item-meta">${item.size ? Utils.formatBytes(item.size) : ''}${item.error ? ` • ${Utils.escapeHTML(item.error)}` : ''}</span>
+            </div>
+            ${badgeHtml}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updatePill() {
+      const pill = document.getElementById('import-queue-pill');
+      const textEl = document.getElementById('import-queue-text');
+      if (!pill || !textEl) return;
+      const activeOrPending = queue.filter(i => i.status === 'pending' || i.status === 'importing');
+      const completed = queue.filter(i => i.status === 'completed').length;
+      const total = queue.length;
+
+      if (activeOrPending.length > 0) {
+        clearTimeout(autoHideTimer);
+        pill.classList.remove('hidden');
+        textEl.textContent = `Importing ${completed + 1}/${total}`;
+      } else if (total > 0) {
+        textEl.textContent = `Imported ${completed}/${total}`;
+        clearTimeout(autoHideTimer);
+        autoHideTimer = setTimeout(() => {
+          pill.classList.add('hidden');
+          queue = [];
+        }, 5000);
+      } else {
+        pill.classList.add('hidden');
+      }
+      renderQueueModal();
+    }
+
+    function enqueue(files) {
+      clearTimeout(autoHideTimer);
+      const newItems = Array.from(files).map((f, i) => ({
+        id: `q_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+        name: f.name || 'Book',
+        size: f.size || 0,
+        status: 'pending'
+      }));
+      queue.push(...newItems);
+      updatePill();
+      return newItems;
+    }
+
+    function setStatus(id, status, error) {
+      const item = queue.find(i => i.id === id);
+      if (item) {
+        item.status = status;
+        if (error) item.error = error;
+      }
+      updatePill();
+    }
+
+    function openModal() {
+      const modal = document.getElementById('import-queue-modal');
+      if (!modal) return;
+      renderQueueModal();
+      modal.classList.remove('hidden');
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('import-queue-modal');
+      if (!modal) return;
+      modal.classList.add('hidden');
+    }
+
+    function clear() {
+      queue = queue.filter(i => i.status === 'pending' || i.status === 'importing');
+      updatePill();
+      closeModal();
+    }
+
+    function init() {
+      const pill = document.getElementById('import-queue-pill');
+      pill?.addEventListener('click', openModal);
+      document.getElementById('close-import-queue-btn')?.addEventListener('click', closeModal);
+      document.getElementById('dismiss-import-queue-btn')?.addEventListener('click', clear);
+      document.getElementById('import-queue-modal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'import-queue-modal') closeModal();
+      });
+    }
+
+    return { enqueue, setStatus, updatePill, openModal, closeModal, init };
+  })();
+
+  async function processNativeFiles(fileList, _setStatus, updateProgress) {
+    const queueItems = BackgroundQueue.enqueue(fileList);
     Utils.toast(`Importing ${fileList.length} book${fileList.length === 1 ? '' : 's'}...`);
 
     let importedCount = 0;
     const errors = [];
     for (const [index, file] of fileList.entries()) {
+      const qItem = queueItems[index];
+      if (qItem) BackgroundQueue.setStatus(qItem.id, 'importing');
       let savedStorageId = null;
       try {
         const completed = Math.round((index / fileList.length) * 100);
         updateProgress?.(completed, `Importing ${index + 1} of ${fileList.length}: ${file.name}`);
-        setStatus?.(`Importing ${index + 1} of ${fileList.length}: ${file.name}`);
-        const existing = allBooks.find(book => book.sourcePath === file.path || book.diskPath === file.path);
-        if (existing) {
-          continue;
-        }
-
-        const bookData = await parseEpubMetadata(file.data, file.name, file.size);
-        bookData.fingerprint = await getFingerprint(file.data, file.size, file.name);
-        if (allBooks.some(book => book.fingerprint && book.fingerprint === bookData.fingerprint)) continue;
-        bookData.sourcePath = file.path;
-
-        // Persist copy in AppData storage if needed
-        if (window.noveraDesktop && window.noveraDesktop.saveBookToStorage) {
-          const res = await window.noveraDesktop.saveBookToStorage(file.name, file.data, `${bookData.fingerprint}.epub`);
-          if (res && res.success) {
-            bookData.storageId = res.storageId;
-            savedStorageId = res.storageId;
-          } else {
-            throw new Error(res?.error || 'Could not save EPUB to managed storage');
+        const normalized = (file.path || '').toLowerCase();
+        if (normalized) {
+          const existing = allBooks.find(book =>
+            (book.sourcePath && book.sourcePath.toLowerCase() === normalized) ||
+            (book.diskPath && book.diskPath.toLowerCase() === normalized)
+          );
+          if (existing) {
+            if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
+            continue;
           }
         }
 
-        await NoveraDB.saveBook(bookData);
+        let fileData = file.data;
+        if (!fileData && file.path && window.noveraDesktop?.readBookFile) {
+          const res = await window.noveraDesktop.readBookFile(file.path);
+          fileData = res?.data;
+        }
+        if (!fileData) {
+          errors.push({ name: file.name, error: 'Could not read file' });
+          if (qItem) BackgroundQueue.setStatus(qItem.id, 'error', 'Could not read file');
+          continue;
+        }
+
+        const imported = await importOneFile(fileData, file.name, file.size, file.path);
+        fileData = null; // Release buffer immediately to free memory
+        if (imported === 'duplicate') {
+          if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
+          continue;
+        }
+        if (imported === 'skipped') {
+          errors.push({ name: file.name, error: 'Unsupported file type' });
+          if (qItem) BackgroundQueue.setStatus(qItem.id, 'error', 'Unsupported file type');
+          continue;
+        }
+        if (savedStorageId && imported?.storageId) savedStorageId = imported.storageId;
         importedCount++;
+        if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
       } catch (err) {
-        console.error('Failed to import EPUB:', file.name, err);
+        console.error('Failed to import book:', file.name, err);
         if (savedStorageId) {
           try { await window.noveraDesktop.deleteBookFromStorage(savedStorageId); } catch (_) {}
         }
-        errors.push({ name: file.name, error: err.message || 'Unreadable EPUB' });
+        errors.push({ name: file.name, error: err.message || 'Unreadable file' });
+        if (qItem) BackgroundQueue.setStatus(qItem.id, 'error', err.message || 'Unreadable file');
       }
     }
 
@@ -435,54 +1409,80 @@ const Library = (() => {
       Utils.toast(`Added ${importedCount} book${importedCount === 1 ? '' : 's'} to library`, 'success');
       await loadAndRenderBooks();
     }
-    setStatus?.('');
   }
 
   async function processFiles(fileList) {
+    const queueItems = BackgroundQueue.enqueue(fileList);
     Utils.toast(`Importing ${fileList.length} book${fileList.length === 1 ? '' : 's'}...`);
 
     let importedCount = 0;
-    for (const file of fileList) {
-      let savedStorageId = null;
+    const errors = [];
+    for (const [index, file] of fileList.entries()) {
+      const qItem = queueItems[index];
+      if (qItem) BackgroundQueue.setStatus(qItem.id, 'importing');
       try {
         const arrayBuffer = await file.arrayBuffer();
-        await validateEpubArchive(arrayBuffer);
-        const bookData = await parseEpubMetadata(arrayBuffer, file.name, file.size);
-        bookData.fingerprint = await getFingerprint(arrayBuffer, file.size, file.name);
-        if (allBooks.some(book => book.fingerprint && book.fingerprint === bookData.fingerprint)) continue;
-
-        // If on desktop, save copy to AppData
-        if (window.noveraDesktop && window.noveraDesktop.saveBookToStorage) {
-          const res = await window.noveraDesktop.saveBookToStorage(file.name, arrayBuffer, `${bookData.fingerprint}.epub`);
-          if (res && res.success) {
-            bookData.storageId = res.storageId;
-            savedStorageId = res.storageId;
-          } else {
-            throw new Error(res?.error || 'Could not save EPUB to managed storage');
-          }
+        const imported = await importOneFile(arrayBuffer, file.name, file.size, null);
+        if (imported === 'duplicate' || imported === 'skipped') {
+          if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
+          continue;
         }
-
-        await NoveraDB.saveBook(bookData);
         importedCount++;
+        if (qItem) BackgroundQueue.setStatus(qItem.id, 'completed');
       } catch (err) {
-        console.error('Failed to import EPUB:', file.name, err);
-        if (savedStorageId) {
-          try { await window.noveraDesktop.deleteBookFromStorage(savedStorageId); } catch (_) {}
-        }
+        console.error('Failed to import book:', file.name, err);
         Utils.toast(`Could not import "${file.name}"`, 'error');
+        errors.push({ name: file.name, error: err.message });
+        if (qItem) BackgroundQueue.setStatus(qItem.id, 'error', err.message);
       }
     }
 
+    showBatchErrors(errors);
     if (importedCount > 0) {
       Utils.toast(`Added ${importedCount} book${importedCount === 1 ? '' : 's'} to library`, 'success');
       await loadAndRenderBooks();
     }
   }
 
+  /**
+   * Detect, validate, describe and persist one book file. This is the single
+   * import path for every format, so detection rules cannot drift between the
+   * file dialog, drag-and-drop and folder import.
+   */
+  async function importOneFile(arrayBuffer, fileName, fileSize, sourcePath) {
+    const format = await BookFormat.detect(fileName, arrayBuffer);
+    if (!format.supported) {
+      throw new Error(`${format.label} files are not supported. ${format.reason || ''}`.trim());
+    }
+
+    const fingerprint = await getFingerprint(arrayBuffer, fileSize || arrayBuffer.byteLength, fileName);
+    if (allBooks.some(book => book.fingerprint && book.fingerprint === fingerprint)) return 'duplicate';
+
+    const bookData = await parseBookMetadata(arrayBuffer, fileName, fileSize, format);
+    bookData.fingerprint = fingerprint;
+    bookData.format = format.id;
+    if (sourcePath) bookData.sourcePath = sourcePath;
+
+    if (window.noveraDesktop && window.noveraDesktop.saveBookToStorage) {
+      const extension = BookFormat.extensionOf(fileName) || format.id || 'epub';
+      const expectedStorageId = storageIdFor(fingerprint, extension);
+      const res = await window.noveraDesktop.saveBookToStorage(fileName, arrayBuffer, expectedStorageId);
+      if (res && res.success && res.storageId === expectedStorageId) {
+        bookData.storageId = res.storageId;
+        bookData.fileSize = res.fileSize ?? bookData.fileSize;
+      } else {
+        throw new Error(res?.error || 'Could not save the file to managed storage');
+      }
+    }
+
+    await NoveraDB.saveBook(bookData);
+    return bookData;
+  }
+
   function showBatchErrors(errors) {
     if (!errors.length) return;
     const first = errors.slice(0, 3).map(item => `${item.name}: ${item.error}`).join(' | ');
-    Utils.toast(`${errors.length} EPUB${errors.length === 1 ? '' : 's'} could not be imported. ${first}`, 'error');
+    Utils.toast(`${errors.length} book file${errors.length === 1 ? '' : 's'} could not be imported. ${first}`, 'error');
   }
 
   async function validateEpubArchive(arrayBuffer) {
@@ -507,7 +1507,372 @@ const Library = (() => {
     return `${size}:${name}`;
   }
 
-  async function parseEpubMetadata(arrayBuffer, fileName, fileSize) {
+  function baseBookRecord(fileName, fileSize, arrayBuffer, format) {
+    return {
+      id: Utils.generateId(),
+      title: fileName.replace(/\.[A-Za-z0-9]+$/i, ''),
+      author: 'Unknown Author',
+      description: '',
+      chapterCount: null,
+      coverDataUrl: null,
+      format: format.id,
+      ...(window.noveraDesktop ? {} : { fileData: arrayBuffer }),
+      originalName: fileName,
+      schemaVersion: 3,
+      fileSize: fileSize || arrayBuffer.byteLength,
+      dateAdded: Date.now(),
+      lastReadDate: 0,
+      currentCfi: null,
+      progressPercent: 0,
+      currentChapter: 'Not started'
+    };
+  }
+
+  /**
+   * Read a book's own metadata. Each format is described from its real source
+   * data (EPUB package document, PDF document info, HTML <head>, FB2
+   * <description>) so the library never shows a placeholder title for a format
+   * that carries its own metadata.
+   */
+  async function parseBookMetadata(arrayBuffer, fileName, fileSize, format) {
+    const record = baseBookRecord(fileName, fileSize, arrayBuffer, format);
+    try {
+      switch (format.id) {
+        case 'epub': return await parseEpubMetadata(arrayBuffer, fileName, fileSize, format);
+        case 'pdf': return await parsePdfMetadata(arrayBuffer, record);
+        case 'html': return parseHtmlMetadata(arrayBuffer, record);
+        case 'fb2': return parseFb2Metadata(arrayBuffer, record);
+        case 'fbz': return await parseFbzMetadata(arrayBuffer, record);
+        case 'cbz': return await parseCbzMetadata(arrayBuffer, record);
+        case 'cbr': return await parseCbrMetadata(arrayBuffer, record);
+        case 'txt': return parseTextMetadata(arrayBuffer, record);
+        case 'md': return parseMarkdownMetadata(arrayBuffer, record);
+        case 'mobi': return parseMobiMetadata(arrayBuffer, record);
+        case 'docx': return await parseDocxMetadata(arrayBuffer, record);
+        case 'odt': return await parseOdtMetadata(arrayBuffer, record);
+        case 'rtf': return parseRtfMetadata(arrayBuffer, record);
+        case 'doc': return parseDocMetadata(arrayBuffer, record);
+        case 'chm': return parseChmMetadata(arrayBuffer, record);
+        case 'djvu': return parseDjvuMetadata(arrayBuffer, record);
+        default: return record;
+      }
+    } catch (error) {
+      console.warn(`Metadata extraction failed for ${fileName}:`, error);
+      return record;
+    }
+  }
+
+  async function parsePdfMetadata(arrayBuffer, record) {
+    const pdfjs = await PdfAdapter.loadPdfJs().catch(() => null);
+    if (pdfjs) {
+      try {
+        // pdf.js takes ownership of the buffer it is given, so it receives a
+        // copy: the original is still needed for managed storage afterwards.
+        const doc = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer.slice(0)), isEvalSupported: false }).promise;
+        const info = await doc.getMetadata().catch(() => null);
+        if (info?.info) {
+          if (info.info.Title) record.title = String(info.info.Title).trim();
+          if (info.info.Author) record.author = String(info.info.Author).trim();
+          if (info.info.Subject) record.description = String(info.info.Subject).trim();
+        }
+        record.pageCount = doc.numPages;
+        // Render page 1 at thumbnail size for the library card.
+        try {
+          const page = await doc.getPage(1);
+          const viewport = page.getViewport({ scale: 0.45 });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.floor(viewport.width));
+          canvas.height = Math.max(1, Math.floor(viewport.height));
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+          record.coverDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        } catch (coverError) {
+          console.warn('PDF cover render failed:', coverError);
+        }
+        const outline = await doc.getOutline?.().catch(() => null);
+        record.chapterCount = Array.isArray(outline) && outline.length ? countOutline(outline) : (doc.numPages || null);
+        await doc.destroy?.();
+        return record;
+      } catch (error) {
+        console.warn('PDF metadata failed, falling back to file name:', error);
+      }
+    }
+    const titleMatch = /\/Title\s*\(([^)]{1,200})\)\s*(?:\/|$)/.exec(new TextDecoder('latin1').decode(new Uint8Array(arrayBuffer)));
+    if (titleMatch) record.title = titleMatch[1].trim();
+    return record;
+  }
+
+  function countOutline(items) {
+    return (items || []).reduce((total, item) => total + 1 + countOutline(item.items || []), 0);
+  }
+
+  function parseHtmlMetadata(arrayBuffer, record) {
+    const source = TextAdapter.decodeText(new Uint8Array(arrayBuffer));
+    const parsed = new DOMParser().parseFromString(source, 'text/html');
+    const title = parsed.querySelector('title')?.textContent?.trim();
+    if (title) record.title = title;
+    const author = parsed.querySelector('meta[name="author"]')?.content
+      || parsed.querySelector('meta[property="author"]')?.content;
+    if (author) record.author = author.trim();
+    const description = parsed.querySelector('meta[name="description"]')?.content;
+    if (description) record.description = description.trim();
+    const headings = parsed.querySelectorAll('h1,h2,h3,h4,h5,h6').length;
+    record.chapterCount = headings || null;
+    return record;
+  }
+
+  function parseFb2Metadata(arrayBuffer, record) {
+    const source = TextAdapter.decodeText(new Uint8Array(arrayBuffer));
+    const info = new Fb2Adapter.Adapter(null, record).extractMetadata(new TextEncoder().encode(source));
+    if (info.title) record.title = info.title;
+    if (info.author) record.author = info.author;
+    if (info.description) record.description = String(info.description).slice(0, 400);
+    try {
+      const Parser = (typeof DOMParser !== 'undefined') ? DOMParser : (typeof require !== 'undefined' ? require('@xmldom/xmldom').DOMParser : null);
+      if (!Parser) return record;
+      const doc = new Parser().parseFromString(source, 'application/xml');
+      record.chapterCount = (doc.querySelectorAll ? doc.querySelectorAll('body > section').length : doc.getElementsByTagName('section')?.length) || null;
+      let cover = doc.querySelector ? (doc.querySelector('coverpage image') || doc.querySelector('image')) : null;
+      if (!cover && doc.getElementsByTagNameNS) {
+        const coverpages = doc.getElementsByTagNameNS('*', 'coverpage');
+        if (coverpages && coverpages.length > 0) {
+          const imgs = coverpages[0].getElementsByTagNameNS('*', 'image');
+          if (imgs && imgs.length > 0) cover = imgs[0];
+        }
+      }
+      if (!cover && doc.getElementsByTagName) {
+        const coverpages = doc.getElementsByTagName('coverpage');
+        if (coverpages && coverpages.length > 0) {
+          const imgs = coverpages[0].getElementsByTagName('image');
+          if (imgs && imgs.length > 0) cover = imgs[0];
+        }
+      }
+      if (cover) {
+        const rawHref = (cover.getAttributeNS && (cover.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || cover.getAttributeNS('http://www.w3.org/1999/xlink', 'l:href')))
+          || cover.getAttribute('xlink:href') || cover.getAttribute('l:href') || cover.getAttribute('href') || '';
+        const coverId = rawHref.trim().replace(/^#/, '').trim();
+        if (coverId) {
+          const binaries = doc.querySelectorAll ? doc.querySelectorAll('binary') : (doc.getElementsByTagNameNS ? doc.getElementsByTagNameNS('*', 'binary') : doc.getElementsByTagName('binary'));
+          const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+          for (let i = 0; i < (binaries?.length || 0); i++) {
+            const b = binaries[i];
+            const bId = b.getAttribute('id') || b.getAttribute('xml:id') || (b.getAttributeNS && b.getAttributeNS(null, 'id')) || '';
+            if (bId.trim() === coverId) {
+              const contentType = (b.getAttribute('content-type') || b.getAttribute('contentType') || 'image/jpeg').toLowerCase().trim();
+              if (ALLOWED_IMAGE_TYPES.has(contentType)) {
+                const rawBase64 = (b.textContent || '').replace(/\s+/g, '');
+                if (/^[A-Za-z0-9+/=]+$/.test(rawBase64) && rawBase64.length >= 4) {
+                  const candidateDataUrl = `data:${contentType};base64,${rawBase64}`;
+                  const safeUtils = (typeof Utils !== 'undefined') ? Utils : (typeof require !== 'undefined' ? require('./utils.js') : null);
+                  const safeCover = safeUtils?.sanitizeCoverUrl ? safeUtils.sanitizeCoverUrl(candidateDataUrl) : null;
+                  if (safeCover) {
+                    record.coverDataUrl = safeCover;
+                  }
+                }
+              }
+              break;
+            }
+          }
+        }
+      }
+    } catch { /* optional */ }
+    return record;
+  }
+
+  async function parseCbzMetadata(arrayBuffer, record) {
+    if (typeof JSZip === 'undefined') return record;
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const images = Object.values(zip.files)
+      .filter(entry => !entry.dir && BookFormat.IMAGE_EXT.includes(BookFormat.extensionOf(entry.name)))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    record.pageCount = images.length;
+    record.chapterCount = images.length || null;
+    if (images.length) {
+      try {
+        const blob = await images[0].async('blob');
+        const bitmap = await createImageBitmap(blob);
+        const scale = Math.min(1, 420 / Math.max(bitmap.width, 1));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.floor(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close?.();
+        record.coverDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      } catch (error) {
+        console.warn('Comic cover render failed:', error);
+      }
+    }
+    return record;
+  }
+
+  async function parseFbzMetadata(arrayBuffer, record) {
+    if (typeof JSZip === 'undefined') return record;
+    try {
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const fb2Entry = Object.values(zip.files).find(entry => !entry.dir && entry.name.toLowerCase().endsWith('.fb2'));
+      if (fb2Entry) {
+        const fb2Buffer = await fb2Entry.async('arraybuffer');
+        return parseFb2Metadata(fb2Buffer, record);
+      }
+    } catch (e) {
+      console.warn('FBZ metadata extraction failed:', e);
+    }
+    return record;
+  }
+
+  async function parseCbrMetadata(arrayBuffer, record) {
+    if (typeof CbrAdapter !== 'undefined' && CbrAdapter.parseMetadata) {
+      return await CbrAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return record;
+  }
+
+  function parseMarkdownMetadata(arrayBuffer, record) {
+    if (typeof MarkdownAdapter !== 'undefined' && MarkdownAdapter.parseMetadata) {
+      return MarkdownAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return parseTextMetadata(arrayBuffer, record);
+  }
+
+  function parseMobiMetadata(arrayBuffer, record) {
+    if (typeof MobiAdapter !== 'undefined' && MobiAdapter.parseMetadata) {
+      return MobiAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return record;
+  }
+
+  function parseDocMetadata(arrayBuffer, record) {
+    if (typeof DocAdapter !== 'undefined' && DocAdapter.parseMetadata) {
+      return DocAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return record;
+  }
+
+  function parseChmMetadata(arrayBuffer, record) {
+    if (typeof ChmAdapter !== 'undefined' && ChmAdapter.parseMetadata) {
+      return ChmAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return record;
+  }
+
+  function parseDjvuMetadata(arrayBuffer, record) {
+    if (typeof DjvuAdapter !== 'undefined' && DjvuAdapter.parseMetadata) {
+      return DjvuAdapter.parseMetadata(arrayBuffer, record);
+    }
+    return record;
+  }
+
+  function parseTextMetadata(arrayBuffer, record) {
+    const source = TextAdapter.decodeText(new Uint8Array(arrayBuffer));
+    const lines = source.split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      // Project Gutenberg and similar plain-text releases open with licence
+      // boilerplate; that is not the book's title.
+      .filter(line => !/^(the project gutenberg|this ebook is for the use|start of (the|this) project|produced by|end of (the|this) project)/i.test(line))
+      .slice(0, 8);
+    if (lines.length && lines[0].length <= 120) {
+      record.title = lines[0].replace(/^(title|book)\s*:\s*/i, '');
+      if (lines[1] && lines[1].length <= 120) record.author = lines[1].replace(/^(author|by)\s*:?\s*/i, '');
+    }
+    return record;
+  }
+
+  async function parseDocxMetadata(arrayBuffer, record) {
+    if (typeof JSZip === 'undefined') return record;
+    try {
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const coreFile = zip.file('docProps/core.xml');
+      if (coreFile) {
+        const xml = await coreFile.async('text');
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        const title = doc.querySelector('title')?.textContent?.trim();
+        const creator = doc.querySelector('creator')?.textContent?.trim();
+        const description = doc.querySelector('description')?.textContent?.trim();
+        if (title) record.title = title;
+        if (creator) record.author = creator;
+        if (description) record.description = description.slice(0, 400);
+      }
+      // Count headings for chapter count
+      const docFile = zip.file('word/document.xml');
+      if (docFile) {
+        const xml = await docFile.async('text');
+        const headings = (xml.match(/<w:pStyle w:val="Heading/g) || []).length;
+        record.chapterCount = headings || null;
+      }
+      // Extract thumbnail cover if document has embedded media
+      const mediaFiles = Object.keys(zip.files).filter(name =>
+        !zip.files[name].dir &&
+        name.startsWith('word/media/') &&
+        BookFormat.IMAGE_EXT.includes(BookFormat.extensionOf(name))
+      ).sort();
+      if (mediaFiles.length > 0) {
+        try {
+          const firstImage = zip.file(mediaFiles[0]);
+          if (firstImage) {
+            const blob = await firstImage.async('blob');
+            const bitmap = await createImageBitmap(blob);
+            const scale = Math.min(1, 420 / Math.max(bitmap.width, 1));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.floor(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
+            canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            bitmap.close?.();
+            record.coverDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          }
+        } catch (coverErr) {
+          console.warn('DOCX cover image extraction failed:', coverErr);
+        }
+      }
+    } catch (e) {
+      console.warn('DOCX metadata extraction failed:', e);
+    }
+    return record;
+  }
+
+  async function parseOdtMetadata(arrayBuffer, record) {
+    if (typeof JSZip === 'undefined') return record;
+    try {
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const metaFile = zip.file('meta.xml');
+      if (metaFile) {
+        const xml = await metaFile.async('text');
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        const title = doc.querySelector('title')?.textContent?.trim();
+        const creator = doc.querySelector('initial-creator,creator')?.textContent?.trim();
+        const description = doc.querySelector('description')?.textContent?.trim();
+        if (title) record.title = title;
+        if (creator) record.author = creator;
+        if (description) record.description = description.slice(0, 400);
+      }
+      // Count headings in content.xml
+      const contentFile = zip.file('content.xml');
+      if (contentFile) {
+        const xml = await contentFile.async('text');
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        record.chapterCount = doc.querySelectorAll('h').length || null;
+      }
+    } catch (e) {
+      console.warn('ODT metadata extraction failed:', e);
+    }
+    return record;
+  }
+
+  function parseRtfMetadata(arrayBuffer, record) {
+    try {
+      const raw = new TextDecoder('windows-1252', { fatal: false }).decode(new Uint8Array(arrayBuffer));
+      // RTF stores the title inside {\info{\title ...}} groups
+      const titleMatch = /\\title\s+([^\\{}]+)/i.exec(raw);
+      const authorMatch = /\\author\s+([^\\{}]+)/i.exec(raw);
+      if (titleMatch) record.title = titleMatch[1].trim().slice(0, 200);
+      if (authorMatch) record.author = authorMatch[1].trim().slice(0, 200);
+    } catch (e) {
+      console.warn('RTF metadata extraction failed:', e);
+    }
+    return record;
+  }
+
+  async function parseEpubMetadata(arrayBuffer, fileName, fileSize, format) {
+    const record = baseBookRecord(fileName, fileSize, arrayBuffer, format || BookFormat.FORMATS.epub);
     const tempBook = ePub(arrayBuffer);
     let title = fileName.replace(/\.epub$/i, '');
     let author = 'Unknown Author';
@@ -533,25 +1898,33 @@ const Library = (() => {
       }
     } catch (e) {
       console.warn('Metadata load error, using defaults:', e);
+    }
+
+    let chapterCount = null;
+    try {
+      const navigation = await tempBook.loaded.navigation;
+      const flatten = (items) => {
+        let total = 0;
+        for (const item of (items || [])) {
+          total += 1;
+          if (item.subitems?.length) total += flatten(item.subitems);
+        }
+        return total;
+      };
+      chapterCount = flatten(navigation?.toc) || null;
+    } catch (_) {
+      chapterCount = null;
     } finally {
       tempBook.destroy();
     }
 
     return {
-      id: Utils.generateId(),
+      ...record,
       title,
       author,
       description,
-      coverDataUrl,
-      ...(window.noveraDesktop ? {} : { fileData: arrayBuffer }),
-      originalName: fileName,
-      schemaVersion: 2,
-      fileSize: fileSize || arrayBuffer.byteLength,
-      dateAdded: Date.now(),
-      lastReadDate: 0,
-      currentCfi: null,
-      progressPercent: 0,
-      currentChapter: 'Not started'
+      chapterCount,
+      coverDataUrl
     };
   }
 
@@ -597,6 +1970,13 @@ const Library = (() => {
     });
   }
 
+  // Custom Glass Dropdown enhancement for library select controls
+  function enhanceSelect(select) {
+    if (typeof Utils !== 'undefined' && typeof Utils.enhanceSelect === 'function') {
+      return Utils.enhanceSelect(select);
+    }
+  }
+
   // Search & Filter & Sort binding
   function bindSearchAndSort() {
     const searchInput = document.getElementById('lib-search-input');
@@ -604,8 +1984,11 @@ const Library = (() => {
     const sortSelect = document.getElementById('sort-select');
     const filterSelect = document.getElementById('filter-select');
     const collectionSelect = document.getElementById('collection-select');
-    const newCollectionButton = document.getElementById('new-collection-btn');
     const viewToggle = document.getElementById('view-toggle-btn');
+
+    enhanceSelect(filterSelect);
+    enhanceSelect(collectionSelect);
+    enhanceSelect(sortSelect);
 
     if (searchInput) {
       searchInput.addEventListener('input', Utils.debounce((e) => {
@@ -624,8 +2007,7 @@ const Library = (() => {
 
     if (sortSelect) {
       sortSelect.addEventListener('change', (e) => {
-        currentSort = e.target.value;
-        renderLibraryUI();
+        setView({ sortBy: e.target.value });
       });
     }
 
@@ -638,74 +2020,483 @@ const Library = (() => {
 
     if (viewToggle) {
       viewToggle.addEventListener('click', () => {
-        isListView = !isListView;
-        viewToggle.classList.toggle('active', isListView);
-        renderLibraryUI();
+        setView({ view: isListView ? 'grid' : 'list' });
       });
     }
 
     collectionSelect?.addEventListener('change', event => {
-      currentCollection = event.target.value;
+      const value = event.target.value;
+      if (value === '__new__') {
+        event.target.value = currentCollection;
+        openCollectionModal();
+        return;
+      }
+      currentCollection = value;
       renderLibraryUI();
     });
-    newCollectionButton?.addEventListener('click', createCollection);
+
+    const collectionModal = document.getElementById('collection-modal');
+    const collectionInput = document.getElementById('collection-name-input');
+    const saveCollectionBtn = document.getElementById('save-collection-btn');
+    const closeCollectionBtn = document.getElementById('close-collection-btn');
+    const cancelCollectionBtn = document.getElementById('cancel-collection-btn');
+
+    const closeCollectionModal = () => {
+      collectionModal?.classList.add('hidden');
+      if (collectionInput) collectionInput.value = '';
+      clearCollectionError();
+    };
+
+    closeCollectionBtn?.addEventListener('click', closeCollectionModal);
+    cancelCollectionBtn?.addEventListener('click', closeCollectionModal);
+    collectionModal?.addEventListener('click', event => {
+      if (event.target === collectionModal) closeCollectionModal();
+    });
+    saveCollectionBtn?.addEventListener('click', () => createCollection(closeCollectionModal));
+    collectionInput?.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        createCollection(closeCollectionModal);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeCollectionModal();
+      }
+    });
   }
 
   function renderCollectionOptions() {
     const select = document.getElementById('collection-select');
     if (!select) return;
-    select.replaceChildren(new Option('All collections', 'all'));
+    select.replaceChildren(
+      new Option('All collections', 'all'),
+      new Option('+ New collection…', '__new__')
+    );
     collections.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach(collection => {
       select.appendChild(new Option(collection.name, collection.id));
     });
     select.value = currentCollection;
+    select._customDropdownSync?.();
   }
 
-  async function createCollection() {
-    const name = window.prompt('Collection name');
-    const trimmed = name?.trim();
-    if (!trimmed) return;
+  function clearCollectionError() {
+    const error = document.getElementById('collection-name-error');
+    if (error) {
+      error.hidden = true;
+      error.textContent = '';
+    }
+  }
+
+  function showCollectionError(message) {
+    const error = document.getElementById('collection-name-error');
+    if (error) {
+      error.hidden = false;
+      error.textContent = message;
+    }
+  }
+
+  function openCollectionModal() {
+    const modal = document.getElementById('collection-modal');
+    const input = document.getElementById('collection-name-input');
+    if (!modal || !input) return;
+
+    clearCollectionError();
+    input.value = '';
+    modal.classList.remove('hidden');
+    requestAnimationFrame(() => {
+      input.focus();
+    });
+  }
+
+  function openAddToCollectionModal() {
+    if (!activeContextBook) return;
+    const modal = document.getElementById('add-to-collection-modal');
+    const list = document.getElementById('add-to-collection-list');
+    if (!modal || !list) return;
+
+    // Populate collections
+    list.innerHTML = '';
+    if (collections.length === 0) {
+      list.innerHTML = '<div class="add-to-collection-empty">No collections yet. Create one below.</div>';
+    } else {
+      collections.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach(collection => {
+        const isIncluded = activeContextBook.collectionIds?.includes(collection.id);
+        const item = document.createElement('div');
+        item.className = 'add-to-collection-item';
+        item.dataset.collectionId = collection.id;
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', isIncluded ? 'true' : 'false');
+        item.innerHTML = `
+          <input type="checkbox" class="add-to-collection-checkbox" ${isIncluded ? 'checked' : ''} aria-hidden="true">
+          <span class="add-to-collection-name">${Utils.escapeHTML(collection.name)}</span>
+        `;
+        item.addEventListener('click', async () => {
+          const checkbox = item.querySelector('.add-to-collection-checkbox');
+          checkbox.checked = !checkbox.checked;
+          item.setAttribute('aria-selected', checkbox.checked ? 'true' : 'false');
+          const included = checkbox.checked;
+          activeContextBook.collectionIds = await NoveraDB.setBookCollection(activeContextBook.id, collection.id, included);
+          await loadAndRenderBooks();
+        });
+        list.appendChild(item);
+      });
+    }
+
+    const closeModal = () => {
+      modal.classList.add('hidden');
+    };
+
+    // Close handlers
+    modal.querySelector('#close-add-to-collection-btn')?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    // New collection button opens the create modal
+    modal.querySelector('#add-to-collection-new-btn')?.addEventListener('click', () => {
+      closeModal();
+      openCollectionModal();
+    });
+
+    modal.classList.remove('hidden');
+  }
+
+  async function createCollection(closeModal) {
+    const input = document.getElementById('collection-name-input');
+    const trimmed = input?.value.trim() || '';
+    if (!trimmed) {
+      showCollectionError('Enter a collection name.');
+      input?.focus();
+      return;
+    }
+
     if (collections.some(collection => collection.name.toLowerCase() === trimmed.toLowerCase())) {
-      Utils.toast('A collection with that name already exists', 'error');
+      showCollectionError('A collection with that name already exists.');
+      input?.focus();
+      input?.select();
       return;
     }
-    const collection = { id: Utils.generateId(), name: trimmed, dateCreated: Date.now() };
-    await NoveraDB.saveCollection(collection);
-    collections.push(collection);
-    renderCollectionOptions();
-    currentCollection = collection.id;
-    const select = document.getElementById('collection-select');
-    if (select) select.value = currentCollection;
-    renderLibraryUI();
-  }
 
-  async function checkIntegrity() {
-    if (!window.noveraDesktop?.listManagedBooks) {
-      Utils.toast('Integrity checks are available in the desktop app', 'info');
-      return;
-    }
+    const saveButton = document.getElementById('save-collection-btn');
+    if (saveButton) saveButton.disabled = true;
+
     try {
-      const storedIds = new Set(await window.noveraDesktop.listManagedBooks());
-      const missing = allBooks.filter(book => book.storageId && !storedIds.has(book.storageId));
-      const legacy = allBooks.filter(book => !book.storageId);
-      if (missing.length === 0 && legacy.length === 0) {
-        Utils.toast(`Library check complete: ${allBooks.length} healthy book${allBooks.length === 1 ? '' : 's'}.`, 'success');
-        return;
-      }
-      for (const book of missing) {
-        if (book.availability !== 'unavailable') await NoveraDB.updateAvailability(book.id, 'unavailable');
-        book.availability = 'unavailable';
-      }
+      const collection = {
+        id: Utils.generateId(),
+        name: trimmed,
+        dateCreated: Date.now()
+      };
+      await NoveraDB.saveCollection(collection);
+      collections.push(collection);
+      renderCollectionOptions();
+      currentCollection = collection.id;
+      const select = document.getElementById('collection-select');
+      if (select) select.value = currentCollection;
       renderLibraryUI();
-      Utils.toast(`Library check: ${allBooks.length - missing.length - legacy.length} healthy, ${missing.length} missing, ${legacy.length} needing migration.`, 'info', 5000);
+      closeModal?.();
     } catch (error) {
-      console.error('Library integrity check failed:', error);
-      Utils.toast('Could not check library integrity', 'error');
+      console.error('Collection creation failed:', error);
+      showCollectionError('Could not create the collection. Please try again.');
+    } finally {
+      if (saveButton) saveButton.disabled = false;
     }
   }
 
-  function downloadText(filename, content, type = 'application/json') {
-    const url = URL.createObjectURL(new Blob([content], { type }));
+  /**
+   * Checks every managed book against the file that backs it.
+   *
+   * This is strictly a read: it compares the recorded size and fingerprint with
+   * what is actually on disk and reports the difference. Nothing is written,
+   * moved or deleted, and no availability flag is changed, so running a check
+   * can never make a problem worse. Recording the outcome is a separate,
+   * explicit step the user takes afterwards.
+   *
+   * onProgress is called with { done, total, title } so a long check on a large
+   * library can show real progress rather than an indefinite spinner.
+   */
+  async function runIntegrityCheck(onProgress) {
+    if (!window.noveraDesktop?.inspectManagedBook || !window.noveraDesktop?.listManagedBooks) {
+      return { supported: false };
+    }
+
+    const report = (current) => { try { onProgress?.(current); } catch { /* reporting must never fail the check */ } };
+
+    const books = await NoveraDB.getAllBooks();
+    const storedIds = new Set(await window.noveraDesktop.listManagedBooks());
+
+    const healthy = [];
+    const missingFile = [];
+    const damaged = [];
+    const unreadable = [];
+    const needsMigration = [];
+    const noFile = [];
+
+    let done = 0;
+    for (const book of books) {
+      const title = book.title || 'Untitled';
+      report({ done, total: books.length, title });
+      done += 1;
+
+      // A record with no managed identity. Two very different situations land
+      // here and they must not be conflated: a book restored from a backup
+      // never had a file, while a legacy record still has its bytes and is
+      // perfectly readable.
+      if (!book.storageId) {
+        if (book.availability === 'needs-file') {
+          noFile.push(summarizeBook(book));
+        } else {
+          needsMigration.push(summarizeBook(book));
+        }
+        continue;
+      }
+
+      let info;
+      try {
+        info = await window.noveraDesktop.inspectManagedBook(book.storageId);
+      } catch (error) {
+        unreadable.push({ ...summarizeBook(book), detail: error?.message || 'Could not read the file' });
+        continue;
+      }
+
+      if (!info?.exists) {
+        missingFile.push(summarizeBook(book));
+        continue;
+      }
+
+      // A size mismatch is detected without trusting the hash, which is the
+      // cheap and unambiguous signal for a truncated file.
+      if (Number.isFinite(Number(book.fileSize)) && Number(info.size) !== Number(book.fileSize)) {
+        damaged.push({ ...summarizeBook(book), detail: `Expected ${book.fileSize} bytes, found ${info.size}` });
+        continue;
+      }
+
+      if (book.fingerprint && info.fingerprint && info.fingerprint !== String(book.fingerprint).toLowerCase()) {
+        damaged.push({ ...summarizeBook(book), detail: 'File contents do not match the original book' });
+        continue;
+      }
+
+      healthy.push(summarizeBook(book));
+    }
+
+    const orphans = [...storedIds].filter(storageId => !books.some(book => book.storageId === storageId));
+
+    report({ done: books.length, total: books.length, title: 'Finishing' });
+
+    return {
+      supported: true,
+      total: books.length,
+      healthy,
+      missingFile,
+      damaged,
+      unreadable,
+      needsMigration,
+      noFile,
+      orphans,
+      // A record that never had a file is not corruption, so it is excluded
+      // from the issue count: it is expected to be in this state.
+      issues: missingFile.length + damaged.length + unreadable.length,
+      checkedAt: Date.now()
+    };
+  }
+
+  function summarizeBook(book) {
+    return {
+      id: book.id,
+      title: book.title || 'Untitled',
+      author: book.author || 'Unknown',
+      format: book.format || 'epub',
+      storageId: book.storageId || null,
+      availability: book.availability || null
+    };
+  }
+
+  /**
+   * Records the outcome of an integrity check on the book records.
+   *
+   * Only the availability marker changes: a book whose file is absent or damaged
+   * is marked so the library can show it, and one that is healthy again has the
+   * marker cleared. No book or file is ever deleted here.
+   */
+  async function applyIntegrityReport(report) {
+    if (!report?.supported) return { updated: 0 };
+    let updated = 0;
+
+    const mark = async (entries, availability) => {
+      for (const entry of entries) {
+        await NoveraDB.updateAvailability(entry.id, availability);
+        const book = allBooks.find(item => item.id === entry.id);
+        if (book) book.availability = availability;
+        updated += 1;
+      }
+    };
+
+    await mark(report.missingFile, 'unavailable');
+    await mark(report.damaged, 'unavailable');
+    await mark(report.unreadable, 'unavailable');
+    await mark(report.healthy, 'available');
+
+    if (updated) renderLibraryUI();
+    return { updated };
+  }
+
+  /**
+   * Repairs what can genuinely be repaired.
+   *
+   * A damaged or missing file is not something the application can invent: if
+   * the bytes are gone, only re-importing the book can restore it. What repair
+   * can do honestly is clear a stale unavailable marker once the file is
+   * confirmed present and correct again. Anything else is reported as needing
+   * the original file rather than being claimed as fixed.
+   */
+  async function repairLibrary(report) {
+    if (!report?.supported) return { repaired: 0, notRepairable: 0 };
+
+    let repaired = 0;
+    let notRepairable = 0;
+
+    // Nothing can be fabricated, so these are reported as needing the original
+    // file instead of being silently counted as fixed.
+    for (const entry of report.missingFile) notRepairable += 1;
+    for (const entry of report.damaged) notRepairable += 1;
+    for (const entry of report.unreadable) notRepairable += 1;
+
+    // A book marked unavailable whose file is verifiably intact can be brought
+    // back without touching the file at all.
+    for (const entry of report.healthy) {
+      const book = allBooks.find(item => item.id === entry.id);
+      if (!book) continue;
+      if (book.availability === 'unavailable') {
+        await NoveraDB.updateAvailability(entry.id, 'available');
+        book.availability = 'available';
+        repaired += 1;
+      }
+    }
+
+    renderLibraryUI();
+    return { repaired, notRepairable };
+  }
+
+  /**
+   * Removes managed files that no book record refers to.
+   *
+   * The referenced list is recomputed immediately before deleting so a library
+   * that changed since the preview cannot cause the wrong file to be removed,
+   * and the main process independently refuses to delete anything still
+   * referenced. Callers must obtain confirmation from the user first.
+   */
+  async function cleanupOrphans(previewIds) {
+    if (!window.noveraDesktop?.deleteOrphanFiles) return { removed: [], skipped: [] };
+
+    const books = await NoveraDB.getAllBooks();
+    const referencedIds = books.map(book => book.storageId).filter(Boolean);
+    const requested = Array.isArray(previewIds) && previewIds.length
+      ? previewIds.filter(storageId => !referencedIds.includes(storageId))
+      : [];
+
+    if (requested.length === 0) return { removed: [], skipped: [] };
+    return window.noveraDesktop.deleteOrphanFiles(requested, referencedIds);
+  }
+
+  /**
+   * Storage figures for the Storage & Data section. Every number is measured
+   * from the live database and the real managed files on disk, so the figures
+   * describe what is actually stored rather than a cached guess. Anything that
+   * cannot be measured is reported as null and shown as unknown.
+   */
+  async function getBookStats() {
+    const books = await NoveraDB.getAllBooks();
+    const byFormat = {};
+    let recordedBytes = 0;
+    let bytesKnown = true;
+
+    for (const book of books) {
+      const format = book.format || 'epub';
+      byFormat[format] = (byFormat[format] || 0) + 1;
+      if (Number.isFinite(Number(book.fileSize))) recordedBytes += Number(book.fileSize);
+      else bytesKnown = false;
+    }
+
+    const annotationList = await NoveraDB.getAllAnnotations();
+
+    let managedFiles = null;
+    let actualBytes = null;
+    if (window.noveraDesktop?.listManagedBooks) {
+      try {
+        const storedIds = await window.noveraDesktop.listManagedBooks();
+        managedFiles = storedIds.length;
+
+        // Real disk usage, measured rather than assumed. It can differ from the
+        // sum of recorded sizes when a file is missing or a legacy record has no
+        // size, which is exactly the kind of difference worth surfacing.
+        if (window.noveraDesktop.inspectManagedBook) {
+          let total = 0;
+          let measuredAll = true;
+          for (const storageId of storedIds) {
+            try {
+              const info = await window.noveraDesktop.inspectManagedBook(storageId);
+              if (info?.exists) total += Number(info.size) || 0;
+              else measuredAll = false;
+            } catch {
+              measuredAll = false;
+            }
+          }
+          actualBytes = measuredAll ? total : null;
+        }
+      } catch {
+        managedFiles = null;
+      }
+    }
+
+    let storageLocation = null;
+    if (window.noveraDesktop?.getStoragePath) {
+      try {
+        storageLocation = await window.noveraDesktop.getStoragePath();
+      } catch {
+        storageLocation = null;
+      }
+    }
+
+    return {
+      books: books.length,
+      byFormat,
+      annotations: annotationList.length,
+      collections: (await NoveraDB.getCollections()).length,
+      recordedBytes: bytesKnown ? recordedBytes : null,
+      actualBytes,
+      managedFiles,
+      storageLocation,
+      pendingAvailability: books.filter(book => book.availability === 'unavailable').length
+    };
+  }
+
+  /**
+   * Removes every book, its managed file and its annotations. Uses the same
+   * delete path as removing a single book so favourites, collections and the
+   * database schema are handled by the existing code rather than a second
+   * implementation.
+   */
+  async function deleteAllBooks() {
+    const books = await NoveraDB.getAllBooks();
+    let removed = 0;
+    let failed = 0;
+
+    for (const book of books) {
+      try {
+        if (book.storageId && window.noveraDesktop?.deleteBookFromStorage) {
+          await window.noveraDesktop.deleteBookFromStorage(book.storageId);
+        }
+        await NoveraDB.deleteBook(book.id);
+        removed += 1;
+      } catch (error) {
+        console.error('Failed to remove book during library reset:', error);
+        failed += 1;
+      }
+    }
+
+    await loadAndRenderBooks();
+    return { removed, failed };
+  }
+
+  function downloadText(filename, content, type = 'application/json') {    const url = URL.createObjectURL(new Blob([content], { type }));
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
@@ -713,18 +2504,132 @@ const Library = (() => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  const BACKUP_FORMAT = 'LIRUNE_METADATA_BACKUP';
+  const BACKUP_VERSION = 1;
+
+  /**
+   * Preferences that are worth carrying between installations.
+   *
+   * This is an explicit list rather than a dump of the preference store,
+   * because the store is also where anything operational may end up. Only
+   * display and reading preferences travel; nothing that could identify the
+   * machine, the user or a session is included.
+   */
+  const BACKUP_PREFERENCE_KEYS = [
+    'appTheme',
+    'readerTheme',
+    'accentColor',
+    'readerSettings',
+    'libraryView',
+    'appPrefs'
+  ];
+
+  /** Keys that must never be written into an export, whatever the store holds. */
+  const BACKUP_FORBIDDEN_KEY_PATTERN = /(pass|secret|token|key|credential|auth|cookie|session|license|email|user)/i;
+
+  /**
+   * Book fields that belong in a backup. The book file itself is deliberately
+   * excluded: a backup is meant to be small and safe to keep, and the file is
+   * already in the library's managed storage. The fingerprint is kept because
+   * it is what makes duplicate detection work on restore.
+   */
+  function bookForBackup(book) {
+    return {
+      id: book.id,
+      title: book.title || 'Untitled',
+      author: book.author || '',
+      description: book.description || '',
+      format: book.format || 'epub',
+      originalName: book.originalName || '',
+      fileSize: Number.isFinite(Number(book.fileSize)) ? Number(book.fileSize) : null,
+      fingerprint: book.fingerprint || null,
+      storageId: book.storageId || null,
+      schemaVersion: book.schemaVersion || null,
+      chapterCount: Number.isFinite(Number(book.chapterCount)) ? Number(book.chapterCount) : null,
+      coverDataUrl: book.coverDataUrl || null,
+      favorite: Boolean(book.favorite),
+      collectionIds: Array.isArray(book.collectionIds) ? [...book.collectionIds] : [],
+      dateAdded: book.dateAdded || null,
+      lastReadDate: book.lastReadDate || null,
+      currentCfi: book.currentCfi || null,
+      progressPercent: Number(book.progressPercent) || 0,
+      currentChapter: book.currentChapter || '',
+      availability: book.availability || 'available'
+    };
+  }
+
+  function annotationForBackup(annotation) {
+    return {
+      id: annotation.id,
+      bookId: annotation.bookId,
+      type: annotation.type,
+      text: annotation.text || '',
+      note: annotation.note || '',
+      chapter: annotation.chapter || '',
+      cfi: annotation.cfi || null,
+      page: annotation.page ?? null,
+      dateAdded: annotation.dateAdded || null,
+      color: annotation.color || null
+    };
+  }
+
+  function collectionForBackup(collection) {
+    return {
+      id: collection.id,
+      name: collection.name,
+      dateCreated: collection.dateCreated || null
+    };
+  }
+
+  /**
+   * Builds the backup document without writing it anywhere.
+   *
+   * Returning the object as well as downloading it means the exact bytes that
+   * leave the application can be inspected, and lets the caller report how much
+   * data a backup contains.
+   */
+  async function createMetadataBackup() {
+    const [books, annotations, collections] = await Promise.all([
+      NoveraDB.getAllBooks(),
+      NoveraDB.getAllAnnotations(),
+      NoveraDB.getCollections()
+    ]);
+
+    const preferences = {};
+    for (const key of BACKUP_PREFERENCE_KEYS) {
+      if (BACKUP_FORBIDDEN_KEY_PATTERN.test(key)) continue;
+      const value = await NoveraDB.getPref(key, undefined);
+      if (value !== undefined) preferences[key] = value;
+    }
+
+    const document = {
+      format: BACKUP_FORMAT,
+      version: BACKUP_VERSION,
+      createdAt: new Date().toISOString(),
+      generator: 'Lirune Reader',
+      contents: ['books', 'annotations', 'collections', 'preferences'],
+      books: books.map(bookForBackup),
+      annotations: annotations.map(annotationForBackup),
+      collections: collections.map(collectionForBackup),
+      preferences
+    };
+
+    return { document, bytes: new Blob([JSON.stringify(document, null, 2)]).size };
+  }
+
   async function backupMetadata() {
     try {
-      const [books, annotations, preferences, savedCollections] = await Promise.all([
-        NoveraDB.getAllBooks(), NoveraDB.getAllAnnotations(), NoveraDB.getAllPreferences(), NoveraDB.getCollections()
-      ]);
-      downloadText(`lirune-metadata-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({
-        format: 'NOVERA_METADATA_BACKUP', version: 1, createdAt: Date.now(), books, annotations, preferences, collections: savedCollections
-      }, null, 2));
-      Utils.toast('Metadata backup exported', 'success');
+      const { document, bytes } = await createMetadataBackup();
+      downloadText(
+        `lirune-backup-${new Date().toISOString().slice(0, 10)}.json`,
+        JSON.stringify(document, null, 2)
+      );
+      Utils.toast(`Backup exported — ${document.books.length} books, ${(bytes / 1024).toFixed(1)} KB`, 'success');
+      return document;
     } catch (error) {
       console.error('Metadata backup failed:', error);
       Utils.toast('Could not create a metadata backup', 'error');
+      return null;
     }
   }
 
@@ -744,25 +2649,268 @@ const Library = (() => {
     }
   }
 
+  /**
+   * Reads and validates a backup file without changing anything.
+   *
+   * Restoring is a two-step action on purpose: the user sees exactly what a
+   * backup contains and how it would affect the current library before
+   * anything is written. A file that is not a Lirune backup, or whose version
+   * this build does not understand, is rejected here rather than being applied
+   * and discovered to be wrong afterwards.
+   */
+  async function inspectBackupFile(file) {
+    if (!file) return { ok: false, error: 'No file was selected.' };
+    if (file.size > 15 * 1024 * 1024) {
+      return { ok: false, error: 'Backup file exceeds maximum allowed size (15 MB).' };
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch (error) {
+      return { ok: false, error: 'This file is not valid JSON and cannot be a Lirune backup.' };
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, error: 'This file does not contain a Lirune backup.' };
+    }
+    if (parsed.format !== BACKUP_FORMAT) {
+      if (parsed.format === 'NOVERA_METADATA_BACKUP') {
+        return { ok: false, error: 'This is a backup from an older version of the app and cannot be restored safely.' };
+      }
+      return { ok: false, error: 'This file is not a Lirune backup.' };
+    }
+    if (parsed.version !== BACKUP_VERSION) {
+      if (Number(parsed.version) > BACKUP_VERSION) {
+        return { ok: false, error: `This backup was made by a newer version of the app (format ${parsed.version}). Update Lirune Reader before restoring it.` };
+      }
+      return { ok: false, error: `Unsupported backup format version ${parsed.version}.` };
+    }
+
+    if (!Array.isArray(parsed.books) || !Array.isArray(parsed.annotations)) {
+      return { ok: false, error: 'This backup is missing its books or annotations and cannot be restored.' };
+    }
+
+    if (parsed.books.length > 10000 || parsed.annotations.length > 50000 || (parsed.collections || []).length > 1000) {
+      return { ok: false, error: 'Backup exceeds maximum allowed record count.' };
+    }
+
+    const existing = await NoveraDB.getAllBooks();
+    const existingByFingerprint = new Map();
+    const existingIds = new Set();
+    for (const book of existing) {
+      existingIds.add(book.id);
+      if (book.fingerprint) existingByFingerprint.set(String(book.fingerprint).toLowerCase(), book);
+    }
+
+    let newBooks = 0;
+    let alreadyPresent = 0;
+    let withProgress = 0;
+    for (const book of parsed.books) {
+      if (!book || typeof book !== 'object' || !book.id) {
+        alreadyPresent += 1;
+        continue;
+      }
+      if (book.fingerprint && existingByFingerprint.has(String(book.fingerprint).toLowerCase())) {
+        alreadyPresent += 1;
+        continue;
+      }
+      if (existingIds.has(book.id)) {
+        alreadyPresent += 1;
+        continue;
+      }
+      newBooks += 1;
+      if (Number(book.progressPercent) > 0 || book.currentCfi) withProgress += 1;
+    }
+
+    const existingAnnotationIds = new Set((await NoveraDB.getAllAnnotations()).map(a => a.id));
+    const newAnnotations = parsed.annotations.filter(a => a && a.id && !existingAnnotationIds.has(a.id)).length;
+    const existingCollectionIds = new Set((await NoveraDB.getCollections()).map(c => c.id));
+    const newCollections = (parsed.collections || []).filter(c => c && c.id && !existingCollectionIds.has(c.id)).length;
+
+    return {
+      ok: true,
+      document: parsed,
+      summary: {
+        books: parsed.books.length,
+        newBooks,
+        alreadyPresent,
+        withProgress,
+        annotations: parsed.annotations.length,
+        newAnnotations,
+        collections: (parsed.collections || []).length,
+        newCollections,
+        preferences: Object.keys(parsed.preferences || {}).length
+      }
+    };
+  }
+
+  function sanitizeRestoredBookRecord(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim().slice(0, 128) : null;
+    if (!id) return null;
+
+    const title = typeof raw.title === 'string' ? raw.title.slice(0, 1000) : 'Untitled';
+    const author = typeof raw.author === 'string' ? raw.author.slice(0, 500) : 'Unknown Author';
+    const description = typeof raw.description === 'string' ? raw.description.slice(0, 5000) : '';
+    const format = typeof raw.format === 'string' && BookFormat.FORMATS[raw.format.toLowerCase()] ? raw.format.toLowerCase() : 'epub';
+    const originalName = typeof raw.originalName === 'string' ? raw.originalName.slice(0, 500) : '';
+    const fileSize = Number.isFinite(Number(raw.fileSize)) && Number(raw.fileSize) >= 0 ? Number(raw.fileSize) : null;
+    const fingerprint = typeof raw.fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(raw.fingerprint) ? raw.fingerprint.toLowerCase() : null;
+    const storageId = typeof raw.storageId === 'string' && /^[a-f0-9-]{16,80}\.[a-z0-9]+$/i.test(raw.storageId) ? raw.storageId : null;
+    const chapterCount = Number.isInteger(Number(raw.chapterCount)) && Number(raw.chapterCount) > 0 ? Number(raw.chapterCount) : null;
+
+    // Validate cover data URL strictly
+    const coverDataUrl = Utils.sanitizeCoverUrl ? Utils.sanitizeCoverUrl(raw.coverDataUrl) : null;
+    const favorite = Boolean(raw.favorite);
+    const collectionIds = Array.isArray(raw.collectionIds) ? raw.collectionIds.filter(cid => typeof cid === 'string' && cid.length <= 128).slice(0, 100) : [];
+    const dateAdded = Number.isFinite(Number(raw.dateAdded)) ? Number(raw.dateAdded) : Date.now();
+    const lastReadDate = Number.isFinite(Number(raw.lastReadDate)) ? Number(raw.lastReadDate) : null;
+    const currentCfi = typeof raw.currentCfi === 'string' ? raw.currentCfi.slice(0, 1000) : null;
+    const rawProgress = Number(raw.progressPercent);
+    const progressPercent = Number.isFinite(rawProgress) ? Math.max(0, Math.min(100, Math.round(rawProgress))) : 0;
+    const currentChapter = typeof raw.currentChapter === 'string' ? raw.currentChapter.slice(0, 500) : '';
+
+    return {
+      id,
+      title,
+      author,
+      description,
+      format,
+      originalName,
+      fileSize,
+      fingerprint,
+      storageId,
+      chapterCount,
+      coverDataUrl,
+      favorite,
+      collectionIds,
+      dateAdded,
+      lastReadDate,
+      currentCfi,
+      progressPercent,
+      currentChapter,
+      availability: raw.availability === 'unavailable' ? 'unavailable' : 'needs-file'
+    };
+  }
+
+  function sanitizeRestoredAnnotationRecord(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim().slice(0, 128) : null;
+    const bookId = typeof raw.bookId === 'string' && raw.bookId.trim() ? raw.bookId.trim().slice(0, 128) : null;
+    if (!id || !bookId) return null;
+
+    const validTypes = ['highlight', 'note', 'bookmark'];
+    const type = validTypes.includes(raw.type) ? raw.type : 'note';
+
+    return {
+      id,
+      bookId,
+      type,
+      text: typeof raw.text === 'string' ? raw.text.slice(0, 10000) : '',
+      note: typeof raw.note === 'string' ? raw.note.slice(0, 10000) : '',
+      chapter: typeof raw.chapter === 'string' ? raw.chapter.slice(0, 500) : '',
+      cfi: typeof raw.cfi === 'string' ? raw.cfi.slice(0, 1000) : null,
+      page: Number.isFinite(Number(raw.page)) ? Number(raw.page) : null,
+      dateAdded: Number.isFinite(Number(raw.dateAdded)) ? Number(raw.dateAdded) : Date.now(),
+      color: typeof raw.color === 'string' ? raw.color.slice(0, 50) : null
+    };
+  }
+
+  function sanitizeRestoredCollectionRecord(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim().slice(0, 128) : null;
+    const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 100) : null;
+    if (!id || !name) return null;
+
+    return {
+      id,
+      name,
+      description: typeof raw.description === 'string' ? raw.description.slice(0, 500) : '',
+      dateCreated: Number.isFinite(Number(raw.dateCreated)) ? Number(raw.dateCreated) : Date.now()
+    };
+  }
+
+  async function applyBackup(inspection, { includePreferences = false } = {}) {
+    if (!inspection?.ok) return { ok: false, error: 'The backup was not validated.' };
+    const document = inspection.document;
+
+    const existing = await NoveraDB.getAllBooks();
+    const existingFingerprints = new Set(
+      existing.map(book => book.fingerprint).filter(Boolean).map(value => String(value).toLowerCase())
+    );
+    const existingIds = new Set(existing.map(book => book.id));
+
+    let booksAdded = 0;
+    let booksSkipped = 0;
+    const importedIds = new Set();
+
+    for (const rawBook of document.books) {
+      const sanitized = sanitizeRestoredBookRecord(rawBook);
+      if (!sanitized) {
+        booksSkipped += 1;
+        continue;
+      }
+      const fingerprint = sanitized.fingerprint ? String(sanitized.fingerprint).toLowerCase() : null;
+      if (existingIds.has(sanitized.id) || (fingerprint && existingFingerprints.has(fingerprint))) {
+        booksSkipped += 1;
+        continue;
+      }
+
+      await NoveraDB.saveBook(sanitized);
+      importedIds.add(sanitized.id);
+      if (fingerprint) existingFingerprints.add(fingerprint);
+      existingIds.add(sanitized.id);
+      booksAdded += 1;
+    }
+
+    let annotationsAdded = 0;
+    for (const rawAnnotation of document.annotations || []) {
+      const sanitized = sanitizeRestoredAnnotationRecord(rawAnnotation);
+      if (!sanitized) continue;
+      if (!importedIds.has(sanitized.bookId) && !existingIds.has(sanitized.bookId)) continue;
+      await NoveraDB.saveAnnotation(sanitized);
+      annotationsAdded += 1;
+    }
+
+    let collectionsAdded = 0;
+    for (const rawCollection of document.collections || []) {
+      const sanitized = sanitizeRestoredCollectionRecord(rawCollection);
+      if (!sanitized) continue;
+      await NoveraDB.saveCollection(sanitized);
+      collectionsAdded += 1;
+    }
+
+    let preferencesApplied = 0;
+    if (includePreferences) {
+      for (const [key, value] of Object.entries(document.preferences || {})) {
+        if (!BACKUP_PREFERENCE_KEYS.includes(key)) continue;
+        if (BACKUP_FORBIDDEN_KEY_PATTERN.test(key)) continue;
+        await NoveraDB.setPref(key, value);
+        preferencesApplied += 1;
+      }
+    }
+
+    await loadAndRenderBooks();
+    return { ok: true, booksAdded, booksSkipped, annotationsAdded, collectionsAdded, preferencesApplied };
+  }
+
+  /** Restores a backup end to end. Prefer inspectBackupFile then applyBackup. */
   async function restoreMetadata(event) {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file) return;
-    try {
-      const backup = JSON.parse(await file.text());
-      if (backup.format !== 'NOVERA_METADATA_BACKUP' || backup.version !== 1 || !Array.isArray(backup.books) || !Array.isArray(backup.annotations)) {
-        throw new Error('Unsupported backup format');
-      }
-      for (const book of backup.books) await NoveraDB.saveBook(book);
-      for (const annotation of backup.annotations) await NoveraDB.saveAnnotation(annotation);
-      for (const collection of backup.collections || []) await NoveraDB.saveCollection(collection);
-      for (const [key, value] of Object.entries(backup.preferences || {})) await NoveraDB.setPref(key, value);
-      await loadAndRenderBooks();
-      Utils.toast('Metadata backup restored', 'success');
-    } catch (error) {
-      console.error('Metadata restore failed:', error);
-      Utils.toast('Backup is invalid or could not be restored', 'error');
+    if (!file) return null;
+
+    const inspection = await inspectBackupFile(file);
+    if (!inspection.ok) {
+      Utils.toast(inspection.error, 'error', 6000);
+      return null;
     }
+    const result = await applyBackup(inspection, { includePreferences: true });
+    if (result.ok) {
+      Utils.toast(`Restored ${result.booksAdded} books and ${result.annotationsAdded} annotations`, 'success');
+    }
+    return result;
   }
 
   // Context Menu & Book Details Modal
@@ -787,9 +2935,11 @@ const Library = (() => {
       if (event.target === deleteModal) resolveDeleteConfirmation(false);
     });
 
-    // Close context menu on window click
-    window.addEventListener('click', () => {
-      if (ctxMenu) ctxMenu.classList.add('hidden');
+    // Close context menu on window click (but not when clicking inside context menu or submenu)
+    window.addEventListener('click', (event) => {
+      if (ctxMenu && !ctxMenu.contains(event.target)) {
+        ctxMenu.classList.add('hidden');
+      }
     });
 
     if (ctxRead) {
@@ -823,18 +2973,40 @@ const Library = (() => {
       });
     }
 
-    ctxCollection?.addEventListener('click', async () => {
-      if (!activeContextBook || collections.length === 0) {
-        Utils.toast('Create a collection first', 'info');
+    ctxCollection?.addEventListener('click', () => {
+      if (!activeContextBook) return;
+      openAddToCollectionModal();
+    });
+
+    // Handle submenu item clicks
+    const submenu = document.getElementById('ctx-collection-submenu');
+    submenu?.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const item = event.target.closest('.ctx-item[data-collection]');
+      if (!item || !activeContextBook) return;
+
+      const collectionId = item.dataset.collection;
+      submenu.classList.add('hidden');
+
+      if (collectionId === '__new__') {
+        openCollectionModal();
         return;
       }
-      const choices = collections.map((collection, index) => `${index + 1}. ${collection.name}`).join('\n');
-      const selected = Number(window.prompt(`Add "${activeContextBook.title}" to which collection?\n${choices}`));
-      const collection = collections[selected - 1];
+
+      const collection = collections.find(c => c.id === collectionId);
       if (!collection) return;
+
       const included = !activeContextBook.collectionIds?.includes(collection.id);
       activeContextBook.collectionIds = await NoveraDB.setBookCollection(activeContextBook.id, collection.id, included);
       await loadAndRenderBooks();
+    });
+
+    // Close submenu on outside click (but not when clicking inside submenu)
+    window.addEventListener('click', (event) => {
+      const submenu = document.getElementById('ctx-collection-submenu');
+      if (submenu && !submenu.contains(event.target) && event.target.id !== 'ctx-collection') {
+        submenu.classList.add('hidden');
+      }
     });
 
     // Book details modal buttons
@@ -942,6 +3114,9 @@ const Library = (() => {
   }
 
   function confirmBookRemoval() {
+    if (typeof AppPrefs !== 'undefined' && !AppPrefs.getAll().confirmDelete) {
+      return Promise.resolve(true);
+    }
     const modal = document.getElementById('delete-book-modal');
     if (!modal) return Promise.resolve(false);
     modal.classList.remove('hidden');
@@ -955,9 +3130,9 @@ const Library = (() => {
     return tmp.textContent || tmp.innerText || '';
   }
 
-  // Built-in Sample Classic EPUB Generator (Alice's Adventures in Wonderland)
+  // Built-in Sample Guide EPUB Generator (Welcome to Lirune)
   async function generateSampleBook() {
-    Utils.toast('Generating sample book: "Alice in Wonderland"...');
+    Utils.toast('Generating sample book: "Welcome to Lirune"...');
 
     try {
       const zip = new JSZip();
@@ -977,24 +3152,40 @@ const Library = (() => {
       zip.file('OEBPS/content.opf', `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:title>Alice's Adventures in Wonderland</dc:title>
-    <dc:creator>Lewis Carroll</dc:creator>
+    <dc:title>Welcome to Lirune</dc:title>
+    <dc:creator>Lirune Reader</dc:creator>
     <dc:language>en</dc:language>
-    <dc:identifier id="BookId">urn:uuid:novera-sample-alice-1865</dc:identifier>
-    <dc:description>The classic 1865 English tale of Alice tumbling down a rabbit hole into a fantastical, whimsical world of curious creatures.</dc:description>
-    <dc:publisher>Lirune Classics</dc:publisher>
+    <dc:identifier id="BookId">urn:uuid:lirune-welcome-guide-4-0</dc:identifier>
+    <dc:description>A short built-in guide to help you explore Lirune Reader's library, reading tools, customization, annotations, keyboard shortcuts, and local-first features.</dc:description>
+    <dc:publisher>Lirune Reader</dc:publisher>
   </metadata>
   <manifest>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
-    <item id="style" href="style.css" media-type="text/css"/>
+    <item id="style" href="styles.css" media-type="text/css"/>
     <item id="ch1" href="chapter1.html" media-type="application/xhtml+xml"/>
     <item id="ch2" href="chapter2.html" media-type="application/xhtml+xml"/>
     <item id="ch3" href="chapter3.html" media-type="application/xhtml+xml"/>
+    <item id="ch4" href="chapter4.html" media-type="application/xhtml+xml"/>
+    <item id="ch5" href="chapter5.html" media-type="application/xhtml+xml"/>
+    <item id="ch6" href="chapter6.html" media-type="application/xhtml+xml"/>
+    <item id="ch7" href="chapter7.html" media-type="application/xhtml+xml"/>
+    <item id="ch8" href="chapter8.html" media-type="application/xhtml+xml"/>
+    <item id="ch9" href="chapter9.html" media-type="application/xhtml+xml"/>
+    <item id="ch10" href="chapter10.html" media-type="application/xhtml+xml"/>
+    <item id="ch11" href="chapter11.html" media-type="application/xhtml+xml"/>
   </manifest>
   <spine toc="ncx">
     <itemref idref="ch1"/>
     <itemref idref="ch2"/>
     <itemref idref="ch3"/>
+    <itemref idref="ch4"/>
+    <itemref idref="ch5"/>
+    <itemref idref="ch6"/>
+    <itemref idref="ch7"/>
+    <itemref idref="ch8"/>
+    <itemref idref="ch9"/>
+    <itemref idref="ch10"/>
+    <itemref idref="ch11"/>
   </spine>
 </package>`);
 
@@ -1002,34 +3193,74 @@ const Library = (() => {
       zip.file('OEBPS/toc.ncx', `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
   <head>
-    <meta name="dtb:uid" content="urn:uuid:novera-sample-alice-1865"/>
+    <meta name="dtb:uid" content="urn:uuid:lirune-welcome-guide-4-0"/>
   </head>
-  <docTitle><text>Alice's Adventures in Wonderland</text></docTitle>
+  <docTitle><text>Welcome to Lirune</text></docTitle>
   <navMap>
     <navPoint id="np-1" playOrder="1">
-      <navLabel><text>Chapter I: Down the Rabbit-Hole</text></navLabel>
+      <navLabel><text>1. Welcome to Lirune</text></navLabel>
       <content src="chapter1.html"/>
     </navPoint>
     <navPoint id="np-2" playOrder="2">
-      <navLabel><text>Chapter II: The Pool of Tears</text></navLabel>
+      <navLabel><text>2. Your Library</text></navLabel>
       <content src="chapter2.html"/>
     </navPoint>
     <navPoint id="np-3" playOrder="3">
-      <navLabel><text>Chapter III: A Caucus-Race and a Long Tale</text></navLabel>
+      <navLabel><text>3. Opening and Importing Books</text></navLabel>
       <content src="chapter3.html"/>
+    </navPoint>
+    <navPoint id="np-4" playOrder="4">
+      <navLabel><text>4. Reading Comfortably</text></navLabel>
+      <content src="chapter4.html"/>
+    </navPoint>
+    <navPoint id="np-5" playOrder="5">
+      <navLabel><text>5. Finding Your Place</text></navLabel>
+      <content src="chapter5.html"/>
+    </navPoint>
+    <navPoint id="np-6" playOrder="6">
+      <navLabel><text>6. Highlights, Notes and Bookmarks</text></navLabel>
+      <content src="chapter6.html"/>
+    </navPoint>
+    <navPoint id="np-7" playOrder="7">
+      <navLabel><text>7. Organizing Your Library</text></navLabel>
+      <content src="chapter7.html"/>
+    </navPoint>
+    <navPoint id="np-8" playOrder="8">
+      <navLabel><text>8. Backups, Storage and Privacy</text></navLabel>
+      <content src="chapter8.html"/>
+    </navPoint>
+    <navPoint id="np-9" playOrder="9">
+      <navLabel><text>9. Keyboard Shortcuts</text></navLabel>
+      <content src="chapter9.html"/>
+    </navPoint>
+    <navPoint id="np-10" playOrder="10">
+      <navLabel><text>10. Troubleshooting</text></navLabel>
+      <content src="chapter10.html"/>
+    </navPoint>
+    <navPoint id="np-11" playOrder="11">
+      <navLabel><text>11. Support Lirune Reader</text></navLabel>
+      <content src="chapter11.html"/>
     </navPoint>
   </navMap>
 </ncx>`);
 
-      // OEBPS/style.css
-      zip.file('OEBPS/style.css', `
-body { font-family: serif; line-height: 1.6; margin: 5%; }
-h1 { text-align: center; margin-top: 2em; margin-bottom: 0.5em; font-size: 1.8em; }
-h2 { text-align: center; margin-bottom: 1.5em; font-weight: normal; font-style: italic; opacity: 0.8; font-size: 1.1em; }
-p { margin-bottom: 1.2em; text-indent: 1.5em; }
-p.lead { text-indent: 0; font-size: 1.1em; }
-p.lead::first-letter { font-size: 3.2em; float: left; line-height: 0.8; padding-right: 0.1em; font-weight: bold; }
-blockquote { margin: 1.5em 2em; font-style: italic; }
+      // OEBPS/styles.css
+      zip.file('OEBPS/styles.css', `
+body { font-family: serif; line-height: 1.6; margin: 5%; color: inherit; }
+h1 { text-align: center; margin-top: 1.6em; margin-bottom: 0.3em; font-size: 1.7em; }
+h2 { text-align: center; margin-bottom: 1.5em; font-weight: normal; font-style: italic; opacity: 0.85; font-size: 1.05em; }
+h3 { margin-top: 1.4em; margin-bottom: 0.4em; font-size: 1.15em; font-weight: bold; }
+p { margin-bottom: 1.15em; text-indent: 0; line-height: 1.65; }
+p.lead { font-size: 1.1em; line-height: 1.7; font-weight: 500; }
+ul, ol { margin: 0.8em 0 1.2em 1.5em; padding: 0; }
+li { margin-bottom: 0.45em; line-height: 1.6; }
+table { width: 100%; border-collapse: collapse; margin: 1.2em 0 1.5em 0; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid rgba(128, 128, 128, 0.25); }
+th { font-weight: bold; }
+kbd { display: inline-block; padding: 2px 6px; font-family: monospace; font-size: 0.9em; background: rgba(128, 128, 128, 0.15); border-radius: 4px; border: 1px solid rgba(128, 128, 128, 0.3); }
+blockquote { margin: 1.2em 1.5em; padding-left: 1em; border-left: 3px solid rgba(128, 128, 128, 0.35); font-style: italic; }
+a { color: inherit; text-decoration: underline; }
+.support-card { margin: 2em 0; padding: 1.5em; border: 1px solid rgba(128, 128, 128, 0.25); border-radius: 8px; text-align: center; }
 `);
 
       // OEBPS/chapter1.html
@@ -1037,16 +3268,25 @@ blockquote { margin: 1.5em 2em; font-style: italic; }
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <title>Chapter I: Down the Rabbit-Hole</title>
-  <link rel="stylesheet" type="text/css" href="style.css"/>
+  <title>Chapter 1: Welcome to Lirune</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
 </head>
 <body>
-  <h1>CHAPTER I</h1>
-  <h2>Down the Rabbit-Hole</h2>
-  <p class="lead">Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do: once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it, “and what is the use of a book,” thought Alice “without pictures or conversations?”</p>
-  <p>So she was considering in her own mind (as well as she could, for the hot day made her feel very sleepy and stupid), whether the pleasure of making a daisy-chain would be worth the trouble of getting up and picking the daisies, when suddenly a White Rabbit with pink eyes ran close by her.</p>
-  <p>There was nothing so very remarkable in that; nor did Alice think it so very much out of the way to hear the Rabbit say to itself, “Oh dear! Oh dear! I shall be late!” (when she thought it over afterwards, it occurred to her that she ought to have wondered at this, but at the time it all seemed quite natural); but when the Rabbit actually took a watch out of its waistcoat-pocket, and looked at it, and then hurried on, Alice started to her feet, for it flashed across her mind that she had never before seen a rabbit with either a waistcoat-pocket, or a watch to take out of it, and burning with curiosity, she ran across the field after it, and fortunately was just in time to see it pop down a large rabbit-hole under the hedge.</p>
-  <p>In another moment down went Alice after it, never once considering in the world how in the world she was to get out again.</p>
+  <h1>Chapter 1</h1>
+  <h2>Welcome to Lirune</h2>
+  <p class="lead">Welcome to Lirune Reader.</p>
+  <p>Lirune is a calm, local-first EPUB reader for Windows. It is designed to keep your personal reading experience focused and your library safely on your computer.</p>
+  <p>This introductory guide is built directly into Lirune so that you can explore the application's reading tools, navigation, and customization right away—without needing to search for an external EPUB file first.</p>
+  <h3>Core Philosophy</h3>
+  <p>Lirune is built upon five foundational principles:</p>
+  <ul>
+    <li><strong>Local:</strong> Your books, reading progress, and annotations reside directly on your device.</li>
+    <li><strong>Private:</strong> There are no tracking scripts, analytics, or mandatory cloud logins monitoring what you read.</li>
+    <li><strong>Focused:</strong> A clean, quiet reading surface free from clutter, popups, and unnecessary interruptions.</li>
+    <li><strong>Customizable:</strong> Thoughtful typography, comfortable reading palettes, flexible layout flows, and personalized window accents.</li>
+    <li><strong>Windows-Friendly:</strong> Deep integration with Windows windowing, keyboard shortcuts, and file associations.</li>
+  </ul>
+  <p>Whether you are reading technical documentation, classic literature, or personal research notes, Lirune aims to give your books the calm digital environment they deserve.</p>
 </body>
 </html>`);
 
@@ -1055,15 +3295,32 @@ blockquote { margin: 1.5em 2em; font-style: italic; }
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <title>Chapter II: The Pool of Tears</title>
-  <link rel="stylesheet" type="text/css" href="style.css"/>
+  <title>Chapter 2: Your Library</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
 </head>
 <body>
-  <h1>CHAPTER II</h1>
-  <h2>The Pool of Tears</h2>
-  <p class="lead">“Curiouser and curiouser!” cried Alice (she was so much surprised, that for the moment she quite forgot how to speak good English); “now I’m opening out like the largest telescope that ever was! Good-bye, feet!” (for when she looked down at her feet, they seemed to be almost out of sight, they were getting so far off).</p>
-  <p>“Oh, my poor little feet, I wonder who will put on your shoes and stockings for you now, dears? I’m sure I shan’t be able! I shall be a great deal too far off to trouble myself about you: you must manage the best way you can;—but I must be kind to them,” thought Alice, “or perhaps they won’t walk the way I want to go! Let me see: I’ll give them a new pair of boots every Christmas.”</p>
-  <p>And she went on planning to herself how she would manage it. “They must go by the carrier,” she thought; “and how funny it’ll seem, sending presents to one’s own feet! And how odd the directions will look!”</p>
+  <h1>Chapter 2</h1>
+  <h2>Your Library</h2>
+  <p class="lead">The Library is your personal reading headquarters, displaying your book collection with elegance and clarity.</p>
+  <p>When you add books, Lirune automatically extracts their embedded cover artwork and metadata, presenting them in a responsive, beautifully spaced gallery.</p>
+  <h3>Views and Navigation</h3>
+  <ul>
+    <li><strong>Grid View and List View:</strong> Toggle between a rich visual cover grid and a structured, compact list view depending on your screen size and organizational preference.</li>
+    <li><strong>Library Search:</strong> Quickly locate any title using the search bar (or by pressing <kbd>Ctrl + K</kbd>). Library search searches through book metadata, including titles and author names.</li>
+    <li><strong>Sorting:</strong> Sort your library by recently read, date added, title alphabetically, or author.</li>
+    <li><strong>Reading Progress:</strong> Every book card displays a subtle progress indicator showing your completion percentage and current chapter.</li>
+    <li><strong>Continue Reading:</strong> At the top of your library, the Continue Reading banner highlights your most recently active book for seamless one-click resumption.</li>
+  </ul>
+  <h3>Status Filters</h3>
+  <p>Keep your collection tidy by switching between status tabs:</p>
+  <ul>
+    <li><strong>All:</strong> Displays every book present in your local library.</li>
+    <li><strong>Unread:</strong> Shows books you have imported but have not yet begun reading.</li>
+    <li><strong>In Progress:</strong> Focuses on the books you are actively reading right now.</li>
+    <li><strong>Finished:</strong> Holds completed works once you turn the final page.</li>
+    <li><strong>Favorites:</strong> Instantly narrows your bookshelf to the volumes you have starred for quick reference.</li>
+  </ul>
+  <p>You can also create custom <strong>Collections</strong> to group titles by topic, project, or genre without altering the files on your disk.</p>
 </body>
 </html>`);
 
@@ -1072,14 +3329,287 @@ blockquote { margin: 1.5em 2em; font-style: italic; }
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <title>Chapter III: A Caucus-Race and a Long Tale</title>
-  <link rel="stylesheet" type="text/css" href="style.css"/>
+  <title>Chapter 3: Opening and Importing Books</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
 </head>
 <body>
-  <h1>CHAPTER III</h1>
-  <h2>A Caucus-Race and a Long Tale</h2>
-  <p class="lead">They were indeed a queer-looking party that assembled on the bank—the birds with draggled feathers, the animals with their fur clinging close to them, and all dripping wet, cross, and uncomfortable.</p>
-  <p>The first question of course was, how to get dry again: they had a consultation about this, and after a few minutes it seemed quite natural to Alice to find herself talking familiarly with them, as if she had known them all her life. Indeed, she had quite a long argument with the Lory, who at last turned sulky, and would only say, “I am older than you, and must know better”; and this Alice would not allow without knowing how old it was, and, as the Lory positively refused to tell its age, there was no more to be said.</p>
+  <h1>Chapter 3</h1>
+  <h2>Opening and Importing Books</h2>
+  <p class="lead">Adding books to your Lirune library is fast, versatile, and non-destructive.</p>
+  <h3>Supported Import Methods</h3>
+  <p>Lirune supports several intuitive ways to import your EPUB collection:</p>
+  <ul>
+    <li><strong>Single EPUB Import:</strong> Use the "Browse EPUB Files" button to select and open an individual book.</li>
+    <li><strong>Multiple EPUB Import:</strong> Select multiple files simultaneously in the Windows file picker to add an entire batch in one step.</li>
+    <li><strong>Folder Import:</strong> Choose "Open Folder" from the library menu to scan an entire directory.</li>
+    <li><strong>Recursive Folder Import:</strong> Lirune searches nested subfolders within a selected directory, discovering all valid EPUB files.</li>
+    <li><strong>Drag and Drop:</strong> Simply drag one or more <code>.epub</code> files from Windows Explorer directly into the Lirune window.</li>
+    <li><strong>Windows Explorer Integration:</strong> Once installed, Lirune registers the <code>.epub</code> file type with Windows, allowing you to double-click any EPUB on your PC to launch it in Lirune.</li>
+  </ul>
+  <h3>Resilient Package Validation</h3>
+  <p>Lirune inspects each EPUB package upon import to ensure valid structure and metadata. If a file in a batch is malformed, damaged, or unsupported, Lirune reports the issue without halting or discarding the remaining valid books in the import queue.</p>
+  <h3>DRM and Encryption</h3>
+  <p>Lirune respects copyright and digital packaging standards. Encrypted or DRM-protected files (such as Adobe ADEPT or proprietary vendor locks) cannot be opened. Lirune does not bypass digital rights management.</p>
+  <h3>Duplicate Handling</h3>
+  <p>Lirune uses cryptographic content fingerprinting to identify books. If you import an EPUB that is already in your library, Lirune recognizes it and avoids creating redundant duplicate records. At the same time, different books that share identical or similar filenames can coexist without conflict.</p>
+</body>
+</html>`);
+
+      // OEBPS/chapter4.html
+      zip.file('OEBPS/chapter4.html', `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Chapter 4: Reading Comfortably</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
+</head>
+<body>
+  <h1>Chapter 4</h1>
+  <h2>Reading Comfortably</h2>
+  <p class="lead">Reading should be an effortless visual experience. Lirune provides comprehensive controls to tailor page typography and layout to your comfort.</p>
+  <h3>Reader Customization</h3>
+  <p>Open Reading Settings (<kbd>S</kbd>) while inside any book to adjust:</p>
+  <ul>
+    <li><strong>Reader Themes:</strong> Choose between a crisp Light theme (the default for new readers), an immersive Dark/Night theme, a warm Sepia mode, a gentle Paper background, or contrast-oriented themes designed for high readability. You can also specify custom background and text colors.</li>
+    <li><strong>Font Families:</strong> Switch between refined serif typefaces, modern sans-serif options, monospaced fonts, or the original EPUB publisher styling when supported.</li>
+    <li><strong>Font Sizing:</strong> Scale text smoothly from compact print up to large, accessible sizes.</li>
+    <li><strong>Text Alignment:</strong> Choose between natural left-aligned text or clean justified formatting.</li>
+    <li><strong>Line Spacing and Margins:</strong> Adjust vertical line height and horizontal page margins to create the optimal line length for your display.</li>
+    <li><strong>Reading Flow:</strong> Switch between paginated reading (flipping pages horizontally like a physical volume) and continuous scrolled reading for smooth vertical reading.</li>
+    <li><strong>Layout Modes:</strong> Opt for a focused single-page layout or an automatic two-page spread on wide desktop monitors.</li>
+  </ul>
+  <h3>Application Accent vs. Reader Theme</h3>
+  <p>It is important to distinguish between the two color customization systems in Lirune:</p>
+  <ul>
+    <li><strong>Application Accent Color:</strong> This governs the user interface elements of the Lirune desktop window—such as buttons, tab highlights, slider tracks, and keyboard focus outlines. The default Lirune accent is <code>#426F86</code> (RGB 66, 111, 134). You can pick a custom accent in Settings or reset it to the default at any time.</li>
+    <li><strong>Reader Themes:</strong> These control the reading canvas itself—including the book page background, typography color, link styling, and text selection highlights.</li>
+  </ul>
+  <p>These two systems operate independently: adjusting your application accent keeps your reading page undisturbed, while changing your reading theme leaves your desktop application controls intact.</p>
+</body>
+</html>`);
+
+      // OEBPS/chapter5.html
+      zip.file('OEBPS/chapter5.html', `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Chapter 5: Finding Your Place</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
+</head>
+<body>
+  <h1>Chapter 5</h1>
+  <h2>Finding Your Place</h2>
+  <p class="lead">Navigating through long books and complex documents is seamless with Lirune's navigation tools.</p>
+  <h3>Table of Contents and Chapter Filtering</h3>
+  <p>Press <kbd>T</kbd> or click the table of contents icon to reveal the book's structural hierarchy. If a book has dozens of chapters, use the built-in search filter at the top of the TOC panel to locate a specific chapter name or section heading instantly.</p>
+  <h3>Continuous Progress Tracking</h3>
+  <p>Lirune continuously saves your exact reading location using EPUB Canonical Fragment Identifiers (CFI). When you close a book or shut down your PC, your exact spot is remembered. Reopening the title returns you precisely to where you paused.</p>
+  <h3>Navigation History and Returning</h3>
+  <p>If you jump across sections via the Table of Contents or a footnote link, Lirune tracks your navigation path, allowing you to return to your previous reading position without losing your place.</p>
+  <h3>Page Navigation Modes</h3>
+  <p>Turn pages using any method that feels natural:</p>
+  <ul>
+    <li>Keyboard arrow keys (<kbd>Left</kbd> / <kbd>Right</kbd>) or vim-style keys (<kbd>H</kbd> / <kbd>L</kbd> or <kbd>J</kbd> / <kbd>K</kbd>).</li>
+    <li>Clicking the unobtrusive left and right edge navigation zones with your mouse.</li>
+    <li>Using your mouse scroll wheel or laptop trackpad gestures.</li>
+    <li>Onscreen navigation buttons in the reader controls.</li>
+  </ul>
+  <h3>Distraction-Free Fullscreen</h3>
+  <p>Press <kbd>F</kbd> to toggle native fullscreen mode. Fullscreen hides desktop bars and window chrome, creating an uncluttered reading environment where only the words remain.</p>
+</body>
+</html>`);
+
+      // OEBPS/chapter6.html
+      zip.file('OEBPS/chapter6.html', `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Chapter 6: Highlights, Notes and Bookmarks</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
+</head>
+<body>
+  <h1>Chapter 6</h1>
+  <h2>Highlights, Notes and Bookmarks</h2>
+  <p class="lead">Engage actively with your reading material using Lirune's integrated annotation suite.</p>
+  <h3>The Text-Selection Toolbar</h3>
+  <p>Whenever you select text on a page, a floating selection toolbar appears immediately above the selected passage. From this toolbar, you can:</p>
+  <ul>
+    <li><strong>Highlight:</strong> Apply a colorful highlight with a single click.</li>
+    <li><strong>Choose Colors:</strong> Select from six curated highlight shades: <em>Yellow</em>, <em>Blue</em>, <em>Green</em>, <em>Pink</em>, <em>Purple</em>, or <em>Orange</em>.</li>
+    <li><strong>Add Notes:</strong> Attach your thoughts, comments, or summaries directly to the highlighted text.</li>
+    <li><strong>Copy:</strong> Copy the excerpt directly to the clipboard.</li>
+  </ul>
+  <h3>Bookmarks</h3>
+  <p>Press <kbd>B</kbd> or click the bookmark button in the top reader toolbar to bookmark your current location. Bookmarks act as visual placeholders for key moments or reference points in your books.</p>
+  <h3>The Annotations Drawer</h3>
+  <p>Press <kbd>N</kbd> or click the annotations button to slide open the side drawer. Here, all your highlights, notes, and bookmarks are gathered chronologically and by chapter. Clicking any entry jumps directly to that passage in the book.</p>
+  <h3>Local Storage and Markdown Export</h3>
+  <p>All annotations are stored locally in your private database. When you want to incorporate your reading notes into your knowledge base or study system, click "Export Annotations" to generate a clean, formatted Markdown file compatible with Obsidian, Notion, Logseq, or any plain text editor.</p>
+</body>
+</html>`);
+
+      // OEBPS/chapter7.html
+      zip.file('OEBPS/chapter7.html', `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Chapter 7: Organizing Your Library</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
+</head>
+<body>
+  <h1>Chapter 7</h1>
+  <h2>Organizing Your Library</h2>
+  <p class="lead">As your digital library expands, thoughtful organization tools ensure your books remain accessible and orderly.</p>
+  <h3>Favorites</h3>
+  <p>Click the heart icon on any book card or within the book details modal to mark it as a Favorite. Favorites are always easily accessible from the library filter bar, making them ideal for current projects, core reference books, or beloved novels.</p>
+  <h3>Collections</h3>
+  <p>Collections let you group titles by topic, genre, author study, research project, academic course, or reading challenge. You can create as many collections as you need from the Collections manager in the sidebar.</p>
+  <p>A book can belong to multiple collections simultaneously. Because organization is handled at the database level, adding or reordering collections never moves, renames, or alters your original EPUB files.</p>
+  <h3>Combining Search and Filters</h3>
+  <p>You can combine text searches with status filters (such as searching for an author name while viewing only "In Progress" books) to quickly locate the exact volume you want, even in a library containing hundreds of titles.</p>
+</body>
+</html>`);
+
+      // OEBPS/chapter8.html
+      zip.file('OEBPS/chapter8.html', `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Chapter 8: Backups, Storage and Privacy</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
+</head>
+<body>
+  <h1>Chapter 8</h1>
+  <h2>Backups, Storage and Privacy</h2>
+  <p class="lead">Lirune is designed with a strict local-first philosophy: you own your data, your files remain on your PC, and no cloud service is ever required.</p>
+  <h3>Local-First Architecture</h3>
+  <p>Everything you do in Lirune happens on your machine:</p>
+  <ul>
+    <li>Imported EPUB books are stored in managed local application storage on your hard drive.</li>
+    <li>Library metadata, reading progress, and exact CFI positions are saved in a local database.</li>
+    <li>Highlights, notes, bookmarks, collections, and favorites remain entirely on your device.</li>
+    <li>Your personal preferences and color schemes are saved locally.</li>
+    <li>No user account or cloud registration is required, and core reading features operate fully offline.</li>
+  </ul>
+  <h3>Metadata Backup and Restore</h3>
+  <p>Lirune includes a built-in backup and restore tool in Settings. This tool exports your library records, reading status, reading percentages, annotations, and collections into a portable backup file.</p>
+  <blockquote>
+    <p><strong>Note:</strong> The metadata backup tool backs up your library database and reading records. It does not package every full EPUB binary file into the backup archive. Always keep your original source EPUB files stored safely in your own personal documents or backup folders.</p>
+  </blockquote>
+  <h3>Library Integrity Check</h3>
+  <p>The Library Integrity Check utility verifies that the EPUB files in your managed storage match their expected fingerprints. If an underlying file has been moved or becomes inaccessible, the integrity check identifies the missing book so you can restore or re-import it cleanly.</p>
+  <h3>Removing Books vs. Deleting Source Files</h3>
+  <p>When you choose "Remove Book" from Lirune, the application deletes the book entry and reading state from your Lirune library. Removing a book from Lirune does not delete the original EPUB file from the folder where you originally kept it on your computer.</p>
+</body>
+</html>`);
+
+      // OEBPS/chapter9.html
+      zip.file('OEBPS/chapter9.html', `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Chapter 9: Keyboard Shortcuts</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
+</head>
+<body>
+  <h1>Chapter 9</h1>
+  <h2>Keyboard Shortcuts</h2>
+  <p class="lead">Lirune offers an extensive set of keyboard shortcuts for fast, hands-on-the-keyboard reading and navigation.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Action</th>
+        <th>Shortcut</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Next Page</td>
+        <td><kbd>→</kbd> / <kbd>Page Down</kbd> / <kbd>Space</kbd> / <kbd>J</kbd></td>
+      </tr>
+      <tr>
+        <td>Previous Page</td>
+        <td><kbd>←</kbd> / <kbd>Page Up</kbd> / <kbd>Shift + Space</kbd> / <kbd>K</kbd></td>
+      </tr>
+      <tr>
+        <td>Table of Contents</td>
+        <td><kbd>T</kbd></td>
+      </tr>
+      <tr>
+        <td>Reading Settings</td>
+        <td><kbd>S</kbd></td>
+      </tr>
+      <tr>
+        <td>Bookmark</td>
+        <td><kbd>B</kbd></td>
+      </tr>
+      <tr>
+        <td>Annotations &amp; Notes</td>
+        <td><kbd>N</kbd></td>
+      </tr>
+      <tr>
+        <td>Search in Book</td>
+        <td><kbd>/</kbd></td>
+      </tr>
+      <tr>
+        <td>Fullscreen</td>
+        <td><kbd>F</kbd></td>
+      </tr>
+      <tr>
+        <td>Library Search</td>
+        <td><kbd>Ctrl + K</kbd></td>
+      </tr>
+      <tr>
+        <td>Close Overlay / Back</td>
+        <td><kbd>Esc</kbd></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>These shortcuts function both in the main reader window and while focusing inside the reader page.</p>
+</body>
+</html>`);
+
+      // OEBPS/chapter10.html
+      zip.file('OEBPS/chapter10.html', `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Chapter 10: Troubleshooting</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
+</head>
+<body>
+  <h1>Chapter 10</h1>
+  <h2>Troubleshooting</h2>
+  <p class="lead">Here are quick solutions for common questions and situations you might encounter.</p>
+  <h3>Book will not import</h3>
+  <p>Ensure that the file is a standard, uncorrupted EPUB package. Files that were incompletely downloaded, saved in an incompatible archive format, or protected by commercial DRM encryption cannot be read. Lirune does not strip or bypass DRM.</p>
+  <h3>Book will not open from Explorer</h3>
+  <p>The standard Windows installer automatically configures the <code>.epub</code> file association. If another program has taken over this file type, right-click any EPUB file in Windows Explorer, select <em>Open with</em>, choose <em>Lirune Reader</em>, and check the option to always use this application.</p>
+  <h3>Need to start from source</h3>
+  <p>If you are running Lirune from its open-source repository, ensure you have Node.js 20 or higher installed. Run <code>npm ci</code> to install dependencies cleanly, followed by <code>npm start</code> to launch the desktop application.</p>
+  <h3>Need to reset the library</h3>
+  <p>Use the Settings screen to adjust reading preferences, appearance, and local library maintenance. Export annotations or create a metadata backup before making changes you may want to undo.</p>
+</body>
+</html>`);
+
+      // OEBPS/chapter11.html
+      zip.file('OEBPS/chapter11.html', `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Chapter 11: Support Lirune Reader</title>
+  <link rel="stylesheet" type="text/css" href="styles.css"/>
+</head>
+<body>
+  <h1>Chapter 11</h1>
+  <h2>Support Lirune Reader</h2>
+  <div class="support-card">
+    <p class="lead">Thanks for giving Lirune Reader a place on your desktop.</p>
+    <p>Lirune is free and open-source software. If you find it useful and would like to support continued development, you can optionally buy the developer a coffee.</p>
+    <p>Support Lirune Reader on Buy Me a Coffee:</p>
+    <p><a href="https://buymeacoffee.com/vasanthgajavelly" target="_blank" rel="noopener noreferrer">https://buymeacoffee.com/vasanthgajavelly</a></p>
+    <p style="font-size: 0.9em; opacity: 0.85; margin-top: 1.5em;">Support is completely optional and does not unlock features or change how the application works.</p>
+  </div>
 </body>
 </html>`);
 
@@ -1087,29 +3617,32 @@ blockquote { margin: 1.5em 2em; font-style: italic; }
       const arrayBuffer = await epubBlob.arrayBuffer();
 
       // Sample book cover (SVG rendered to canvas data URL)
-      const coverDataUrl = generateAliceCoverDataUrl();
+      const coverDataUrl = generateWelcomeCoverDataUrl();
 
       const sampleBook = {
-        id: 'sample_alice_' + Date.now(),
-        title: "Alice's Adventures in Wonderland",
-        author: 'Lewis Carroll',
-        description: 'The timeless masterpiece of Alice falling down a rabbit hole into a world of unbridled imagination and absurdity.',
+        id: 'sample_welcome_' + Date.now(),
+        title: 'Welcome to Lirune',
+        author: 'Lirune Reader',
+        description: "A short built-in guide to help you explore Lirune Reader's library, reading tools, customization, annotations, keyboard shortcuts, and local-first features.",
         coverDataUrl,
+        format: 'epub',
         ...(window.noveraDesktop ? {} : { fileData: arrayBuffer }),
-        schemaVersion: 2,
+        schemaVersion: 3,
         fileSize: arrayBuffer.byteLength,
         dateAdded: Date.now(),
         lastReadDate: 0,
         currentCfi: null,
         progressPercent: 0,
-        currentChapter: 'Chapter I: Down the Rabbit-Hole'
+        currentChapter: '1. Welcome to Lirune'
       };
 
       if (window.noveraDesktop?.saveBookToStorage) {
-        const storageId = `${await getFingerprint(arrayBuffer, arrayBuffer.byteLength, 'sample')}.epub`;
-        const result = await window.noveraDesktop.saveBookToStorage('alice-in-wonderland.epub', arrayBuffer, storageId);
+        const fingerprint = await getFingerprint(arrayBuffer, arrayBuffer.byteLength, 'sample');
+        const storageId = `${fingerprint}.epub`;
+        const result = await window.noveraDesktop.saveBookToStorage('welcome-to-lirune.epub', arrayBuffer, storageId);
         if (!result?.success) throw new Error(result?.error || 'Could not save sample book');
         sampleBook.storageId = result.storageId;
+        sampleBook.fingerprint = fingerprint;
       }
       await NoveraDB.saveBook(sampleBook);
       Utils.toast('Sample book added! Opening now...', 'success');
@@ -1122,55 +3655,128 @@ blockquote { margin: 1.5em 2em; font-style: italic; }
     }
   }
 
-  function generateAliceCoverDataUrl() {
+  function generateWelcomeCoverDataUrl() {
     const canvas = document.createElement('canvas');
     canvas.width = 400;
     canvas.height = 600;
     const ctx = canvas.getContext('2d');
 
-    // Rich gradient background
+    // Dark charcoal / deep cool background
     const grad = ctx.createLinearGradient(0, 0, 400, 600);
-    grad.addColorStop(0, '#2E1065');
-    grad.addColorStop(0.5, '#4C1D95');
-    grad.addColorStop(1, '#0F172A');
+    grad.addColorStop(0, '#151621');
+    grad.addColorStop(0.4, '#1C1E2B');
+    grad.addColorStop(1, '#0E0F16');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 400, 600);
 
-    // Decorative vintage border
-    ctx.strokeStyle = '#C4B5FD';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(24, 24, 352, 552);
+    // Subtle soft glass surface card
+    ctx.fillStyle = 'rgba(238, 236, 248, 0.035)';
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(24, 24, 352, 552, 12);
+    } else {
+      ctx.rect(24, 24, 352, 552);
+    }
+    ctx.fill();
 
-    ctx.strokeStyle = 'rgba(196, 181, 253, 0.4)';
+    // Subtle borders
+    ctx.strokeStyle = 'rgba(238, 236, 248, 0.18)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(238, 236, 248, 0.08)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(30, 30, 340, 540);
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(32, 32, 336, 536, 8);
+    } else {
+      ctx.rect(32, 32, 336, 536);
+    }
+    ctx.stroke();
+
+    // Subtle ambient accent glow behind symbol
+    const glow = ctx.createRadialGradient(200, 210, 10, 200, 210, 120);
+    glow.addColorStop(0, 'rgba(238, 236, 248, 0.12)');
+    glow.addColorStop(1, 'rgba(238, 236, 248, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(200, 210, 120, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Minimalist open book symbol
+    ctx.save();
+    ctx.strokeStyle = '#426F86';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Left page
+    ctx.beginPath();
+    ctx.moveTo(196, 222);
+    ctx.quadraticCurveTo(170, 212, 148, 215);
+    ctx.lineTo(148, 245);
+    ctx.quadraticCurveTo(170, 242, 196, 252);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Right page
+    ctx.beginPath();
+    ctx.moveTo(204, 222);
+    ctx.quadraticCurveTo(230, 212, 252, 215);
+    ctx.lineTo(252, 245);
+    ctx.quadraticCurveTo(230, 242, 204, 252);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Spine mark
+    ctx.beginPath();
+    ctx.moveTo(200, 224);
+    ctx.lineTo(200, 252);
+    ctx.stroke();
+    ctx.restore();
+
+    // Category / Tag
+    ctx.fillStyle = 'rgba(238, 236, 248, 0.7)';
+    ctx.font = '600 11px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.letterSpacing = '3px';
+    ctx.fillText('BUILT-IN GUIDE', 200, 120);
 
     // Title
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 30px "Playfair Display", Georgia, serif';
+    ctx.font = 'bold 32px "Playfair Display", Georgia, serif';
     ctx.textAlign = 'center';
-    ctx.fillText("ALICE'S", 200, 160);
-    ctx.fillText("ADVENTURES", 200, 205);
-    ctx.font = 'italic 20px "Playfair Display", Georgia, serif';
-    ctx.fillText("in", 200, 245);
-    ctx.font = 'bold 28px "Playfair Display", Georgia, serif';
-    ctx.fillText("WONDERLAND", 200, 290);
+    ctx.letterSpacing = '1px';
+    ctx.fillText('WELCOME TO', 200, 315);
+    ctx.font = 'bold 36px "Playfair Display", Georgia, serif';
+    ctx.fillStyle = '#426F86';
+    ctx.fillText('LIRUNE', 200, 360);
 
-    // Ornament
-    ctx.fillStyle = '#A78BFA';
-    ctx.font = '24px serif';
-    ctx.fillText("❦ ❦ ❦", 200, 345);
+    // Divider line
+    ctx.strokeStyle = 'rgba(238, 236, 248, 0.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(160, 390);
+    ctx.lineTo(240, 390);
+    ctx.stroke();
+
+    // Subtitle
+    ctx.fillStyle = 'rgba(238, 236, 248, 0.85)';
+    ctx.font = 'italic 15px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('A quick guide to your reading space', 200, 420);
 
     // Author
-    ctx.fillStyle = '#DDD6FE';
-    ctx.font = '500 18px Inter, sans-serif';
+    ctx.fillStyle = 'rgba(238, 236, 248, 0.75)';
+    ctx.font = '500 13px Inter, system-ui, sans-serif';
     ctx.letterSpacing = '2px';
-    ctx.fillText("LEWIS CARROLL", 200, 430);
+    ctx.fillText('LIRUNE READER', 200, 500);
 
-    // Edition
-    ctx.fillStyle = 'rgba(221, 214, 254, 0.6)';
-    ctx.font = '12px Inter, sans-serif';
-    ctx.fillText("LIRUNE CLASSIC EDITION", 200, 520);
+    // Version / tag
+    ctx.fillStyle = 'rgba(238, 236, 248, 0.4)';
+    ctx.font = '11px Inter, system-ui, sans-serif';
+    ctx.letterSpacing = '1px';
+    ctx.fillText('LOCAL-FIRST READING', 200, 526);
 
     return canvas.toDataURL('image/jpeg', 0.9);
   }
@@ -1180,6 +3786,27 @@ blockquote { margin: 1.5em 2em; font-style: italic; }
     loadAndRenderBooks,
     openBookDetails,
     deleteBook,
-    generateSampleBook
+    generateSampleBook,
+    getViewState,
+    setView,
+    resetView,
+    runIntegrityCheck,
+    applyIntegrityReport,
+    repairLibrary,
+    cleanupOrphans,
+    exportAnnotations,
+    createMetadataBackup,
+    backupMetadata,
+    inspectBackupFile,
+    applyBackup,
+    restoreMetadata,
+    getBookStats,
+    deleteAllBooks,
+    processFiles,
+    parseFb2Metadata
   };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = Library;
+}

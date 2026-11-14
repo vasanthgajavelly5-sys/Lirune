@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('noveraDesktop', {
+const desktopApi = {
   isDesktop: true,
   platform: process.platform,
 
@@ -8,16 +8,19 @@ contextBridge.exposeInMainWorld('noveraDesktop', {
   openFileDialog: () => ipcRenderer.invoke('dialog:open-files'),
   openFolderDialog: () => ipcRenderer.invoke('dialog:open-folder'),
 
-  // Windows Explorer Integration
+  // Windows Explorer / Shell Integration
   showInExplorer: (filePath) => ipcRenderer.invoke('shell:show-in-folder', filePath),
+  openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
 
   // Storage Management
   saveBookToStorage: (fileName, arrayBuffer, storageId) => ipcRenderer.invoke('fs:save-book', { fileName, storageId, buffer: arrayBuffer }),
   deleteBookFromStorage: (storageId) => ipcRenderer.invoke('fs:delete-book', storageId),
   getStoragePath: () => ipcRenderer.invoke('fs:get-storage-path'),
-  readEpubFile: (filePath) => ipcRenderer.invoke('fs:read-epub', filePath),
+  readBookFile: (filePath) => ipcRenderer.invoke('fs:read-book', filePath),
   readManagedBook: (storageId, fingerprint, fileSize) => ipcRenderer.invoke('fs:read-managed-book', { storageId, fingerprint, fileSize }),
   listManagedBooks: () => ipcRenderer.invoke('fs:list-managed-books'),
+  inspectManagedBook: (storageId) => ipcRenderer.invoke('fs:inspect-managed-book', { storageId }),
+  deleteOrphanFiles: (storageIds, referencedIds) => ipcRenderer.invoke('fs:delete-orphan-files', { storageIds, referencedIds }),
 
   // Native Electron fullscreen state
   toggleNativeFullscreen: () => ipcRenderer.invoke('window:toggle-fullscreen'),
@@ -27,6 +30,10 @@ contextBridge.exposeInMainWorld('noveraDesktop', {
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
   closeWindow: () => ipcRenderer.send('window:close'),
+  isWindowMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+  onWindowMaximizedChanged: (callback) => {
+    ipcRenderer.on('window-maximized-changed', (_event, isMax) => callback(Boolean(isMax)));
+  },
 
   // Metadata
   getVersion: () => ipcRenderer.invoke('app:get-version'),
@@ -35,7 +42,19 @@ contextBridge.exposeInMainWorld('noveraDesktop', {
   onOpenFile: (callback) => {
     ipcRenderer.on('open-file-from-os', (_event, filePath) => callback(filePath));
   },
+  signalRendererReady: () => ipcRenderer.invoke('app:signal-renderer-ready'),
+  getPendingOpenFile: () => ipcRenderer.invoke('app:get-pending-file'),
+  hasPendingOpenFile: () => ipcRenderer.invoke('app:has-pending-file'),
+  revokePendingBookFile: (filePath) => ipcRenderer.invoke('fs:revoke-pending-book', filePath),
+  extractRarArchive: (buffer) => ipcRenderer.invoke('archive:extract-rar', buffer),
+  openArchiveDialog: () => ipcRenderer.invoke('dialog:open-archive'),
+  inspectArchive: (filePathOrDescriptor) => ipcRenderer.invoke('archive:inspect', filePathOrDescriptor),
+  extractArchiveFiles: (options) => ipcRenderer.invoke('archive:extract', options),
   onNativeFullscreenChanged: (callback) => {
     ipcRenderer.on('native-fullscreen-changed', (_event, isFullscreen) => callback(Boolean(isFullscreen)));
   }
-});
+};
+
+// Expose under official Lirune branding and maintain noveraDesktop alias for compatibility
+contextBridge.exposeInMainWorld('liruneDesktop', desktopApi);
+contextBridge.exposeInMainWorld('noveraDesktop', desktopApi);

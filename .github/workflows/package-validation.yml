@@ -1,0 +1,47 @@
+name: Windows Package Build & Release Verification
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1' # Weekly on Monday at 04:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify-windows-packages:
+    name: Build & Verify Windows Packages (NSIS EXE & Unsigned Store APPX)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Clean install dependencies
+        run: npm ci
+
+      - name: Verify release configuration
+        run: npm run validate:release:config
+
+      - name: Build unsigned Windows NSIS installer
+        run: npm run dist:win
+
+      - name: Validate built NSIS release freshness and contents
+        run: npm run validate:release
+
+      - name: Build unsigned Windows Store APPX package
+        run: npm run dist:store
+
+      - name: Validate built APPX package manifest and identity
+        run: npm run validate:release:store
+
+      - name: Compute artifact checksums
+        shell: pwsh
+        run: |
+          Get-FileHash dist/*.exe, dist/*.appx, dist/*.blockmap | Format-Table -AutoSize

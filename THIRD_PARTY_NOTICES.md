@@ -11,6 +11,10 @@ Lirune Reader distributes the following runtime and build dependencies. Their li
 - Electron 44.x: MIT License and bundled Chromium/Node.js third-party notices.
 - `electron-builder` 26.x: MIT License, used for packaging and not required by the installed reader at runtime.
 
+## Notes
+
 The application does not bundle remote fonts or a third-party online service. See the installed dependency license files and Electron's generated `LICENSES.chromium.html` for the complete notices.
 
-The Novera compatibility identifiers retained in the application are project-local historical identifiers for existing data and do not indicate bundled third-party code.
+The Lirune compatibility identifiers retained in the application are project-local historical identifiers for existing data and do not indicate bundled third-party code.
+
+A full provenance review, including assets and test fixtures, is recorded in `IP_LICENSE_AUDIT.md`. That document is an engineering review and not a legal opinion.

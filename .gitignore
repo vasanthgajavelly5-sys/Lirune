@@ -20,6 +20,7 @@ downloads/
 # repository, and none of it should ever reach a build; these entries exist so
 # an accidental `git add -A` cannot commit them.
 scratch/
+artifacts/
 Batch1-Fixes/
 Batch2-Fixes/
 Batch3-Fixes/
@@ -55,3 +56,8 @@ ehthumbs.db
 [Dd]esktop.ini
 .vscode/
 .idea/
+.kilo/
+*.avd/
+mobile/internal/kilo-live-qa-evidence/
+mobile/internal/gpu_qa_screenshots/
+

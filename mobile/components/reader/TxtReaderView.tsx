@@ -384,6 +384,19 @@ export function TxtReaderView({
     [handleRelease]
   );
 
+  const isThemeDark = settings.theme === 'night' || settings.theme.startsWith('contrast');
+  const cardBg = palette.surface || palette.bg;
+  const cardBorder = isThemeDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
+
+  const paragraphs = useMemo(() => {
+    if (!chunkText) return ['No text found in this section.'];
+    let paras = chunkText.split(/\r?\n\r?\n/);
+    if (paras.length <= 1 && chunkText.includes('\n')) {
+      paras = chunkText.split(/\r?\n/);
+    }
+    return paras.filter((p) => p.length > 0);
+  }, [chunkText]);
+
   if (isLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: palette.bg }]}>
@@ -410,31 +423,53 @@ export function TxtReaderView({
           ref={scrollViewRef}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingHorizontal: settings.margin + 8 },
+            { paddingHorizontal: Math.max(12, settings.margin) },
           ]}
           showsVerticalScrollIndicator={false}
         >
-          <Text
+          <View
             style={[
-              styles.bodyText,
+              styles.docPageCard,
               {
-                color: palette.text,
-                fontSize: settings.fontSize,
-                lineHeight: Math.round(settings.fontSize * settings.lineHeight),
-                textAlign: settings.alignment,
-                fontFamily: getNativeFontFamily(settings.fontFamily),
+                backgroundColor: cardBg,
+                borderColor: cardBorder,
               },
             ]}
           >
-            {chunkText || 'No text found in this section.'}
-          </Text>
+            {paragraphs.map((para, i) => (
+              <Text
+                key={i}
+                style={[
+                  styles.bodyText,
+                  {
+                    color: palette.text,
+                    fontSize: settings.fontSize,
+                    lineHeight: Math.round(settings.fontSize * settings.lineHeight),
+                    textAlign: settings.alignment,
+                    fontFamily: getNativeFontFamily(settings.fontFamily),
+                    marginBottom:
+                      i === paragraphs.length - 1
+                        ? 0
+                        : Math.round(settings.fontSize * (settings.paragraphSpacing || 1.0)),
+                  },
+                ]}
+              >
+                {para}
+              </Text>
+            ))}
+            {chunkOffsets.length > 0 && (
+              <View style={styles.pageCardFooter}>
+                <Text style={[styles.pageFooterText, { color: palette.muted }]}>
+                  {`Page ${currentChunkIndex + 1} of ${chunkOffsets.length}`}
+                </Text>
+              </View>
+            )}
+          </View>
         </ScrollView>
       </View>
     </View>
   );
 }
-
-/** Index of the first entry in `sorted` that is strictly greater than `value`. */
 
 const styles = StyleSheet.create({
   container: {
@@ -453,9 +488,34 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingVertical: 36,
+    paddingVertical: 28,
+  },
+  docPageCard: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+    borderRadius: 6,
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
   },
   bodyText: {
     letterSpacing: 0.2,
+  },
+  pageCardFooter: {
+    marginTop: 24,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(128, 128, 128, 0.2)',
+    alignItems: 'center',
+  },
+  pageFooterText: {
+    fontSize: 12,
+    letterSpacing: 0.3,
   },
 });

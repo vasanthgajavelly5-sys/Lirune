@@ -52,6 +52,7 @@ export class MobiParser {
 
     const compression = rec0View.getUint16(0, false);
     const textRecordCount = rec0View.getUint16(8, false);
+    const extraFlags = rec0.length >= 0xF4 ? rec0View.getUint16(0xF2, false) : 0;
 
     // Read MOBI header
     let title = 'Untitled MOBI';
@@ -126,7 +127,14 @@ export class MobiParser {
     for (let r = 1; r <= textRecordCount && r < recordOffsets.length; r++) {
       const start = recordOffsets[r];
       const end = r + 1 < recordOffsets.length ? recordOffsets[r + 1] : buffer.length;
-      const recData = buffer.subarray(start, end);
+      let recData = buffer.subarray(start, end);
+
+      if (extraFlags && recData.length > 0) {
+        const trailingSize = this.getSizeOfTrailingDataEntries(recData, recData.length, extraFlags);
+        if (trailingSize > 0 && trailingSize < recData.length) {
+          recData = recData.subarray(0, recData.length - trailingSize);
+        }
+      }
 
       if (compression === 1) {
         // No compression
@@ -174,6 +182,41 @@ export class MobiParser {
   }
 
   /**
+   * Calculates size of trailing multibyte metadata entries appended to MOBI records.
+   */
+  private static getSizeOfTrailingDataEntries(
+    ptr: Uint8Array,
+    size: number,
+    flags: number
+  ): number {
+    function getSizeOfTrailingDataEntry(p: Uint8Array, s: number): number {
+      let bitpos = 0;
+      let result = 0;
+      if (s <= 0) return result;
+      while (true) {
+        const v = p[s - 1];
+        result |= (v & 0x7f) << bitpos;
+        bitpos += 7;
+        s -= 1;
+        if ((v & 0x80) !== 0 || bitpos >= 28 || s === 0) return result;
+      }
+    }
+
+    let num = 0;
+    let testflags = flags >> 1;
+    while (testflags) {
+      if (testflags & 1) {
+        num += getSizeOfTrailingDataEntry(ptr, size - num);
+      }
+      testflags >>= 1;
+    }
+    if (flags & 1) {
+      num += (ptr[size - num - 1] & 0x3) + 1;
+    }
+    return num;
+  }
+
+  /**
    * Decompresses PalmDOC LZ77 compressed byte stream.
    */
   private static decompressPalmDoc(data: Uint8Array): Uint8Array {
@@ -196,9 +239,9 @@ export class MobiParser {
       } else if (b <= 0xBF) {
         // Distance / length pair
         if (i < len) {
-          const next = data[i++];
-          const distance = ((b & 0x3F) << 3) | (next >> 5);
-          const length = (next & 0x07) + 3;
+          const b2 = data[i++];
+          const distance = (((b & 0x3F) << 8) | b2) >> 3;
+          const length = (b2 & 0x07) + 3;
           const start = out.length - distance;
           for (let j = 0; j < length; j++) {
             if (start + j >= 0 && start + j < out.length) {

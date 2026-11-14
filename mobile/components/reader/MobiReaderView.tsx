@@ -10,6 +10,7 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
+import { getCssFontFamily } from '@/theme/Typography';
 import { MobiParser } from '@/services/mobi/MobiParser';
 import { SELECTION_WATCHER_JS, SelectionPayload } from '@/services/reader/selectionBridge';
 import { READER_WEBVIEW_PROPS, allowReaderNavigation } from '@/services/security/webviewPolicy';
@@ -100,19 +101,64 @@ export function MobiReaderView({
   }, [book.filePath, book.uri, onTOCLoaded]);
 
   useEffect(() => {
+    const cssFont = getCssFontFamily(settings.fontFamily);
+    const cssText = `
+      html, body {
+        background-color: ${palette.bg} !important;
+        color: ${palette.text} !important;
+        font-family: ${cssFont} !important;
+        font-size: ${settings.fontSize}px !important;
+        line-height: ${settings.lineHeight} !important;
+        text-align: ${settings.alignment} !important;
+        padding-left: ${settings.margin}px !important;
+        padding-right: ${settings.margin}px !important;
+      }
+      p, div, span, h1, h2, h3, h4, li, blockquote {
+        color: ${palette.text} !important;
+        background-color: transparent !important;
+      }
+      p {
+        margin-bottom: ${settings.paragraphSpacing || 1.0}em !important;
+        text-align: ${settings.alignment} !important;
+      }
+      center, [align="center"], [align="middle"] {
+        text-align: ${settings.alignment} !important;
+      }
+      a {
+        color: ${palette.link} !important;
+      }
+    `;
+    const escaped = cssText.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\n/g, ' ');
     webViewRef.current?.injectJavaScript(`
       (function() {
         var el = document.getElementById('reader-theme-override');
         if (el) {
-          el.textContent = 'html, body { background-color: ${palette.bg} !important; color: ${palette.text} !important; } p, div, span, h1, h2, h3, h4, li, blockquote { color: ${palette.text} !important; background-color: transparent !important; } a { color: ${palette.link} !important; }';
+          el.textContent = \`${escaped}\`;
         }
         if (document.body) {
           document.body.style.setProperty('background-color', '${palette.bg}', 'important');
           document.body.style.setProperty('color', '${palette.text}', 'important');
+          document.body.style.setProperty('font-family', \`${cssFont}\`, 'important');
+          document.body.style.setProperty('font-size', '${settings.fontSize}px', 'important');
+          document.body.style.setProperty('line-height', '${settings.lineHeight}', 'important');
+          document.body.style.setProperty('text-align', '${settings.alignment}', 'important');
+          document.body.style.setProperty('padding-left', '${settings.margin}px', 'important');
+          document.body.style.setProperty('padding-right', '${settings.margin}px', 'important');
         }
       })(); true;
     `);
-  }, [palette.bg, palette.text, palette.link]);
+  }, [
+    palette.bg,
+    palette.text,
+    palette.link,
+    palette.muted,
+    settings.fontFamily,
+    settings.fontSize,
+    settings.lineHeight,
+    settings.paragraphSpacing,
+    settings.margin,
+    settings.alignment,
+  ]);
 
   const handleMessage = useCallback(
     (e: WebViewMessageEvent) => {
@@ -160,13 +206,22 @@ export function MobiReaderView({
         body {
           background-color: ${palette.bg};
           color: ${palette.text};
-          font-family: ${settings.fontFamily || 'serif'};
+          font-family: ${getCssFontFamily(settings.fontFamily)};
           font-size: ${settings.fontSize}px;
           line-height: ${settings.lineHeight};
           padding: 24px ${settings.margin}px 60px ${settings.margin}px;
           margin: 0;
           text-align: ${settings.alignment};
           word-wrap: break-word;
+          overflow-wrap: break-word;
+        }
+        center, [align="center"], [align="middle"] {
+          text-align: ${settings.alignment};
+        }
+        blockquote {
+          margin: 1em 0.5em;
+          padding-left: 12px;
+          border-left: 3px solid ${palette.muted};
         }
         img {
           max-width: 100%;
@@ -183,6 +238,9 @@ export function MobiReaderView({
           margin-top: 0;
           margin-bottom: ${settings.paragraphSpacing || 1.0}em;
           text-indent: 1em;
+          text-align: ${settings.alignment};
+          overflow-wrap: break-word;
+          word-break: break-word;
         }
         a {
           color: ${palette.link};
@@ -190,9 +248,30 @@ export function MobiReaderView({
         }
       </style>
       <style id="reader-theme-override">
-        html, body { background-color: ${palette.bg} !important; color: ${palette.text} !important; }
-        p, div, span, h1, h2, h3, h4, li, blockquote { color: ${palette.text} !important; background-color: transparent !important; }
-        a { color: ${palette.link} !important; }
+        html, body {
+          background-color: ${palette.bg} !important;
+          color: ${palette.text} !important;
+          font-family: ${getCssFontFamily(settings.fontFamily)} !important;
+          font-size: ${settings.fontSize}px !important;
+          line-height: ${settings.lineHeight} !important;
+          text-align: ${settings.alignment} !important;
+          padding-left: ${settings.margin}px !important;
+          padding-right: ${settings.margin}px !important;
+        }
+        p, div, span, h1, h2, h3, h4, li, blockquote {
+          color: ${palette.text} !important;
+          background-color: transparent !important;
+        }
+        p {
+          margin-bottom: ${settings.paragraphSpacing || 1.0}em !important;
+          text-align: ${settings.alignment} !important;
+        }
+        center, [align="center"], [align="middle"] {
+          text-align: ${settings.alignment} !important;
+        }
+        a {
+          color: ${palette.link} !important;
+        }
       </style>
     </head>
     <body>

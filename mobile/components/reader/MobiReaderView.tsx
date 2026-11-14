@@ -8,6 +8,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
+import { toFileUri } from '@/services/storage/FileStorage';
 import { Book, ReaderSettings, TOCItem, SearchResult } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { getCssFontFamily } from '@/theme/Typography';
@@ -55,7 +56,7 @@ export function MobiReaderView({
       setIsLoading(true);
       setError(null);
       try {
-        const filePath = book.filePath || book.uri || '';
+        const filePath = toFileUri(book.filePath || book.uri || '');
         const base64 = await FileSystem.readAsStringAsync(filePath, {
           encoding: FileSystem.EncodingType.Base64,
         });
@@ -117,11 +118,10 @@ export function MobiReaderView({
         color: ${palette.text} !important;
         background-color: transparent !important;
       }
-      p {
-        margin-bottom: ${settings.paragraphSpacing || 1.0}em !important;
+      p, div, span, li, blockquote {
         text-align: ${settings.alignment} !important;
       }
-      center, [align="center"], [align="middle"] {
+      center, [align="center"], [align="middle"], center *, [align="center"] *, [align="middle"] * {
         text-align: ${settings.alignment} !important;
       }
       a {
@@ -215,8 +215,12 @@ export function MobiReaderView({
           word-wrap: break-word;
           overflow-wrap: break-word;
         }
-        center, [align="center"], [align="middle"] {
-          text-align: ${settings.alignment};
+        p, div, span, li, blockquote {
+          text-align: ${settings.alignment} !important;
+          margin-bottom: ${settings.paragraphSpacing || 1.0}em;
+        }
+        center, [align="center"], [align="middle"], center *, [align="center"] *, [align="middle"] * {
+          text-align: ${settings.alignment} !important;
         }
         blockquote {
           margin: 1em 0.5em;

@@ -11,11 +11,22 @@
 
 const fs = require('fs');
 const path = require('path');
+const babel = require('@babel/core');
 
 const root = path.resolve(__dirname, '..');
 const buildDir = path.join(root, 'node_modules', 'pdfjs-dist', 'legacy', 'build');
 const outDir = path.join(root, 'services', 'pdf');
 const outFile = path.join(outDir, 'pdfjsAssets.ts');
+
+const babelPlugins = [
+  require.resolve('@babel/plugin-transform-class-static-block', { paths: [root] }),
+  require.resolve('@babel/plugin-transform-logical-assignment-operators', { paths: [root] }),
+  require.resolve('@babel/plugin-transform-private-methods', { paths: [root] }),
+  require.resolve('@babel/plugin-transform-class-properties', { paths: [root] }),
+  require.resolve('@babel/plugin-transform-private-property-in-object', { paths: [root] }),
+  require.resolve('@babel/plugin-transform-nullish-coalescing-operator', { paths: [root] }),
+  require.resolve('@babel/plugin-transform-optional-chaining', { paths: [root] }),
+];
 
 const sources = [
   ['PDFJS_SOURCE', 'pdf.min.mjs'],
@@ -72,9 +83,21 @@ for (const [name, file] of sources) {
       : ['WorkerMessageHandler']
   );
 
-  // Emit a plain JSON string literal holding the RAW library source. The source
-  // contains backticks and ${, so the consumer must escape it via
-  // `escapeForTemplateLiteral()` at the point it is inlined into HTML.
+  // Downlevel modern syntax (private methods #foo, logical assignments ??=,
+  // static class blocks) so the bundled engine runs on Android System WebView
+  // (Chrome 80+) without throwing SyntaxErrors.
+  console.log(`Transpiling ${name} for Android WebView compatibility...`);
+  const transformed = babel.transformSync(content, {
+    plugins: babelPlugins,
+    babelrc: false,
+    configFile: false,
+    compact: true,
+  });
+  if (transformed && transformed.code) {
+    content = transformed.code;
+  }
+
+  // Emit a plain JSON string literal holding the library source.
   parts.push(
     `export const ${name}: string = ${JSON.stringify(content)};`,
     ''

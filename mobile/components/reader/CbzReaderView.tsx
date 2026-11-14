@@ -22,7 +22,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import JSZip from 'jszip';
 import * as FileSystem from 'expo-file-system/legacy';
-import { File as FsFile } from 'expo-file-system';
+import { fileStorage } from '@/services/storage/FileStorage';
 import { Book, ReaderSettings } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { logger } from '@/utils/logger';
@@ -98,7 +98,7 @@ export function CbzReaderView({
         const bookPath = book.filePath || book.uri || '';
         // Read as raw bytes. `readAsBase64` would materialise a base64 string
         // ~1.33x the archive size in the JS heap first.
-        const buffer = await new FsFile(bookPath).arrayBuffer();
+        const buffer = await fileStorage.readAsArrayBuffer(bookPath);
         const zip = await JSZip.loadAsync(new Uint8Array(buffer));
 
         const images = Object.keys(zip.files)
@@ -159,7 +159,11 @@ export function CbzReaderView({
       } catch (err) {
         logger.error(TAG, `Failed to load CBZ archive: ${book.filePath || book.uri}`, err);
         if (!cancelled && isMountedRef.current) {
-          setLoadError('Unable to open comic archive.');
+          setLoadError(
+            book.format === 'cb7'
+              ? 'CB7 (7-Zip) archives are not supported yet. Please convert to CBZ.'
+              : 'Unable to open comic archive.'
+          );
           setIsLoadingZip(false);
         }
       }

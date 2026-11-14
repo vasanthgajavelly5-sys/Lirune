@@ -21,6 +21,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import { toFileUri } from '@/services/storage/FileStorage';
 import { useStableInsets } from '@/hooks/useStableInsets';
 import { useWebViewRecovery } from '@/hooks/useWebViewRecovery';
 import { WebView } from 'react-native-webview';
@@ -81,6 +82,7 @@ export function PdfReaderView({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(0);
   const [webViewReady, setWebViewReady] = useState<boolean>(false);
+  const webViewReadyRef = useRef<boolean>(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [passwordPrompt, setPasswordPrompt] = useState<boolean>(false);
   const [passwordDraft, setPasswordDraft] = useState<string>('');
@@ -111,7 +113,7 @@ export function PdfReaderView({
   const [searchCount, setSearchCount] = useState<number>(0);
 
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
-  const bookPath = book.filePath || book.uri || '';
+  const bookPath = toFileUri(book.filePath || book.uri || '');
 
   // Mirrors for values the injected scripts need but must not re-subscribe to.
   useEffect(() => {
@@ -174,6 +176,7 @@ export function PdfReaderView({
   const handleRetry = useCallback(() => {
     setRenderError(null);
     setLoadProgress(0);
+    webViewReadyRef.current = false;
     setWebViewReady(false);
     pendingPageRef.current = null;
     setAttempt((value) => value + 1);
@@ -188,7 +191,7 @@ export function PdfReaderView({
    */
   const pushLayout = useCallback(() => {
     webViewRef.current?.injectJavaScript(
-      `window.__setLayout(${JSON.stringify({
+      `if (typeof window.__setLayout === 'function') window.__setLayout(${JSON.stringify({
         w: windowWidth,
         h: windowHeight,
         top: insets.top,
@@ -211,7 +214,8 @@ export function PdfReaderView({
         const data = JSON.parse(event.nativeEvent.data);
         switch (data.type) {
           case 'ready':
-            // The page exists but holds no bytes yet; start streaming into it.
+            if (webViewReadyRef.current) return;
+            webViewReadyRef.current = true;
             setWebViewReady(true);
             pushLayout();
             void transferDocument().catch((err: any) => {
@@ -328,14 +332,132 @@ export function PdfReaderView({
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.75, maximum-scale=4.0, user-scalable=yes">
   <script>
-    window.onerror = function(msg, url, line, col) {
+    window.onerror = function(msg, url, line, col, err) {
+      if (msg === 'Script error.' && !line) return;
       try {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', message: String(msg) + ' (' + line + ':' + col + ')' }));
+        var details = (err && err.stack) ? err.stack : (String(msg) + ' (' + line + ':' + col + ')');
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', message: details }));
       } catch (e) {}
     };
+    // Polyfills for older Android System WebView (Chrome 80-92)
+    (function() {
+      function defNonEnum(proto, name, fn) {
+        if (!proto[name]) {
+          Object.defineProperty(proto, name, {
+            value: fn,
+            writable: true,
+            configurable: true,
+            enumerable: false,
+          });
+        }
+      }
+      function at(n) {
+        n = Math.trunc(n) || 0;
+        if (n < 0) n += this.length;
+        if (n < 0 || n >= this.length) return undefined;
+        return this[n];
+      }
+      defNonEnum(Array.prototype, 'at', at);
+      defNonEnum(String.prototype, 'at', at);
+      if (typeof Uint8Array !== 'undefined') {
+        var TypedArray = Object.getPrototypeOf(Uint8Array.prototype);
+        if (TypedArray) defNonEnum(TypedArray, 'at', at);
+      }
+      if (!Object.hasOwn) {
+        Object.defineProperty(Object, 'hasOwn', {
+          value: function(obj, prop) {
+            return Object.prototype.hasOwnProperty.call(obj, prop);
+          },
+          writable: true,
+          configurable: true,
+          enumerable: false,
+        });
+      }
+      if (!Promise.withResolvers) {
+        Object.defineProperty(Promise, 'withResolvers', {
+          value: function() {
+            var a, b;
+            var p = new Promise(function(resolve, reject) {
+              a = resolve;
+              b = reject;
+            });
+            return { promise: p, resolve: a, reject: b };
+          },
+          writable: true,
+          configurable: true,
+          enumerable: false,
+        });
+      }
+      defNonEnum(Array.prototype, 'toReversed', function() {
+        return this.slice().reverse();
+      });
+      defNonEnum(Array.prototype, 'toSorted', function(compareFn) {
+        return this.slice().sort(compareFn);
+      });
+      defNonEnum(Array.prototype, 'toSpliced', function() {
+        var arr = this.slice();
+        Array.prototype.splice.apply(arr, arguments);
+        return arr;
+      });
+      defNonEnum(Array.prototype, 'findLast', function(predicate, thisArg) {
+        for (var i = this.length - 1; i >= 0; i--) {
+          if (predicate.call(thisArg, this[i], i, this)) return this[i];
+        }
+        return undefined;
+      });
+      if (typeof window.structuredClone === 'undefined') {
+        function cloneValue(val, seen) {
+          if (val === null || typeof val !== 'object') return val;
+          if (val instanceof ArrayBuffer) return val.slice(0);
+          if (ArrayBuffer.isView(val)) {
+            return new val.constructor(val.buffer.slice(0), val.byteOffset, val.length);
+          }
+          if (val instanceof Date) return new Date(val.getTime());
+          if (val instanceof RegExp) return new RegExp(val.source, val.flags);
+          if (seen.has(val)) return seen.get(val);
+          if (Array.isArray(val)) {
+            var arr = [];
+            seen.set(val, arr);
+            for (var i = 0; i < val.length; i++) arr[i] = cloneValue(val[i], seen);
+            return arr;
+          }
+          if (val instanceof Map) {
+            var map = new Map();
+            seen.set(val, map);
+            val.forEach(function(v, k) { map.set(cloneValue(k, seen), cloneValue(v, seen)); });
+            return map;
+          }
+          if (val instanceof Set) {
+            var set = new Set();
+            seen.set(val, set);
+            val.forEach(function(v) { set.add(cloneValue(v, seen)); });
+            return set;
+          }
+          var copy = Object.create(Object.getPrototypeOf(val));
+          seen.set(val, copy);
+          for (var key in val) {
+            if (Object.prototype.hasOwnProperty.call(val, key)) {
+              copy[key] = cloneValue(val[key], seen);
+            }
+          }
+          return copy;
+        }
+        window.structuredClone = function(val) {
+          return cloneValue(val, new Map());
+        };
+      }
+    })();
   </script>
-  <script>(function(){${PDFJS_INLINE}\n}).call(window);</script>
-  <script>(function(){${PDFJS_WORKER_INLINE}\n}).call(window);</script>
+  <script>
+    try {
+      (function(){\n` + PDFJS_INLINE + `\n}).call(window);
+    } catch (e) { console.error('PDFJS_SOURCE init error:', e); }
+  </script>
+  <script>
+    try {
+      (function(){\n` + PDFJS_WORKER_INLINE + `\n}).call(window);
+    } catch (e) { console.error('PDFJS_WORKER init error:', e); }
+  </script>
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
@@ -365,10 +487,14 @@ export function PdfReaderView({
   <div id="canvas-container"><canvas id="pdf-canvas"></canvas></div>
 
   <script>
-    if (window.pdfjsWorker && window.pdfjsWorker.WorkerMessageHandler) {
-      try { pdfjsLib.PDFWorker._mainThreadWorkerMessageHandler = window.pdfjsWorker.WorkerMessageHandler; } catch (e) {}
-    }
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+    try {
+      if (window.pdfjsWorker && window.pdfjsWorker.WorkerMessageHandler) {
+        try { pdfjsLib.PDFWorker._mainThreadWorkerMessageHandler = window.pdfjsWorker.WorkerMessageHandler; } catch (e) {}
+      }
+      if (window.pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      }
+    } catch (e) { console.error('PDF setup error:', e); }
 
     var MAX_CANVAS_PIXELS = ${MAX_CANVAS_PIXELS};
     var CHUNK_SIZE = ${Math.floor((CHUNK_BASE64_CHARS / 4) * 3)};
@@ -391,8 +517,25 @@ export function PdfReaderView({
     var searchToken = 0;
 
     function post(message) {
-      try { window.ReactNativeWebView.postMessage(JSON.stringify(message)); } catch (e) {}
+      if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+        window.ReactNativeWebView.postMessage(JSON.stringify(message));
+      } else {
+        var retries = 0;
+        var timer = setInterval(function() {
+          retries++;
+          if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+            clearInterval(timer);
+            window.ReactNativeWebView.postMessage(JSON.stringify(message));
+          } else if (retries > 60) {
+            clearInterval(timer);
+          }
+        }, 50);
+      }
     }
+
+    window.__notifyReady = function() {
+      post({ type: 'ready' });
+    };
 
     function base64ToBytes(base64) {
       var raw = atob(base64);
@@ -428,7 +571,11 @@ export function PdfReaderView({
     function openDocument(password) {
       var options = { data: chunkBytes, isEvalSupported: false, disableAutoFetch: true, disableStream: true };
       if (password) options.password = password;
-      pdfjsLib.getDocument(options).then(function (doc) {
+      var loadingTask = pdfjsLib.getDocument(options);
+      var docPromise = (loadingTask && typeof loadingTask.then === 'function')
+        ? loadingTask
+        : (loadingTask && loadingTask.promise ? loadingTask.promise : Promise.resolve(loadingTask));
+      docPromise.then(function (doc) {
         pdfDoc = doc;
         var toc = [];
         if (typeof doc.getOutline === 'function') {
@@ -705,6 +852,9 @@ export function PdfReaderView({
 
     // The host is told the page exists before any bytes arrive.
     post({ type: 'ready' });
+  </script>
+</body>
+</html>
   `,
     [palette.bg]
   );
@@ -732,11 +882,19 @@ export function PdfReaderView({
         ref={webViewRef}
         {...READER_WEBVIEW_PROPS}
         {...recovery.recoveryProps}
-        source={{ html: pdfViewerHtml }}
+        source={{ html: pdfViewerHtml, baseUrl: 'about:blank' }}
         style={{ backgroundColor: palette.bg }}
         onMessage={handleMessage}
         onLoadEnd={() => {
           pushLayout();
+          webViewRef.current?.injectJavaScript(`
+            if (typeof window.__notifyReady === 'function') {
+              window.__notifyReady();
+            } else if (typeof post === 'function') {
+              post({ type: 'ready' });
+            }
+            true;
+          `);
         }}
         scrollEnabled={true}
         scalesPageToFit={false}

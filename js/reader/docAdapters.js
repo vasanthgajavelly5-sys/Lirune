@@ -20,14 +20,15 @@ const DocAdapter = (() => {
   ]);
 
   function parseDoc(bytes) {
-    if (bytes.length < 512) throw new Error('Invalid DOC file: file too small.');
-    const isOle = bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0 &&
+    if (bytes.length < 128) throw new Error('Invalid DOC file: file too small.');
+    const isOle = bytes.length >= 8 && bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0 &&
                   bytes[4] === 0xA1 && bytes[5] === 0xB1 && bytes[6] === 0x1A && bytes[7] === 0xE1;
-    if (!isOle) throw new Error('Not a valid Word (.doc) Compound Document.');
+    const isWordBinary = bytes.length >= 2 && ((bytes[0] === 0xDB && bytes[1] === 0xA5) || (bytes[0] === 0x00 && bytes[1] === 0x05));
+    if (!isOle && !isWordBinary && bytes.length < 512) throw new Error('Not a valid Word (.doc) Compound Document.');
 
     const textParts = [];
     let currentRun = '';
-    let i = 512;
+    let i = isOle ? 512 : 0;
     while (i < bytes.length - 1) {
       const b1 = bytes[i];
       const b2 = bytes[i + 1];

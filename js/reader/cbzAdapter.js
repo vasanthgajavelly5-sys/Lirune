@@ -38,6 +38,9 @@ const CbzAdapter = (() => {
       if (typeof JSZip === 'undefined') throw new Error('Archive support is unavailable.');
       const bytes = await this.loadBytes();
       const zip = await JSZip.loadAsync(bytes);
+      if (typeof DocumentAdapter !== 'undefined' && DocumentAdapter.validateZipBudget) {
+        DocumentAdapter.validateZipBudget(zip);
+      }
       this.pages = Object.values(zip.files)
         .filter(entry => !entry.dir && BookFormat.IMAGE_EXT.includes(BookFormat.extensionOf(entry.name)))
         .sort((a, b) => naturalCompare(a.name, b.name))
@@ -286,7 +289,7 @@ const CbrAdapter = (() => {
     try {
       const res = await desktopApi.extractRarArchive(arrayBuffer);
       if (!res?.success || !Array.isArray(res.entries)) return record;
-      const images = res.entries.sort((a, b) => naturalCompare(a.name, b.name));
+      const images = res.entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
       record.pageCount = images.length;
       record.chapterCount = images.length || null;
       if (images.length > 0 && typeof createImageBitmap !== 'undefined') {

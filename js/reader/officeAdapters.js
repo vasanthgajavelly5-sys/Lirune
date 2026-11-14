@@ -273,6 +273,9 @@ const DocxAdapter = (() => {
       const bytes = await this.loadBytes();
       if (typeof JSZip === 'undefined') throw new Error('JSZip is required to open DOCX files.');
       const zip = await JSZip.loadAsync(bytes);
+      if (typeof DocumentAdapter !== 'undefined' && DocumentAdapter.validateZipBudget) {
+        DocumentAdapter.validateZipBudget(zip);
+      }
       const xmlFile = zip.file('word/document.xml');
       if (!xmlFile) throw new Error('This DOCX file is missing word/document.xml.');
       const xml = await xmlFile.async('text');
@@ -387,6 +390,9 @@ const OdtAdapter = (() => {
       const bytes = await this.loadBytes();
       if (typeof JSZip === 'undefined') throw new Error('JSZip is required to open ODT files.');
       const zip = await JSZip.loadAsync(bytes);
+      if (typeof DocumentAdapter !== 'undefined' && DocumentAdapter.validateZipBudget) {
+        DocumentAdapter.validateZipBudget(zip);
+      }
       const xmlFile = zip.file('content.xml');
       if (!xmlFile) throw new Error('This ODT file is missing content.xml.');
       const xml = await xmlFile.async('text');
@@ -426,7 +432,10 @@ const OdtAdapter = (() => {
 const RtfAdapter = (() => {
   function extractText(rtf) {
     let text = rtf.replace(/\{\\\*[^{}]*(?:\{[^{}]*\})*[^{}]*\}/g, ' ');
-    text = text.replace(/\{([^{}]*)\}/g, '$1');
+    while (/\{[^{}]*\}/.test(text)) {
+      text = text.replace(/\{([^{}]*)\}/g, (m, g1) => g1);
+    }
+    text = text.replace(/\\par\b/gi, '\n');
     text = text.replace(/\\[a-z]+[-\d]*/gi, ' ');
     text = text.replace(/\\\\/g, '\\').replace(/\\\{/g, '{').replace(/\\\}/g, '}');
     text = text.replace(/[ \t]+/g, ' ');
@@ -445,7 +454,9 @@ const RtfAdapter = (() => {
       const bytes = await this.loadBytes();
       const raw = new TextDecoder('windows-1252', { fatal: false }).decode(bytes);
       const text = extractText(raw);
-      if (!text.trim()) throw new Error('This RTF file appears to be empty.');
+      if (!text.trim()) {
+        return [{ id: 'sec-1', label: this.record.title || 'Document', depth: 0, html: '<p class="empty-document-notice"><em>(Empty document)</em></p>' }];
+      }
 
       const blocks = text.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
       const html = blocks.map(b =>

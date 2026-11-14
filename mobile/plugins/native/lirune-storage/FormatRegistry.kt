@@ -36,8 +36,13 @@ data class ZipEntryMeta(
 object FormatRegistry {
 
     val SUPPORTED_FORMATS = setOf(
-        "epub", "pdf", "txt", "html", "fb2", "cbz", "cbr", "cb7",
-        "mobi", "azw", "azw3", "djvu", "doc", "docx", "rtf", "odt", "chm", "md", "fbz"
+        "epub", "kepub", "pdf", "txt", "html", "fb2", "cbz", "cbr", "cbt", "cb7",
+        "mobi", "azw", "azw3", "djvu", "doc", "docx", "rtf", "odt", "chm", "md", "fbz", "xls", "ppt", "pps", "wps",
+        "jpg", "jpeg", "png", "webp", "bmp", "gif", "svg", "tiff", "tif", "avif", "heic", "heif",
+        "csv", "tsv", "xlsx", "xlsm", "xlsb", "xltx", "xltm", "ods",
+        "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "odp",
+        "mht", "mhtml", "xml", "json", "yaml", "yml", "log",
+        "eml", "msg", "mbox", "pst", "ost", "pages", "numbers", "key", "xps", "oxps", "vcf", "ics"
     )
 
     val BLOCKED_EXTENSIONS = setOf(
@@ -45,11 +50,20 @@ object FormatRegistry {
     )
 
     private val BOOK_ARCHIVE_EXTENSIONS = setOf(
-        "epub", "pdf", "fb2", "cbz", "cbr", "cb7", "mobi", "azw", "azw3", "kf8",
-        "djvu", "djv", "doc", "docx", "rtf", "odt", "chm", "md", "markdown", "fbz"
+        "epub", "kepub", "pdf", "fb2", "cbz", "cbr", "cbt", "cb7", "mobi", "azw", "azw3", "kf8",
+        "djvu", "djv", "doc", "docx", "rtf", "odt", "chm", "md", "markdown", "fbz",
+        "jpg", "jpeg", "png", "webp", "bmp", "gif", "svg", "tiff", "tif", "avif", "heic", "heif",
+        "csv", "tsv", "xlsx", "xlsm", "xlsb", "xltx", "xltm", "ods",
+        "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "odp",
+        "mht", "mhtml", "xml", "json", "yaml", "yml", "log", "eml", "msg", "mbox", "pst", "ost",
+        "pages", "numbers", "key", "xps", "oxps", "vcf", "ics", "zip", "rar"
     )
 
-    fun isSupported(format: String): Boolean = SUPPORTED_FORMATS.contains(format.lowercase(Locale.ROOT))
+    fun isSupported(format: String): Boolean {
+        val lower = format.lowercase(Locale.ROOT)
+        val normalized = if (lower == "kf8") "azw3" else lower
+        return SUPPORTED_FORMATS.contains(normalized)
+    }
 
     /**
      * Reads up to maxBytes from the start of an input stream.
@@ -221,7 +235,8 @@ object FormatRegistry {
             bytes[0] == 0xD0.toByte() && bytes[1] == 0xCF.toByte() && bytes[2] == 0x11.toByte() && bytes[3] == 0xE0.toByte() &&
             bytes[4] == 0xA1.toByte() && bytes[5] == 0xB1.toByte() && bytes[6] == 0x1A.toByte() && bytes[7] == 0xE1.toByte()
         ) {
-            return SniffResult("doc", 0.95f, "Microsoft OLE2 Compound Document (DOC)", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            val oleFormat = if (setOf("xls", "ppt", "pps", "wps", "msg").contains(ext)) ext else "doc"
+            return SniffResult(oleFormat, 0.95f, "Microsoft OLE2 Compound Document (${oleFormat.uppercase(Locale.ROOT)})", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
         }
 
         // 8. Palm Database / MOBI / AZW / AZW3: Check for "BOOKMOBI" or "TEXtREAd" at offset 60..67
@@ -303,8 +318,9 @@ object FormatRegistry {
             )
         }
 
-        if (SUPPORTED_FORMATS.contains(ext)) {
-            return SniffResult(ext, 0.4f, "Extension match only; binary signatures did not match", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        val resolvedExt = if (ext == "kf8") "azw3" else ext
+        if (SUPPORTED_FORMATS.contains(resolvedExt)) {
+            return SniffResult(resolvedExt, 0.4f, "Extension match only; binary signatures did not match", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
         }
 
         return SniffResult("unknown", 0.0f, "Unrecognized binary header or format", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "blocked")

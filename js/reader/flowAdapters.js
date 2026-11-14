@@ -279,6 +279,9 @@ const Fb2Adapter = (() => {
       if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)) {
         if (typeof JSZip !== 'undefined') {
           const zip = await JSZip.loadAsync(bytes);
+          if (typeof DocumentAdapter !== 'undefined' && DocumentAdapter.validateZipBudget) {
+            DocumentAdapter.validateZipBudget(zip);
+          }
           const fb2Entry = Object.values(zip.files).find(f => !f.dir && f.name.toLowerCase().endsWith('.fb2'));
           if (fb2Entry) {
             bytes = await fb2Entry.async('uint8array');

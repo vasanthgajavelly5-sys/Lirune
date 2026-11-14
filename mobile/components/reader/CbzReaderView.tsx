@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import JSZip from 'jszip';
 import * as FileSystem from 'expo-file-system/legacy';
 import { fileStorage } from '@/services/storage/FileStorage';
+import { TarExtractor } from '@/services/archive/TarExtractor';
 import { Book, ReaderSettings } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { logger } from '@/utils/logger';
@@ -39,6 +40,16 @@ const MIME_BY_EXT: Record<string, string> = {
   gif: 'image/gif',
   bmp: 'image/bmp',
 };
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const CHUNK_SIZE = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+}
 
 /** The subset of PanResponder's gesture state this reader needs. */
 interface TapGesture {
@@ -88,6 +99,13 @@ export function CbzReaderView({
     async function loadArchive() {
       setIsLoadingZip(true);
       setLoadError(null);
+      // CB7 (7-Zip) archives cannot be read by JSZip. Fail early with a clear message
+      // rather than letting JSZip throw a silent or misleading error.
+      if (book.format === 'cb7') {
+        setLoadError('CB7 (7-Zip comic archives) are not yet supported. Use CBZ instead.');
+        setIsLoadingZip(false);
+        return;
+      }
       try {
         const cacheRoot = `${FileSystem.cacheDirectory || ''}cbz-${book.id}/`;
         const existing = await FileSystem.getInfoAsync(cacheRoot);
@@ -99,16 +117,26 @@ export function CbzReaderView({
         // Read as raw bytes. `readAsBase64` would materialise a base64 string
         // ~1.33x the archive size in the JS heap first.
         const buffer = await fileStorage.readAsArrayBuffer(bookPath);
-        const zip = await JSZip.loadAsync(new Uint8Array(buffer));
 
-        const images = Object.keys(zip.files)
-          .filter((name) => {
-            const ext = name.split('.').pop()?.toLowerCase();
-            return ext && IMAGE_EXTENSIONS.includes(ext) && !zip.files[name].dir;
-          })
-          .sort((a, b) =>
-            a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
-          );
+        let images: string[] = [];
+        const imageByteMap = new Map<string, Uint8Array>();
+        let zip: JSZip | null = null;
+
+        if (book.format === 'cbt') {
+          const tarEntries = TarExtractor.imageEntries(new Uint8Array(buffer));
+          images = tarEntries.map((e) => e.name);
+          tarEntries.forEach((e) => imageByteMap.set(e.name, e.data));
+        } else {
+          zip = await JSZip.loadAsync(new Uint8Array(buffer));
+          images = Object.keys(zip.files)
+            .filter((name) => {
+              const ext = name.split('.').pop()?.toLowerCase();
+              return ext && IMAGE_EXTENSIONS.includes(ext) && !zip!.files[name].dir;
+            })
+            .sort((a, b) =>
+              a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+            );
+        }
 
         if (cancelled || !isMountedRef.current) return;
 
@@ -134,15 +162,24 @@ export function CbzReaderView({
 
           const info = await FileSystem.getInfoAsync(destPath);
           if (!info.exists) {
-            const entry = zip.file(name);
-            if (!entry) {
-              uris.push('');
-              continue;
+            if (book.format === 'cbt') {
+              const data = imageByteMap.get(name);
+              if (data) {
+                await FileSystem.writeAsStringAsync(destPath, bytesToBase64(data), {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+              }
+            } else if (zip) {
+              const entry = zip.file(name);
+              if (!entry) {
+                uris.push('');
+                continue;
+              }
+              const b64 = await entry.async('base64');
+              await FileSystem.writeAsStringAsync(destPath, b64, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
             }
-            const b64 = await entry.async('base64');
-            await FileSystem.writeAsStringAsync(destPath, b64, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
           }
           uris.push(destPath);
 
@@ -159,11 +196,7 @@ export function CbzReaderView({
       } catch (err) {
         logger.error(TAG, `Failed to load CBZ archive: ${book.filePath || book.uri}`, err);
         if (!cancelled && isMountedRef.current) {
-          setLoadError(
-            book.format === 'cb7'
-              ? 'CB7 (7-Zip) archives are not supported yet. Please convert to CBZ.'
-              : 'Unable to open comic archive.'
-          );
+          setLoadError('Unable to open comic archive.');
           setIsLoadingZip(false);
         }
       }

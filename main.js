@@ -30,7 +30,15 @@ if (process.platform === 'win32' && app?.setAppUserModelId) {
 
 // Formats the application can open. Kept in sync with js/formats.js; the
 // renderer performs the authoritative content-based detection.
-const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf', 'md', 'markdown', 'fbz', 'mobi', 'azw', 'azw3', 'cbr', 'doc', 'chm', 'djvu', 'djv'];
+let SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf', 'md', 'markdown', 'fbz', 'mobi', 'azw', 'azw3', 'cbr', 'doc', 'chm', 'djvu', 'djv'];
+try {
+  const BookFormat = require('./js/formats.js');
+  if (BookFormat && typeof BookFormat.importExtensions === 'function') {
+    SUPPORTED_EXTENSIONS = [...new Set([...SUPPORTED_EXTENSIONS, ...BookFormat.importExtensions(), 'cbt', 'cb7', 'zip', 'ppt', 'png', 'jpg', 'jpeg', 'tiff', 'tif'])];
+  }
+} catch (e) {
+  console.warn('Could not load formats from js/formats.js:', e.message);
+}
 const OPENABLE_EXTENSIONS = [...SUPPORTED_EXTENSIONS];
 const ARCHIVE_EXTENSIONS = ['zip', '7z', 'rar'];
 
@@ -617,10 +625,11 @@ async function validateBookBuffer(buffer, extension = '') {
     return true;
   }
   if (ext === 'doc') {
-    if (buffer.length < 512) throw new Error('Not a valid Word (.doc) document: file too small');
-    const isOle = buffer[0] === 0xd0 && buffer[1] === 0xcf && buffer[2] === 0x11 && buffer[3] === 0xe0 &&
+    if (buffer.length < 128) throw new Error('Not a valid Word (.doc) document: file too small');
+    const isOle = buffer.length >= 8 && buffer[0] === 0xd0 && buffer[1] === 0xcf && buffer[2] === 0x11 && buffer[3] === 0xe0 &&
                   buffer[4] === 0xa1 && buffer[5] === 0xb1 && buffer[6] === 0x1a && buffer[7] === 0xe1;
-    if (!isOle) throw new Error('Not a valid Word (.doc) document');
+    const isWordBinary = buffer.length >= 2 && ((buffer[0] === 0xdb && buffer[1] === 0xa5) || (buffer[0] === 0x00 && buffer[1] === 0x05));
+    if (!isOle && !isWordBinary && buffer.length < 512) throw new Error('Not a valid Word (.doc) document');
     return true;
   }
   if (ext === 'chm') {
@@ -636,6 +645,12 @@ async function validateBookBuffer(buffer, extension = '') {
     return true;
   }
   if (['txt', 'html', 'htm', 'md', 'markdown'].includes(ext)) {
+    return true;
+  }
+  if (ext === 'zip') {
+    throw new Error(`Unsupported archive format (.zip). Only EPUB, CBZ, DOCX, ODT, and FBZ archives are supported.`);
+  }
+  if (SUPPORTED_EXTENSIONS.includes(ext)) {
     return true;
   }
   if (isZip) {

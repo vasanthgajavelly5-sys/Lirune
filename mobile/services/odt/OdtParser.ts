@@ -4,6 +4,7 @@
  */
 
 import JSZip from 'jszip';
+import { validateZipArchive } from '../security/archiveBudget.ts';
 
 export interface OdtMetadata {
   title: string;
@@ -23,6 +24,7 @@ export class OdtParser {
     const zip = typeof buffer === 'string'
       ? await JSZip.loadAsync(buffer, { base64: true })
       : await JSZip.loadAsync(buffer);
+    validateZipArchive(zip);
 
     // 1. Metadata from meta.xml
     let title = 'Untitled ODT Document';

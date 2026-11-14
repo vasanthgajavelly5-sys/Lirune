@@ -69,10 +69,7 @@ const MobiAdapter = (() => {
     const rec0 = new DataView(bytes.buffer, bytes.byteOffset + rec0Offset, rec0Length);
 
     const compression = rec0.getUint16(0);
-    if (compression !== 1 && compression !== 2) {
-      if (compression === 17480) {
-        throw new Error('HUFF/CDIC compressed MOBI files are not supported. Please convert with Calibre.');
-      }
+    if (compression !== 1 && compression !== 2 && compression !== 17480) {
       throw new Error(`Unsupported MOBI compression type (${compression})`);
     }
 
@@ -109,8 +106,10 @@ const MobiAdapter = (() => {
         title = new TextDecoder('utf-8', { fatal: false }).decode(titleBytes).trim() || defaultTitle;
       }
 
-      firstImageIndex = rec0.getUint32(108);
-      const exthFlags = rec0.getUint32(128);
+      if (rec0Length >= 16 + 112) {
+        firstImageIndex = rec0.getUint32(16 + 108);
+      }
+      const exthFlags = rec0Length >= 16 + 132 ? rec0.getUint32(16 + 128) : 0;
 
       // EXTH header check
       if ((exthFlags & 0x40) !== 0 && rec0Length >= 16 + headerLength + 12) {
@@ -184,6 +183,23 @@ const MobiAdapter = (() => {
     }
 
     // 5. Decompress Text Records (1 .. textRecordCount)
+    let huffReader = null;
+    if (compression === 17480) {
+      const huffRecordOffset = rec0Length >= 16 + 120 ? rec0.getUint32(16 + 112) : 0;
+      const huffRecordCount = rec0Length >= 16 + 124 ? rec0.getUint32(16 + 116) : 0;
+      if (!huffRecordCount || huffRecordOffset >= numRecords || huffRecordOffset + huffRecordCount > numRecords) {
+        throw new Error('Invalid MOBI HUFF/CDIC record range.');
+      }
+      const huffRecords = [];
+      for (let i = 0; i < huffRecordCount; i++) {
+        const start = recordOffsets[huffRecordOffset + i];
+        const end = recordOffsets[huffRecordOffset + i + 1];
+        if (end <= start || end > bytes.length) throw new Error('Invalid MOBI HUFF/CDIC record.');
+        huffRecords.push(bytes.subarray(start, end));
+      }
+      huffReader = new HuffReader(huffRecords);
+    }
+
     const decompressedChunks = [];
     const count = Math.min(textRecordCount, numRecords - 1);
 
@@ -203,6 +219,8 @@ const MobiAdapter = (() => {
         decompressedChunks.push(recBytes);
       } else if (compression === 2) {
         decompressedChunks.push(decompressPalmDocLz77(recBytes));
+      } else if (compression === 17480) {
+        decompressedChunks.push(huffReader.unpack(recBytes));
       }
     }
 
@@ -290,6 +308,7 @@ const MobiAdapter = (() => {
         for (let j = 0; j < b && i < len; j++) {
           out.push(input[i++]);
         }
+
       } else if (b <= 0x7F) {
         out.push(b);
       } else if (b <= 0xBF) {
@@ -308,6 +327,132 @@ const MobiAdapter = (() => {
     }
 
     return new Uint8Array(out);
+  }
+
+  class HuffReader {
+    constructor(records) {
+      if (!records.length) throw new Error('MOBI HUFF/CDIC records are missing.');
+      this.dictionary = [];
+      this.loadHuff(records[0]);
+      for (let i = 1; i < records.length; i++) this.loadCdic(records[i]);
+      if (!this.dictionary.length) throw new Error('MOBI CDIC dictionary is empty.');
+    }
+
+    loadHuff(bytes) {
+      if (bytes.length < 16 || readAscii(bytes, 0, 8) !== 'HUFF\x00\x00\x00\x18') {
+        throw new Error('Invalid MOBI HUFF header.');
+      }
+      const off1 = readUint32(bytes, 8);
+      const off2 = readUint32(bytes, 12);
+      if (off1 + 256 * 4 > bytes.length || off2 + 64 * 4 > bytes.length) {
+        throw new Error('Invalid MOBI HUFF table bounds.');
+      }
+
+      this.dict1 = [];
+      for (let i = 0; i < 256; i++) {
+        const value = readUint32(bytes, off1 + i * 4);
+        const codeLength = value & 0x1F;
+        if (!codeLength || codeLength > 32) throw new Error('Invalid MOBI HUFF code length.');
+        const maxCode = (((value >>> 8) + 1) * (2 ** (32 - codeLength)) - 1) >>> 0;
+        this.dict1.push({ codeLength, terminal: (value & 0x80) !== 0, maxCode });
+      }
+
+      this.minCode = [0];
+      this.maxCode = [0];
+      for (let length = 1; length <= 32; length++) {
+        const min = readUint32(bytes, off2 + (length - 1) * 8);
+        const max = readUint32(bytes, off2 + (length - 1) * 8 + 4);
+        this.minCode.push((min * (2 ** (32 - length))) >>> 0);
+        this.maxCode.push((((max + 1) * (2 ** (32 - length))) - 1) >>> 0);
+      }
+    }
+
+    loadCdic(bytes) {
+      if (bytes.length < 16 || readAscii(bytes, 0, 8) !== 'CDIC\x00\x00\x00\x10') {
+        throw new Error('Invalid MOBI CDIC header.');
+      }
+      const phrases = readUint32(bytes, 8);
+      const bits = readUint32(bytes, 12);
+      if (bits > 20) throw new Error('Invalid MOBI CDIC dictionary size.');
+      const count = Math.min(2 ** bits, phrases - this.dictionary.length);
+      if (count < 0 || 16 + count * 2 > bytes.length) throw new Error('Invalid MOBI CDIC table bounds.');
+      for (let i = 0; i < count; i++) {
+        const offset = readUint16(bytes, 16 + i * 2);
+        const entry = 16 + offset;
+        if (entry + 2 > bytes.length) throw new Error('Invalid MOBI CDIC entry.');
+        const length = readUint16(bytes, entry);
+        const end = entry + 2 + (length & 0x7FFF);
+        if (end > bytes.length) throw new Error('Invalid MOBI CDIC phrase bounds.');
+        this.dictionary.push({
+          bytes: bytes.slice(entry + 2, end),
+          isReference: (length & 0x8000) !== 0
+        });
+      }
+    }
+
+    unpack(input, depth = 0, state = { totalBytes: 0 }) {
+      if (depth > 64) {
+        throw new Error('MOBI HUFF/CDIC: recursion depth limit exceeded (possible circular reference).');
+      }
+      const data = new Uint8Array(input.length + 8);
+      data.set(input);
+      let bitPosition = 0;
+      const output = [];
+      while (bitPosition < input.length * 8) {
+        const code = readBits32(data, bitPosition);
+        const first = this.dict1[code >>> 24];
+        let codeLength = first.codeLength;
+        let maxCode = first.maxCode;
+        if (!first.terminal) {
+          while (codeLength < 32 && code < this.minCode[codeLength]) codeLength++;
+          maxCode = this.maxCode[codeLength];
+        }
+        if (!codeLength || bitPosition + codeLength > input.length * 8) break;
+        const index = Math.floor(((maxCode - code) >>> 0) / (2 ** (32 - codeLength)));
+        const entry = this.dictionary[index];
+        if (!entry) throw new Error('MOBI HUFF code references a missing CDIC phrase.');
+        bitPosition += codeLength;
+        const chunk = entry.isReference ? this.unpack(entry.bytes, depth + 1, state) : entry.bytes;
+        state.totalBytes += chunk.length;
+        if (state.totalBytes > 64 * 1024 * 1024) {
+          throw new Error('MOBI HUFF/CDIC: decompressed size limit exceeded (exceeds 64 MB).');
+        }
+        output.push(chunk);
+      }
+      return concatBytes(output);
+    }
+  }
+
+  function readUint16(bytes, offset) {
+    return (bytes[offset] << 8) | bytes[offset + 1];
+  }
+
+  function readUint32(bytes, offset) {
+    return (((bytes[offset] * 0x1000000) + (bytes[offset + 1] << 16) + (bytes[offset + 2] << 8) + bytes[offset + 3]) >>> 0);
+  }
+
+  function readAscii(bytes, offset, length) {
+    return String.fromCharCode(...bytes.subarray(offset, offset + length));
+  }
+
+  function readBits32(bytes, bitPosition) {
+    let value = 0;
+    for (let i = 0; i < 32; i++) {
+      const position = bitPosition + i;
+      value = (value * 2) + ((bytes[Math.floor(position / 8)] >>> (7 - (position % 8))) & 1);
+    }
+    return value >>> 0;
+  }
+
+  function concatBytes(chunks) {
+    const total = chunks.reduce((size, chunk) => size + chunk.length, 0);
+    const result = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return result;
   }
 
   function splitMobiHtmlIntoSections(html, fallbackTitle) {
@@ -405,5 +550,5 @@ const MobiAdapter = (() => {
     return record;
   }
 
-  return { Adapter, parseMobi, parseMetadata, decompressPalmDocLz77 };
+  return { Adapter, parseMobi, parseMetadata, decompressPalmDocLz77, HuffReader };
 })();

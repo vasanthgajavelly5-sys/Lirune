@@ -21,6 +21,7 @@
 
 import JSZip from 'jszip';
 import { normalizeEntryPath } from './zipPaths.ts';
+import { validateZipArchive } from '../security/archiveBudget.ts';
 
 /** MIME types the reader can embed as a data URI. */
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -98,6 +99,7 @@ export class EpubArchive {
     options: EpubArchiveOptions = {}
   ): Promise<EpubArchive> {
     const zip = await JSZip.loadAsync(source);
+    validateZipArchive(zip);
     const archive = new EpubArchive(zip);
     archive.maxCacheBytes = options.maxCacheBytes ?? 24 * 1024 * 1024;
     archive.buildIndex(options.maxEntries);

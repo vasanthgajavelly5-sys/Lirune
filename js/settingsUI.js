@@ -1342,7 +1342,7 @@ const SettingsUI = (() => {
     // than on click, and only after the user has picked a file.
     document.getElementById('restore-library-input')?.addEventListener('change', handleRestoreFile);
 
-    const shortcutsSearch = document.getElementById('shortcuts-search');
+    const shortcutsSearch = document.getElementById('shortcut-search-input') || document.getElementById('shortcuts-search');
     if (shortcutsSearch) {
       shortcutsSearch.addEventListener('input', event => {
         shortcutSearchTerm = event.target.value.trim();

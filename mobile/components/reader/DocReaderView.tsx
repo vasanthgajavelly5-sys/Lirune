@@ -12,6 +12,7 @@ import { Book, ReaderSettings, SearchResult } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
 import { getCssFontFamily } from '@/theme/Typography';
 import { DocParser } from '@/services/doc/DocParser';
+import { LegacyOfficeParser, LegacyOfficeFormat } from '@/services/legacy/LegacyOfficeParser';
 import { SELECTION_WATCHER_JS, SelectionPayload } from '@/services/reader/selectionBridge';
 import { READER_WEBVIEW_PROPS, allowReaderNavigation } from '@/services/security/webviewPolicy';
 import { logger } from '@/utils/logger';
@@ -63,7 +64,8 @@ export function DocReaderView({
           bytes[i] = binaryString.charCodeAt(i);
         }
 
-        const parsed = DocParser.parse(bytes);
+        const format = (book.format === 'doc' ? 'doc' : book.format) as LegacyOfficeFormat;
+        const parsed = format === 'doc' ? DocParser.parse(bytes) : LegacyOfficeParser.parse(bytes, format);
         if (!active) return;
 
         setHtmlContent(parsed.html);

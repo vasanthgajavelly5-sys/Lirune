@@ -9,6 +9,7 @@ import { Book, BookFormat, getFormatFromExtension } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { ImportService } from './ImportService';
 import { logger } from '@/utils/logger';
+import { validateZipArchive } from '../security/archiveBudget.ts';
 
 const TAG = 'ZipInspectionService';
 
@@ -31,6 +32,7 @@ export class ZipInspectionService {
       logger.info(TAG, `Inspecting ZIP archive: ${zipUri}`);
       const base64 = await fileStorage.readAsBase64(zipUri);
       const zip = await JSZip.loadAsync(base64, { base64: true });
+      validateZipArchive(zip);
 
       const entries: ZipBookEntry[] = [];
 
@@ -89,6 +91,7 @@ export class ZipInspectionService {
     try {
       const base64 = await fileStorage.readAsBase64(zipUri);
       const zip = await JSZip.loadAsync(base64, { base64: true });
+      validateZipArchive(zip);
 
       const tempDir = `${FileSystem.cacheDirectory || ''}zip_extracted/`;
       const tempDirInfo = await FileSystem.getInfoAsync(tempDir);

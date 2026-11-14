@@ -976,13 +976,17 @@ const RENDER_BATCH_SIZE = 50;
       const archiveName = fileOrDescriptor?.name || (archivePath ? archivePath.replace(/^[\\/]/, '').split(/[\\/]/).pop() : 'archive');
 
       const desktopApi = window.liruneDesktop || window.noveraDesktop;
+      if (fileOrDescriptor instanceof File) {
+        archiveBuffer = await fileOrDescriptor.arrayBuffer();
+      } else if (fileOrDescriptor?.data) {
+        archiveBuffer = fileOrDescriptor.data;
+      }
       if (desktopApi?.inspectArchive) {
         inspectResult = await desktopApi.inspectArchive(archivePath || {
           name: archiveName,
-          buffer: fileOrDescriptor instanceof File ? await fileOrDescriptor.arrayBuffer() : fileOrDescriptor?.data
+          buffer: archiveBuffer
         });
-      } else if (fileOrDescriptor instanceof File || fileOrDescriptor?.data) {
-        archiveBuffer = fileOrDescriptor instanceof File ? await fileOrDescriptor.arrayBuffer() : fileOrDescriptor.data;
+      } else if (archiveBuffer && typeof JSZip !== 'undefined') {
         if (typeof JSZip !== 'undefined') {
           const zip = await JSZip.loadAsync(archiveBuffer);
           const found = [];
@@ -1544,7 +1548,19 @@ const RENDER_BATCH_SIZE = 50;
         case 'fb2': return parseFb2Metadata(arrayBuffer, record);
         case 'fbz': return await parseFbzMetadata(arrayBuffer, record);
         case 'cbz': return await parseCbzMetadata(arrayBuffer, record);
-        case 'cbr': return await parseCbrMetadata(arrayBuffer, record);
+        case 'cbr':
+        case 'cbt':
+        case 'cb7': return await parseCbrMetadata(arrayBuffer, record);
+        case 'jpg':
+        case 'png':
+        case 'webp':
+        case 'gif':
+        case 'bmp':
+        case 'tiff': {
+          record.pageCount = 1;
+          record.chapterCount = 1;
+          return record;
+        }
         case 'txt': return parseTextMetadata(arrayBuffer, record);
         case 'md': return parseMarkdownMetadata(arrayBuffer, record);
         case 'mobi': return parseMobiMetadata(arrayBuffer, record);

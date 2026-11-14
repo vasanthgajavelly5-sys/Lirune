@@ -9,6 +9,10 @@ export interface RarEntry {
   size: number;
   packedSize: number;
   isStored: boolean;
+  /** True when the entry uses compression (methods 0x31-0x35). Data is NOT raw image bytes. */
+  isCompressed: boolean;
+  /** Raw RAR4 compression method byte (0x30 = store, 0x31-0x35 = compressed). */
+  compressionMethod: number;
   offset: number;
   headerSize: number;
   data: Uint8Array;
@@ -75,6 +79,8 @@ export class RarExtractor {
               size: unpackedSize,
               packedSize,
               isStored: method === 0x30,
+              isCompressed: method !== 0x30,
+              compressionMethod: method,
               offset: dataStart,
               headerSize,
               data: fileData,
@@ -87,11 +93,92 @@ export class RarExtractor {
         offset += advance;
       }
     } else {
-      // RAR 5.x signature found. RAR 5 uses a proprietary compression/header format
-      // that is not supported in this pure-TypeScript build without native unrar bindings.
-      throw new Error('Unsupported archive format: RAR5 format is not supported. Only RAR4 uncompressed (stored) archives are supported.');
+      // RAR 5.x Parser (supports stored/uncompressed entries)
+      let offset = 8; // skip 8-byte RAR5 magic (Rar!\x1a\x07\x01\x00)
+      function readVint(): number {
+        let val = 0;
+        let shift = 0;
+        while (offset < bytes.length) {
+          const b = bytes[offset++];
+          val += (b & 0x7f) * Math.pow(2, shift);
+          shift += 7;
+          if ((b & 0x80) === 0) break;
+        }
+        return val;
+      }
+
+      while (offset + 4 < bytes.length) {
+        // Each block in RAR5 starts with 4-byte CRC32
+        offset += 4;
+        const headerSize = readVint();
+        const headerDataStart = offset;
+        const headerType = readVint();
+        const flags = readVint();
+
+        let extraSize = 0;
+        if (flags & 0x0001) extraSize = readVint();
+        let dataSize = 0;
+        if (flags & 0x0002) dataSize = readVint();
+
+        if (headerType === 2) {
+          // File header
+          const fileFlags = readVint();
+          const unpackedSize = readVint();
+          const fileAttrs = readVint();
+          if (fileFlags & 0x0002) {
+            // mtime
+            offset += 4;
+          }
+          if (fileFlags & 0x0004) {
+            // crc32
+            offset += 4;
+          }
+          const compInfo = readVint();
+          const method = (compInfo >> 7) & 0x07; // 0 = store
+          const hostOS = readVint();
+          const nameLen = readVint();
+          const nameBytes = bytes.subarray(offset, Math.min(bytes.length, offset + nameLen));
+          const name = new TextDecoder('utf-8', { fatal: false }).decode(nameBytes).replace(/\\/g, '/');
+          offset += nameLen;
+
+          // Advance to end of header
+          offset = headerDataStart + headerSize;
+          const dataStart = offset;
+          const dataEnd = Math.min(bytes.length, dataStart + dataSize);
+          const fileData = bytes.subarray(dataStart, dataEnd);
+          offset += dataSize;
+
+          entries.push({
+            name,
+            size: unpackedSize,
+            packedSize: dataSize,
+            isStored: method === 0,
+            isCompressed: method !== 0,
+            compressionMethod: method,
+            offset: dataStart,
+            headerSize,
+            data: fileData,
+          });
+        } else {
+          // Advance past header + any data block
+          offset = headerDataStart + headerSize + dataSize;
+        }
+      }
+
+      if (entries.length === 0) {
+        throw new Error('Unsupported archive format: RAR5 compressed or empty archive is not supported. Only uncompressed (stored) archives are supported.');
+      }
     }
 
     return entries;
+  }
+
+  /**
+   * Returns true only when the entry data is uncompressed (stored) and safe to use directly as
+   * image bytes. Compressed RAR4 entries (methods 0x31-0x35) require a decompressor which is
+   * not available in this pure-TypeScript build.
+   */
+  static canExtract(entry: RarEntry): boolean {
+    return entry.isStored === true;
   }
 }

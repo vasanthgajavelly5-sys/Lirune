@@ -17,7 +17,18 @@ import { DocParser } from '@/services/doc/DocParser';
 import { ChmParser } from '@/services/chm/ChmParser';
 import { DjvuParser } from '@/services/djvu/DjvuParser';
 import { RarExtractor } from '@/services/archive/RarExtractor';
+import { TarExtractor } from '@/services/archive/TarExtractor';
 import { logger } from '@/utils/logger';
+import { validateZipArchive } from '../security/archiveBudget.ts';
+
+function getLibArchive(): { ArchiveReader: any; libarchiveWasm: any } | null {
+  try {
+    const req = typeof eval === 'function' ? eval('require') : null;
+    return req ? req('libarchive-wasm') : null;
+  } catch {
+    return null;
+  }
+}
 
 const TAG = 'MetadataExtractor';
 
@@ -150,6 +161,8 @@ export class MetadataExtractor {
           return await this.extractCbz(filePath, originalName, fileId, coverColor);
         case 'cbr':
           return await this.extractCbr(filePath, originalName, fileId, coverColor);
+        case 'cbt':
+          return await this.extractCbt(filePath, originalName, fileId, coverColor);
         case 'html':
           return await this.extractHtml(filePath, originalName, coverColor);
         case 'txt':
@@ -203,6 +216,7 @@ export class MetadataExtractor {
       // look like a hang.
       const bytes = await fileStorage.readAsArrayBuffer(filePath);
       const zip = await JSZip.loadAsync(bytes);
+      validateZipArchive(zip);
 
       // 1. Read container.xml to find OPF file path
       const containerFile = zip.file('META-INF/container.xml');
@@ -460,6 +474,7 @@ export class MetadataExtractor {
     try {
       const buffer = await fileStorage.readAsArrayBuffer(filePath);
       const zip = await JSZip.loadAsync(buffer);
+      validateZipArchive(zip);
 
       const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
       const imageFiles = Object.keys(zip.files)
@@ -841,12 +856,36 @@ export class MetadataExtractor {
     try {
       const buffer = await fileStorage.readAsArrayBuffer(filePath);
       const bytes = new Uint8Array(buffer);
-      const entries = RarExtractor.inspect(bytes);
+      let entries: { name: string; data: Uint8Array }[] = [];
+      try {
+        const rarEntries = RarExtractor.inspect(bytes);
+        entries = rarEntries
+          .filter((e) => e.data && e.data.length > 0)
+          .map((e) => ({ name: e.name, data: e.data }));
+      } catch {
+        const lib = getLibArchive();
+        if (lib) {
+          const wasm = await lib.libarchiveWasm();
+          const reader = new lib.ArchiveReader(wasm, new Int8Array(bytes));
+          try {
+            for (const entry of reader.entries()) {
+              if (entry.getSize() > 100 * 1024 * 1024 || entry.isEncrypted()) {
+                entry.skipData();
+                continue;
+              }
+              const data = entry.readData();
+              if (data) entries.push({ name: entry.getPathname(), data: new Uint8Array(data) });
+            }
+          } finally {
+            reader.free();
+          }
+        }
+      }
 
       const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
       const imageEntries = entries.filter((e) => {
         const ext = e.name.split('.').pop()?.toLowerCase();
-        return ext && imageExtensions.includes(ext) && e.isStored && e.data && e.data.length > 0;
+        return ext && imageExtensions.includes(ext) && e.data && e.data.length > 0;
       });
 
       let coverUrl: string | undefined;
@@ -867,6 +906,38 @@ export class MetadataExtractor {
     } catch (err) {
       logger.warn(TAG, `CBR metadata error: ${originalName}`, err);
       return { title: fallbackTitle, author: 'Comic Archive (RAR)', coverColor };
+    }
+  }
+
+  // ================= CBT =================
+  private static async extractCbt(
+    filePath: string,
+    originalName: string,
+    fileId: string,
+    coverColor: string
+  ): Promise<ExtractedMetadata> {
+    const fallbackTitle = cleanTitleFromFilename(originalName);
+    try {
+      const buffer = await fileStorage.readAsArrayBuffer(filePath);
+      const bytes = new Uint8Array(buffer);
+      const imageEntries = TarExtractor.imageEntries(bytes);
+      let coverUrl: string | undefined;
+      if (imageEntries.length > 0) {
+        const first = imageEntries[0];
+        const ext = first.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const coverB64 = uint8ToBase64(first.data);
+        coverUrl = await fileStorage.saveCoverImage(fileId, coverB64, ext);
+      }
+      return {
+        title: fallbackTitle,
+        author: 'Comic Archive (TAR)',
+        coverUrl,
+        coverColor,
+        chapterCount: imageEntries.length || 1,
+      };
+    } catch (err) {
+      logger.warn(TAG, `CBT metadata error: ${originalName}`, err);
+      return { title: fallbackTitle, author: 'Comic Archive (TAR)', coverColor };
     }
   }
 }

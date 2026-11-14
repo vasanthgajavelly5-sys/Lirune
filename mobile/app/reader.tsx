@@ -37,6 +37,14 @@ import { ChmReaderView } from '@/components/reader/ChmReaderView';
 import { DjvuReaderView } from '@/components/reader/DjvuReaderView';
 import { CbrReaderView } from '@/components/reader/CbrReaderView';
 import { MdReaderView } from '@/components/reader/MdReaderView';
+import { ImageReaderView } from '@/components/reader/ImageReaderView';
+import { SpreadsheetReaderView } from '@/components/reader/SpreadsheetReaderView';
+import { PresentationReaderView } from '@/components/reader/PresentationReaderView';
+import { EmailReaderView } from '@/components/reader/EmailReaderView';
+import { StructuredTextReaderView } from '@/components/reader/StructuredTextReaderView';
+import { IWorkReaderView } from '@/components/reader/IWorkReaderView';
+import { VCardCalendarReaderView } from '@/components/reader/VCardCalendarReaderView';
+import { XpsReaderView } from '@/components/reader/XpsReaderView';
 import { ReaderControls } from '@/components/reader/ReaderControls';
 import { BrightnessEdgeOverlay } from '@/components/reader/BrightnessEdgeOverlay';
 import { ChapterSheet } from '@/components/reader/ChapterSheet';
@@ -617,7 +625,7 @@ export default function ReaderScreen() {
         onExit={handleExitReader}
       >
         {/* Format-Specific Engine View */}
-        {activeBook.format === 'epub' && (
+        {(activeBook.format === 'epub' || activeBook.format === 'kepub') && (
           <EpubReaderView
             book={activeBook}
             settings={effectiveSettings}
@@ -687,7 +695,7 @@ export default function ReaderScreen() {
           />
         )}
 
-        {(activeBook.format === 'cbz' || activeBook.format === 'cb7') && (
+        {(activeBook.format === 'cbz' || activeBook.format === 'cbt') && (
           <CbzReaderView
             book={activeBook}
             settings={effectiveSettings}
@@ -749,7 +757,7 @@ export default function ReaderScreen() {
           />
         )}
 
-        {activeBook.format === 'doc' && (
+        {['doc', 'ppt', 'pps', 'wps'].includes(activeBook.format) && (
           <DocReaderView
             book={activeBook}
             settings={effectiveSettings}
@@ -798,13 +806,99 @@ export default function ReaderScreen() {
             searchQuery={searchQuery}
           />
         )}
-{activeBook.format === 'cbr' && (
+        {['cbr', 'cb7', 'zip', 'rar'].includes(activeBook.format) && (
           <CbrReaderView
             book={activeBook}
             settings={effectiveSettings}
             onToggleControls={toggleControls}
             onProgressChange={updateProgress}
             targetCfi={currentCfi || undefined}
+          />
+        )}
+
+        {['jpg', 'png', 'webp', 'tiff', 'bmp', 'gif', 'avif', 'svg', 'heic', 'heif'].includes(activeBook.format) && (
+          <ImageReaderView
+            book={activeBook}
+            settings={effectiveSettings}
+            onToggleControls={toggleControls}
+            onProgressChange={updateProgress}
+          />
+        )}
+
+        {['csv', 'tsv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'xltx', 'xltm', 'ods'].includes(activeBook.format) && (
+          <SpreadsheetReaderView
+            book={activeBook}
+            settings={effectiveSettings}
+            onToggleControls={toggleControls}
+            onProgressChange={updateProgress}
+            onSearchResults={handleSearchResults}
+            searchQuery={searchQuery}
+          />
+        )}
+
+        {['pptx', 'pptm', 'ppsx', 'ppsm', 'potx', 'potm', 'odp'].includes(activeBook.format) && (
+          <PresentationReaderView
+            book={activeBook}
+            settings={effectiveSettings}
+            onToggleControls={toggleControls}
+            onProgressChange={updateProgress}
+            onSearchResults={handleSearchResults}
+            searchQuery={searchQuery}
+          />
+        )}
+
+        {['eml', 'msg', 'mbox', 'mht', 'mhtml', 'pst', 'ost'].includes(activeBook.format) && (
+          <EmailReaderView
+            book={activeBook}
+            settings={effectiveSettings}
+            onToggleControls={toggleControls}
+            onProgressChange={updateProgress}
+            onSearchResults={handleSearchResults}
+            searchQuery={searchQuery}
+          />
+        )}
+
+        {['xml', 'json', 'yaml', 'yml', 'log'].includes(activeBook.format) && (
+          <StructuredTextReaderView
+            book={activeBook}
+            settings={effectiveSettings}
+            onToggleControls={toggleControls}
+            onProgressChange={updateProgress}
+            onSearchResults={handleSearchResults}
+            searchQuery={searchQuery}
+          />
+        )}
+
+        {['pages', 'numbers', 'key'].includes(activeBook.format) && (
+          <IWorkReaderView
+            book={activeBook}
+            settings={effectiveSettings}
+            onToggleControls={toggleControls}
+            onProgressChange={updateProgress}
+            onSearchResults={handleSearchResults}
+            searchQuery={searchQuery}
+          />
+        )}
+
+        {['vcf', 'ics'].includes(activeBook.format) && (
+          <VCardCalendarReaderView
+            book={activeBook}
+            settings={effectiveSettings}
+            onToggleControls={toggleControls}
+            onProgressChange={updateProgress}
+            onSearchResults={handleSearchResults}
+            searchQuery={searchQuery}
+          />
+        )}
+
+        {['xps', 'oxps'].includes(activeBook.format) && (
+          <XpsReaderView
+            book={activeBook}
+            settings={effectiveSettings}
+            onToggleControls={toggleControls}
+            onProgressChange={updateProgress}
+            onSearchResults={handleSearchResults}
+            searchQuery={searchQuery}
           />
         )}
       </ReaderErrorBoundary>
@@ -876,12 +970,12 @@ export default function ReaderScreen() {
           onOpenAnnotations={() => setAnnotationsVisible(true)}
           onOpenTabs={() => setIsTabsVisible(true)}
           onOpenTTS={
-            ['epub', 'txt', 'html', 'fb2', 'mobi', 'azw', 'azw3', 'docx', 'odt', 'rtf', 'doc', 'chm'].includes(activeBook.format)
+            ['epub', 'kepub', 'txt', 'html', 'fb2', 'mobi', 'azw', 'azw3', 'docx', 'odt', 'rtf', 'doc', 'chm', 'csv', 'tsv', 'xlsx', 'xlsm', 'xltx', 'xltm', 'ods', 'pptx', 'pptm', 'ppsx', 'ppsm', 'potx', 'potm', 'odp', 'xml', 'json', 'yaml', 'yml', 'log', 'eml', 'msg', 'mbox', 'mht', 'mhtml', 'vcf', 'ics'].includes(activeBook.format)
               ? handleOpenTTS
               : undefined
           }
           onOpenThumbnails={
-            ['pdf', 'djvu', 'cbz', 'cbr'].includes(activeBook.format)
+            ['pdf', 'djvu', 'cbz', 'cbr', 'cbt', 'jpg', 'png', 'webp', 'bmp', 'gif'].includes(activeBook.format)
               ? () => setIsThumbnailsVisible(true)
               : undefined
           }

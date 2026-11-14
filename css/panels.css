@@ -690,6 +690,22 @@
   margin-top: 2px;
 }
 
+.shortcuts-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  flex-wrap: wrap;
+}
+.shortcuts-toolbar .segmented {
+  flex-shrink: 0;
+}
+.shortcuts-toolbar .shortcut-search-input {
+  width: 240px;
+  max-width: 100%;
+  height: 34px;
+}
+
 #shortcuts-list { gap: 2px; }
 #shortcuts-list .shortcut-row {
   display: flex;
@@ -935,8 +951,7 @@
   flex-direction: column;
   gap: var(--sp-2);
 }
-.quick-theme-grid {
-  display: grid;
+.theme-preset-grid.quick-theme-grid {
   grid-template-columns: repeat(4, 1fr);
   gap: var(--sp-2);
   padding: 2px 0 6px;
@@ -951,9 +966,11 @@
   transform: translateY(-1px);
 }
 .quick-theme-grid .theme-swatch {
+  width: 100%;
   height: 28px;
   aspect-ratio: auto;
   border-radius: var(--r-sm);
+  box-shadow: none;
 }
 .quick-theme-grid .theme-preset.active .theme-swatch {
   border-color: var(--accent);
@@ -967,8 +984,9 @@
 /* Theme preset grid */
 .theme-preset-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--sp-2);
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: var(--sp-2) var(--sp-1);
+  padding: var(--sp-1) 0 var(--sp-2);
 }
 .theme-preset {
   display: flex;
@@ -978,15 +996,27 @@
   cursor: pointer;
   border: 0;
   background: transparent;
-  padding: 0;
+  padding: 6px 2px 4px;
+  border-radius: var(--r-md);
   font-family: var(--font-ui);
+  transition: background var(--dur-fast), transform var(--dur-fast);
+}
+.theme-preset:hover {
+  background: var(--bg-hover);
+  transform: translateY(-1px);
+}
+.theme-preset:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .theme-swatch {
-  width: 100%;
-  aspect-ratio: 1;
+  width: 46px;
+  height: 46px;
   border-radius: var(--r-md);
   border: 2px solid transparent;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   transition: all var(--dur-fast);
+  box-sizing: border-box;
 }
 .theme-swatch-neutral { background: linear-gradient(135deg, #FDFCF8, #FFFFFF); }
 .theme-swatch-sepia  { background: linear-gradient(135deg, #E8DDCA, #FAF3E4); }

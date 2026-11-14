@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getFormatFromExtension, type Book, type Collection, type Bookmark, type Highlight, type Note } from '../models/Book.ts';
+import { LegacyOfficeParser } from '../services/legacy/LegacyOfficeParser.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,14 +52,16 @@ test('Format Matrix: Supported formats extension resolution', () => {
   }
 });
 
+test('Format Matrix: Newly supported reader formats are accepted', () => {
+  for (const input of ['image.png', 'photo.jpg', 'sheet.xlsx', 'legacy.xls', 'slides.pptx', 'legacy.ppt', 'document.wps', 'mailbox.pst', 'cache.ost', 'diagram.svg']) {
+    assert.equal(getFormatFromExtension(input).supported, true, `Expected ${input} to be supported`);
+  }
+});
+
 test('Format Matrix: Unsupported formats explicit rejection', () => {
   const unsupportedCases = [
-    'image.png',
-    'photo.jpg',
     'audio.mp3',
     'binary.exe',
-    'sheet.xlsx',
-    'slides.pptx',
     'video.mp4',
   ];
 
@@ -67,6 +70,17 @@ test('Format Matrix: Unsupported formats explicit rejection', () => {
     assert.equal(res.supported, false, `Expected ${input} to be rejected`);
     assert.ok(res.reason, `Expected rejection reason for ${input}`);
   }
+});
+
+test('Legacy OLE office formats extract bounded readable text', () => {
+  const bytes = new Uint8Array(1024);
+  bytes.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+  const text = 'Quarterly report';
+  for (let i = 0; i < text.length; i++) {
+    bytes[512 + i * 2] = text.charCodeAt(i);
+  }
+  const parsed = LegacyOfficeParser.parse(bytes, 'xls');
+  assert.match(parsed.html, /Quarterly report/);
 });
 
 test('Backup & Restore: Serialization and Deserialization round-trip', () => {

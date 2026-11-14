@@ -16,14 +16,16 @@ import {
 } from 'react-native';
 import { useStableInsets } from '@/hooks/useStableInsets';
 import * as FileSystem from 'expo-file-system/legacy';
+import JSZip from 'jszip';
 import { fileStorage } from '@/services/storage/FileStorage';
+import { RarExtractor } from '@/services/archive/RarExtractor';
+import { TarExtractor } from '@/services/archive/TarExtractor';
 import { Book, ReaderSettings } from '@/models/Book';
 import { READER_THEMES } from '@/theme/Colors';
-import { RarExtractor } from '@/services/archive/RarExtractor';
 import { logger } from '@/utils/logger';
 
 const TAG = 'CbrReaderView';
-const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tiff', 'tif', 'avif', 'heic', 'heif'];
 const TAP_SLOP = 12;
 const MAX_CBR_BYTES = 150 * 1024 * 1024; // 150MB safeguard
 
@@ -83,22 +85,54 @@ export function CbrReaderView({
         const buffer = await fileStorage.readAsArrayBuffer(filePath);
         const bytes = new Uint8Array(buffer);
 
-        const entries = RarExtractor.inspect(bytes);
-        const allCandidates = entries.filter((e) => {
+        let rawEntries: { name: string; data: Uint8Array }[] = [];
+
+        if (book.format === 'cb7' || (bytes[0] === 0x37 && bytes[1] === 0x7a)) {
+          setLoadError('CB7 (7-Zip comic archives) are not yet supported. Use CBZ or CBR instead.');
+          setIsLoading(false);
+          return;
+        }
+
+        if (book.format === 'cbt' || TarExtractor.isTar(bytes)) {
+          // TAR / CBT comic archive
+          const tarImages = TarExtractor.imageEntries(bytes);
+          rawEntries = tarImages.map((e) => ({ name: e.name, data: e.data }));
+        } else if (book.format === 'cbz' || (bytes[0] === 0x50 && bytes[1] === 0x4b)) {
+          // ZIP / CBZ comic archive
+          const zip = await JSZip.loadAsync(bytes);
+          const names = Object.keys(zip.files)
+            .filter((name) => {
+              const ext = name.split('.').pop()?.toLowerCase();
+              return ext && IMAGE_EXTENSIONS.includes(ext) && !zip.files[name].dir;
+            })
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+          for (const name of names) {
+            const data = await zip.files[name].async('uint8array');
+            rawEntries.push({ name, data });
+          }
+        } else {
+          // CBR / RAR comic archive
+          const rarEntries = RarExtractor.inspect(bytes);
+          rawEntries = rarEntries
+            .filter((e) => e.data && e.data.length > 0)
+            .map((e) => ({ name: e.name, data: e.data }));
+        }
+
+        const allCandidates = rawEntries.filter((e) => {
           const ext = e.name.split('.').pop()?.toLowerCase();
           return ext && IMAGE_EXTENSIONS.includes(ext);
         });
 
         if (allCandidates.length === 0) {
-          throw new Error('No images found in CBR archive.');
+          throw new Error('No images found in comic archive.');
         }
 
         const imageEntries = allCandidates
-          .filter((e) => e.isStored && e.data && e.data.length > 0)
+          .filter((e) => e.data && e.data.length > 0)
           .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
         if (imageEntries.length === 0) {
-          throw new Error('Compressed RAR/CBR archives are not supported. Only uncompressed (store-only) CBR archives or CBZ archives are supported.');
+          throw new Error('The comic archive contains no readable image entries.');
         }
 
         const cacheRoot = `${FileSystem.cacheDirectory || ''}cbr-${book.id}/`;
@@ -132,9 +166,6 @@ export function CbrReaderView({
         logger.error(TAG, 'Failed to extract CBR archive', err);
         if (!cancelled && isMountedRef.current) {
           let userMsg = err?.message || 'Unable to open comic archive.';
-          if (/RAR5/i.test(userMsg)) {
-            userMsg = 'RAR5 archives are not supported. Please convert to CBZ or uncompressed CBR.';
-          }
           setLoadError(userMsg);
           setIsLoading(false);
         }

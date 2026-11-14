@@ -1,6 +1,14 @@
 const crypto = require('crypto');
 
-const SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf', 'md', 'markdown', 'fbz', 'mobi', 'azw', 'azw3', 'cbr', 'doc', 'chm', 'djvu', 'djv'];
+let SUPPORTED_EXTENSIONS = ['epub', 'pdf', 'txt', 'html', 'htm', 'fb2', 'cbz', 'docx', 'odt', 'rtf', 'md', 'markdown', 'fbz', 'mobi', 'azw', 'azw3', 'cbr', 'doc', 'chm', 'djvu', 'djv'];
+try {
+  const BookFormat = require('../js/formats.js');
+  if (BookFormat && typeof BookFormat.importExtensions === 'function') {
+    SUPPORTED_EXTENSIONS = [...new Set([...SUPPORTED_EXTENSIONS, ...BookFormat.importExtensions(), 'cbt', 'cb7', 'zip', 'ppt', 'png', 'jpg', 'jpeg', 'tiff', 'tif'])];
+  }
+} catch (e) {
+  // Keep fallback list
+}
 const EXTENSION_PATTERN = SUPPORTED_EXTENSIONS.join('|');
 
 function fingerprintBuffer(buffer) {

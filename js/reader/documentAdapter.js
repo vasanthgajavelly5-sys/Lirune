@@ -644,7 +644,7 @@ const DocumentAdapter = (() => {
   }
 
   const FORBIDDEN_TAGS = new Set([
-    'script', 'iframe', 'object', 'embed', 'applet', 'form', 'input',
+    'script', 'style', 'iframe', 'object', 'embed', 'applet', 'form', 'input',
     'button', 'select', 'textarea', 'link', 'meta', 'base', 'svg',
     'math', 'foreignobject', 'noscript', 'template', 'audio', 'video',
     'source', 'track', 'portal', 'frame', 'frameset'
@@ -660,9 +660,34 @@ const DocumentAdapter = (() => {
 
   const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
 
-  function sanitizeHtml(dirtyHtml) {
+  function validateZipBudget(zip) {
+    if (!zip || !zip.files) return;
+    const files = Object.values(zip.files);
+    if (files.length > 20000) {
+      throw new Error(`The archive contains too many entries (${files.length}) to open safely.`);
+    }
+    let totalUncompressed = 0;
+    for (const file of files) {
+      const uncompressed = file._data?.uncompressedSize ?? 0;
+      const compressed = file._data?.compressedSize ?? 0;
+      if (uncompressed > 64 * 1024 * 1024) {
+        throw new Error(`Archive entry is too large to open safely: ${file.name}`);
+      }
+      if (compressed > 0 && uncompressed / compressed > 100) {
+        throw new Error(`Archive compression ratio is unsafe: ${file.name}`);
+      }
+      totalUncompressed += uncompressed;
+      if (totalUncompressed > 512 * 1024 * 1024) {
+        throw new Error('The archive expands beyond the safe memory limit.');
+      }
+    }
+  }
+
+  function sanitizeHtml(dirtyHtml, options = {}) {
     if (typeof dirtyHtml !== 'string' || !dirtyHtml) return '';
-    const parser = new DOMParser();
+    const Parser = (typeof DOMParser !== 'undefined') ? DOMParser : (typeof require !== 'undefined' ? require('@xmldom/xmldom').DOMParser : null);
+    if (!Parser) return '';
+    const parser = new Parser();
     const wrapped = `<!DOCTYPE html><html><body>${dirtyHtml}</body></html>`;
     const doc = parser.parseFromString(wrapped, 'text/html');
     const targetRoot = doc.body || (doc.getElementsByTagName ? doc.getElementsByTagName('body')[0] : null) || doc.documentElement || doc;
@@ -697,7 +722,7 @@ const DocumentAdapter = (() => {
             }
 
             if (name === 'style') {
-              if (/url\s*\(|expression\s*\(|behavior\s*:|@import|javascript:/i.test(val)) {
+              if (/url\s*\(|expression\s*\(|behavior\s*:|-moz-binding|@import|javascript:/i.test(val)) {
                 child.removeAttribute(attr.name);
               }
               continue;
@@ -705,6 +730,11 @@ const DocumentAdapter = (() => {
 
             if (name === 'href' || name === 'xlink:href') {
               if (val.startsWith('#')) {
+                continue;
+              }
+              const lowerVal = val.toLowerCase();
+              if (lowerVal.startsWith('javascript:') || lowerVal.startsWith('vbscript:') || lowerVal.startsWith('file:') || lowerVal.startsWith('data:')) {
+                child.removeAttribute(attr.name);
                 continue;
               }
               try {
@@ -719,7 +749,11 @@ const DocumentAdapter = (() => {
             }
 
             if (name === 'src') {
-              if (/^data:image\/(jpeg|png|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(val)) {
+              if (/^data:image\/(jpeg|png|gif|webp|bmp);base64,[A-Za-z0-9+/=]+$/i.test(val)) {
+                continue;
+              }
+              if (options.allowRemote === false) {
+                child.removeAttribute(attr.name);
                 continue;
               }
               try {
@@ -752,14 +786,17 @@ const DocumentAdapter = (() => {
     let html = '';
     if (typeof targetRoot.innerHTML === 'string') {
       html = targetRoot.innerHTML;
-    } else if (typeof XMLSerializer !== 'undefined') {
-      const s = new XMLSerializer();
-      html = Array.from(targetRoot.childNodes || []).map(child => s.serializeToString(child)).join('');
+    } else {
+      const Serializer = (typeof XMLSerializer !== 'undefined') ? XMLSerializer : (typeof require !== 'undefined' ? require('@xmldom/xmldom').XMLSerializer : null);
+      if (Serializer) {
+        const s = new Serializer();
+        html = Array.from(targetRoot.childNodes || []).map(child => s.serializeToString(child)).join('');
+      }
     }
     return html.replace(/\s*xmlns(:[a-z0-9]+)?="http:\/\/www\.w3\.org\/1999\/xhtml"/gi, '');
   }
 
-  return { Adapter, escapeAttr, sanitizeHtml };
+  return { Adapter, escapeAttr, sanitizeHtml, validateZipBudget };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

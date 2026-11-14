@@ -69,18 +69,18 @@ export class MobiParser {
         const textEncoding = rec0View.getUint32(28, false);
         if (textEncoding === 1252) encoding = 'windows-1252';
 
-        if (rec0.length >= 88) {
-          firstImageIndex = rec0View.getUint32(84, false);
-        }
-
-        if (rec0.length >= 88) {
-          const fullNameOffset = rec0View.getUint32(84 - 16, false); // offset 84 relative to MOBI header
-          const fullNameLength = rec0View.getUint32(88 - 16, false);
+        if (rec0.length >= 92) {
+          const fullNameOffset = rec0View.getUint32(84, false); // byte 84 in rec0 (offset 68 of MOBI header)
+          const fullNameLength = rec0View.getUint32(88, false); // byte 88 in rec0 (offset 72 of MOBI header)
           if (fullNameOffset + fullNameLength <= rec0.length) {
             title = new TextDecoder('utf-8', { fatal: false }).decode(
               rec0.subarray(fullNameOffset, fullNameOffset + fullNameLength)
             ).trim() || title;
           }
+        }
+
+        if (rec0.length >= 16 + 112) {
+          firstImageIndex = rec0View.getUint32(16 + 108, false); // byte 124 in rec0 (offset 0x6C / 108 of MOBI header)
         }
 
         // Parse EXTH Header if present
@@ -121,6 +121,29 @@ export class MobiParser {
     }
 
     // 3. Decompress Text Records (Records 1 to textRecordCount)
+    let huffReader: HuffReader | null = null;
+    if (compression === 17480) {
+      const huffRecordOffset = rec0.length >= 16 + 120 ? rec0View.getUint32(16 + 112, false) : 0;
+      const huffRecordCount = rec0.length >= 16 + 124 ? rec0View.getUint32(16 + 116, false) : 0;
+      if (huffRecordCount > 0 && huffRecordOffset < numRecords && huffRecordOffset + huffRecordCount <= numRecords) {
+        const huffRecords: Uint8Array[] = [];
+        for (let i = 0; i < huffRecordCount; i++) {
+          const start = recordOffsets[huffRecordOffset + i];
+          const end = huffRecordOffset + i + 1 < recordOffsets.length ? recordOffsets[huffRecordOffset + i + 1] : buffer.length;
+          if (start < end && end <= buffer.length) {
+            huffRecords.push(buffer.subarray(start, end));
+          }
+        }
+        if (huffRecords.length > 0) {
+          try {
+            huffReader = new HuffReader(huffRecords);
+          } catch {
+            huffReader = null;
+          }
+        }
+      }
+    }
+
     const textChunks: string[] = [];
     const textDecoder = new TextDecoder(encoding, { fatal: false });
 
@@ -143,8 +166,16 @@ export class MobiParser {
         // PalmDOC LZ77
         const decompressed = this.decompressPalmDoc(recData);
         textChunks.push(textDecoder.decode(decompressed));
+      } else if (compression === 17480 && huffReader) {
+        // HUFF/CDIC decompression
+        try {
+          const decompressed = huffReader.unpack(recData);
+          textChunks.push(textDecoder.decode(decompressed));
+        } catch {
+          textChunks.push(textDecoder.decode(recData));
+        }
       } else {
-        // Fallback for HUFF/CDIC or unknown: decode raw text
+        // Fallback for unknown: decode raw text
         textChunks.push(textDecoder.decode(recData));
       }
     }
@@ -257,5 +288,117 @@ export class MobiParser {
     }
 
     return new Uint8Array(out);
+  }
+}
+
+class HuffReader {
+  private dict1: { codeLength: number; terminal: boolean; maxCode: number }[] = [];
+  private minCode: number[] = [0];
+  private maxCode: number[] = [0];
+  private dictionary: { bytes: Uint8Array; isReference: boolean }[] = [];
+
+  constructor(records: Uint8Array[]) {
+    if (!records.length) throw new Error('MOBI HUFF/CDIC records are missing.');
+    this.loadHuff(records[0]);
+    for (let i = 1; i < records.length; i++) this.loadCdic(records[i]);
+    if (!this.dictionary.length) throw new Error('MOBI CDIC dictionary is empty.');
+  }
+
+  private loadHuff(bytes: Uint8Array) {
+    if (bytes.length < 16) throw new Error('Invalid MOBI HUFF header.');
+    const magic = String.fromCharCode(...bytes.subarray(0, 8));
+    if (magic !== 'HUFF\x00\x00\x00\x18') throw new Error('Invalid MOBI HUFF header.');
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const off1 = view.getUint32(8, false);
+    const off2 = view.getUint32(12, false);
+    if (off1 + 256 * 4 > bytes.length || off2 + 64 * 4 > bytes.length) {
+      throw new Error('Invalid MOBI HUFF table bounds.');
+    }
+
+    this.dict1 = [];
+    for (let i = 0; i < 256; i++) {
+      const value = view.getUint32(off1 + i * 4, false);
+      const codeLength = value & 0x1f;
+      if (!codeLength || codeLength > 32) throw new Error('Invalid MOBI HUFF code length.');
+      const maxCode = (((value >>> 8) + 1) * (2 ** (32 - codeLength)) - 1) >>> 0;
+      this.dict1.push({ codeLength, terminal: (value & 0x80) !== 0, maxCode });
+    }
+
+    this.minCode = [0];
+    this.maxCode = [0];
+    for (let length = 1; length <= 32; length++) {
+      const min = view.getUint32(off2 + (length - 1) * 8, false);
+      const max = view.getUint32(off2 + (length - 1) * 8 + 4, false);
+      this.minCode.push((min * (2 ** (32 - length))) >>> 0);
+      this.maxCode.push((((max + 1) * (2 ** (32 - length))) - 1) >>> 0);
+    }
+  }
+
+  private loadCdic(bytes: Uint8Array) {
+    if (bytes.length < 16) throw new Error('Invalid MOBI CDIC header.');
+    const magic = String.fromCharCode(...bytes.subarray(0, 8));
+    if (magic !== 'CDIC\x00\x00\x00\x10') throw new Error('Invalid MOBI CDIC header.');
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const phrases = view.getUint32(8, false);
+    const bits = view.getUint32(12, false);
+    if (bits > 20) throw new Error('Invalid MOBI CDIC dictionary size.');
+    const count = Math.min(2 ** bits, phrases - this.dictionary.length);
+    if (count < 0 || 16 + count * 2 > bytes.length) throw new Error('Invalid MOBI CDIC table bounds.');
+    for (let i = 0; i < count; i++) {
+      const offset = view.getUint16(16 + i * 2, false);
+      const entry = 16 + offset;
+      if (entry + 2 > bytes.length) throw new Error('Invalid MOBI CDIC entry.');
+      const length = view.getUint16(entry, false);
+      const end = entry + 2 + (length & 0x7fff);
+      if (end > bytes.length) throw new Error('Invalid MOBI CDIC phrase bounds.');
+      this.dictionary.push({
+        bytes: bytes.subarray(entry + 2, end),
+        isReference: (length & 0x8000) !== 0,
+      });
+    }
+  }
+
+  unpack(input: Uint8Array, depth = 0, state = { totalBytes: 0 }): Uint8Array {
+    if (depth > 64) {
+      throw new Error('MOBI HUFF/CDIC: recursion depth limit exceeded (possible circular reference).');
+    }
+    const data = new Uint8Array(input.length + 8);
+    data.set(input);
+    let bitPosition = 0;
+    const output: Uint8Array[] = [];
+    while (bitPosition < input.length * 8) {
+      let code = 0;
+      for (let i = 0; i < 32; i++) {
+        const pos = bitPosition + i;
+        code = (code * 2) + ((data[Math.floor(pos / 8)] >>> (7 - (pos % 8))) & 1);
+      }
+      code = code >>> 0;
+      const first = this.dict1[code >>> 24];
+      let codeLength = first.codeLength;
+      let maxCode = first.maxCode;
+      if (!first.terminal) {
+        while (codeLength < 32 && code < this.minCode[codeLength]) codeLength++;
+        maxCode = this.maxCode[codeLength];
+      }
+      if (!codeLength || bitPosition + codeLength > input.length * 8) break;
+      const index = Math.floor(((maxCode - code) >>> 0) / (2 ** (32 - codeLength)));
+      const entry = this.dictionary[index];
+      if (!entry) throw new Error('MOBI HUFF code references a missing CDIC phrase.');
+      bitPosition += codeLength;
+      const chunk = entry.isReference ? this.unpack(entry.bytes, depth + 1, state) : entry.bytes;
+      state.totalBytes += chunk.length;
+      if (state.totalBytes > 64 * 1024 * 1024) {
+        throw new Error('MOBI HUFF/CDIC: decompressed size limit exceeded (exceeds 64 MB).');
+      }
+      output.push(chunk);
+    }
+    const total = output.reduce((sum, chunk) => sum + chunk.length, 0);
+    const result = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of output) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return result;
   }
 }

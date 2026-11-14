@@ -34,7 +34,8 @@ const EpubLoader = (() => {
 
   // Prevent epub.js dangling promises on destroyed books from leaking unhandled rejections
   window.addEventListener('unhandledrejection', (event) => {
-    if (event.reason && /replaceCss/i.test(event.reason?.message || '')) {
+    const msg = event.reason?.message || String(event.reason || '');
+    if (/replaceCss|reading '0'|reading 'replaceCss'/i.test(msg)) {
       event.preventDefault();
     }
   });
@@ -233,7 +234,7 @@ const EpubLoader = (() => {
     try { rendition?.destroy(); } catch { /* already gone */ }
     try {
       if (currentBook) {
-        const dummyResources = { replaceCss: () => Promise.resolve([]), replacements: () => Promise.resolve([]), substitute: () => '' };
+        const dummyResources = { replaceCss: () => Promise.resolve([]), replacements: () => Promise.resolve([]), substitute: () => '', replacementUrls: [] };
         const bookToDestroy = currentBook;
         bookToDestroy.resources = dummyResources;
         try { bookToDestroy.destroy(); } catch { /* already gone */ }
@@ -294,7 +295,7 @@ const EpubLoader = (() => {
     rendition = null;
       }
       if (currentBook) {
-        const dummyResources = { replaceCss: () => Promise.resolve([]), replacements: () => Promise.resolve([]), substitute: () => '' };
+        const dummyResources = { replaceCss: () => Promise.resolve([]), replacements: () => Promise.resolve([]), substitute: () => '', replacementUrls: [] };
         const bookToDestroy = currentBook;
         bookToDestroy.resources = dummyResources;
         try { bookToDestroy.destroy(); } catch { /* ignore */ }

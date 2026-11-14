@@ -5,12 +5,24 @@
 
 export type BookFormat =
   | 'epub'
+  | 'kepub'
   | 'pdf'
+  | 'jpg'
+  | 'png'
+  | 'webp'
+  | 'tiff'
+  | 'bmp'
+  | 'gif'
+  | 'avif'
+  | 'svg'
+  | 'heic'
+  | 'heif'
   | 'txt'
   | 'html'
   | 'fb2'
   | 'cbz'
   | 'cbr'
+  | 'cbt'
   | 'cb7'
   | 'mobi'
   | 'azw'
@@ -23,6 +35,44 @@ export type BookFormat =
   | 'chm'
   | 'md'
   | 'fbz'
+  | 'csv'
+  | 'tsv'
+  | 'xlsx'
+  | 'xls'
+  | 'wps'
+  | 'xlsm'
+  | 'xlsb'
+  | 'xltx'
+  | 'xltm'
+  | 'ods'
+  | 'pptx'
+  | 'ppt'
+  | 'pptm'
+  | 'pps'
+  | 'ppsx'
+  | 'ppsm'
+  | 'potx'
+  | 'potm'
+  | 'odp'
+  | 'mht'
+  | 'mhtml'
+  | 'xml'
+  | 'json'
+  | 'yaml'
+  | 'yml'
+  | 'log'
+  | 'eml'
+  | 'msg'
+  | 'mbox'
+  | 'pst'
+  | 'ost'
+  | 'pages'
+  | 'numbers'
+  | 'key'
+  | 'xps'
+  | 'oxps'
+  | 'vcf'
+  | 'ics'
   | 'zip'
   | 'rar';
 
@@ -43,6 +93,13 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
     mime: 'application/epub+zip',
     supported: true,
   },
+  kepub: {
+    id: 'kepub',
+    label: 'Kobo EPUB',
+    extensions: ['kepub.epub', 'kepub'],
+    mime: 'application/epub+zip',
+    supported: true,
+  },
   pdf: {
     id: 'pdf',
     label: 'PDF',
@@ -50,6 +107,16 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
     mime: 'application/pdf',
     supported: true,
   },
+  jpg: { id: 'jpg', label: 'JPEG Image', extensions: ['jpg', 'jpeg'], mime: 'image/jpeg', supported: true },
+  png: { id: 'png', label: 'PNG Image', extensions: ['png'], mime: 'image/png', supported: true },
+  webp: { id: 'webp', label: 'WebP Image', extensions: ['webp'], mime: 'image/webp', supported: true },
+  tiff: { id: 'tiff', label: 'TIFF Image', extensions: ['tiff', 'tif'], mime: 'image/tiff', supported: true },
+  bmp: { id: 'bmp', label: 'Bitmap Image', extensions: ['bmp'], mime: 'image/bmp', supported: true },
+  gif: { id: 'gif', label: 'GIF Image', extensions: ['gif'], mime: 'image/gif', supported: true },
+  avif: { id: 'avif', label: 'AVIF Image', extensions: ['avif'], mime: 'image/avif', supported: true },
+  svg: { id: 'svg', label: 'SVG Image', extensions: ['svg'], mime: 'image/svg+xml', supported: true },
+  heic: { id: 'heic', label: 'HEIC Image', extensions: ['heic'], mime: 'image/heic', supported: true },
+  heif: { id: 'heif', label: 'HEIF Image', extensions: ['heif'], mime: 'image/heif', supported: true },
   txt: {
     id: 'txt',
     label: 'Plain Text',
@@ -76,6 +143,13 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
     label: 'Comic Book Archive (CBZ)',
     extensions: ['cbz'],
     mime: 'application/vnd.comicbook+zip',
+    supported: true,
+  },
+  cbt: {
+    id: 'cbt',
+    label: 'Comic Book Archive (TAR)',
+    extensions: ['cbt', 'tar'],
+    mime: 'application/x-tar',
     supported: true,
   },
   cbr: {
@@ -169,6 +243,44 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
     mime: 'application/x-zip-compressed-fb2',
     supported: true,
   },
+  csv: { id: 'csv', label: 'CSV Spreadsheet', extensions: ['csv'], mime: 'text/csv', supported: true },
+  tsv: { id: 'tsv', label: 'TSV Spreadsheet', extensions: ['tsv'], mime: 'text/tab-separated-values', supported: true },
+  xlsx: { id: 'xlsx', label: 'Excel Workbook', extensions: ['xlsx'], mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', supported: true },
+  xls: { id: 'xls', label: 'Legacy Excel Workbook', extensions: ['xls'], mime: 'application/vnd.ms-excel', supported: true },
+  wps: { id: 'wps', label: 'WPS Document', extensions: ['wps'], mime: 'application/vnd.ms-works', supported: true },
+  xlsm: { id: 'xlsm', label: 'Macro-enabled Excel Workbook', extensions: ['xlsm'], mime: 'application/vnd.ms-excel.sheet.macroEnabled.12', supported: true },
+  xlsb: { id: 'xlsb', label: 'Binary Excel Workbook', extensions: ['xlsb'], mime: 'application/vnd.ms-excel.sheet.binary.macroEnabled.12', supported: true },
+  xltx: { id: 'xltx', label: 'Excel Template', extensions: ['xltx'], mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.template', supported: true },
+  xltm: { id: 'xltm', label: 'Macro-enabled Excel Template', extensions: ['xltm'], mime: 'application/vnd.ms-excel.template.macroEnabled.12', supported: true },
+  ods: { id: 'ods', label: 'OpenDocument Spreadsheet', extensions: ['ods'], mime: 'application/vnd.oasis.opendocument.spreadsheet', supported: true },
+  pptx: { id: 'pptx', label: 'PowerPoint Presentation', extensions: ['pptx'], mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', supported: true },
+  ppt: { id: 'ppt', label: 'Legacy PowerPoint Presentation', extensions: ['ppt'], mime: 'application/vnd.ms-powerpoint', supported: true },
+  pptm: { id: 'pptm', label: 'Macro-enabled PowerPoint Presentation', extensions: ['pptm'], mime: 'application/vnd.ms-powerpoint.presentation.macroEnabled.12', supported: true },
+  pps: { id: 'pps', label: 'PowerPoint Slide Show', extensions: ['pps'], mime: 'application/vnd.ms-powerpoint', supported: true },
+  ppsx: { id: 'ppsx', label: 'PowerPoint Slide Show', extensions: ['ppsx'], mime: 'application/vnd.openxmlformats-officedocument.presentationml.slideshow', supported: true },
+  ppsm: { id: 'ppsm', label: 'Macro-enabled PowerPoint Slide Show', extensions: ['ppsm'], mime: 'application/vnd.ms-powerpoint.slideshow.macroEnabled.12', supported: true },
+  potx: { id: 'potx', label: 'PowerPoint Template', extensions: ['potx'], mime: 'application/vnd.openxmlformats-officedocument.presentationml.template', supported: true },
+  potm: { id: 'potm', label: 'Macro-enabled PowerPoint Template', extensions: ['potm'], mime: 'application/vnd.ms-powerpoint.template.macroEnabled.12', supported: true },
+  odp: { id: 'odp', label: 'OpenDocument Presentation', extensions: ['odp'], mime: 'application/vnd.oasis.opendocument.presentation', supported: true },
+  mht: { id: 'mht', label: 'Web Archive', extensions: ['mht', 'mhtml'], mime: 'multipart/related', supported: true },
+  mhtml: { id: 'mhtml', label: 'Web Archive', extensions: ['mhtml', 'mht'], mime: 'multipart/related', supported: true },
+  xml: { id: 'xml', label: 'XML Document', extensions: ['xml'], mime: 'application/xml', supported: true },
+  json: { id: 'json', label: 'JSON Document', extensions: ['json'], mime: 'application/json', supported: true },
+  yaml: { id: 'yaml', label: 'YAML Document', extensions: ['yaml', 'yml'], mime: 'application/yaml', supported: true },
+  yml: { id: 'yml', label: 'YAML Document', extensions: ['yml', 'yaml'], mime: 'application/yaml', supported: true },
+  log: { id: 'log', label: 'Log File', extensions: ['log'], mime: 'text/plain', supported: true },
+  eml: { id: 'eml', label: 'Email Message', extensions: ['eml'], mime: 'message/rfc822', supported: true },
+  msg: { id: 'msg', label: 'Outlook Message', extensions: ['msg'], mime: 'application/vnd.ms-outlook', supported: true },
+  pst: { id: 'pst', label: 'Outlook Personal Storage', extensions: ['pst'], mime: 'application/vnd.ms-outlook-pst', supported: true },
+  ost: { id: 'ost', label: 'Outlook Offline Storage', extensions: ['ost'], mime: 'application/vnd.ms-outlook-ost', supported: true },
+  mbox: { id: 'mbox', label: 'Mailbox Archive', extensions: ['mbox'], mime: 'application/mbox', supported: true },
+  pages: { id: 'pages', label: 'Apple Pages Document', extensions: ['pages'], mime: 'application/vnd.apple.pages', supported: true },
+  numbers: { id: 'numbers', label: 'Apple Numbers Document', extensions: ['numbers'], mime: 'application/vnd.apple.numbers', supported: true },
+  key: { id: 'key', label: 'Apple Keynote Presentation', extensions: ['key'], mime: 'application/vnd.apple.keynote', supported: true },
+  xps: { id: 'xps', label: 'XPS Document', extensions: ['xps', 'oxps'], mime: 'application/oxps', supported: true },
+  oxps: { id: 'oxps', label: 'XPS Document', extensions: ['oxps', 'xps'], mime: 'application/oxps', supported: true },
+  vcf: { id: 'vcf', label: 'vCard Contact', extensions: ['vcf'], mime: 'text/vcard', supported: true },
+  ics: { id: 'ics', label: 'iCalendar Event', extensions: ['ics'], mime: 'text/calendar', supported: true },
   zip: {
     id: 'zip',
     label: 'ZIP Container Archive',
@@ -234,6 +346,8 @@ export const BLOCKED_EXTENSIONS: Set<string> = new Set([
 ]);
 
 export function getFormatFromExtension(filenameOrExt: string): FormatInfo {
+  const normalized = filenameOrExt.toLowerCase();
+  if (normalized.endsWith('.kepub.epub') || normalized === 'kepub.epub') return SUPPORTED_FORMATS.kepub;
   const parts = filenameOrExt.split(/[./\\]/);
   const ext = (parts[parts.length - 1] || '').toLowerCase();
   for (const format of Object.values(SUPPORTED_FORMATS)) {
@@ -257,6 +371,7 @@ export interface Book {
   format: BookFormat;
   uri: string; // SAF content:// URI or file:// — canonical source
   filePath?: string; // App-local persistent file path (legacy/backward compat)
+  originalName?: string; // Original imported filename used for format-specific parsing
   fileSize: number; // Bytes
   coverUrl?: string; // App-local cover image path
   thumbnailUrl?: string; // App-local ~400px optimized cover thumbnail

@@ -1,11 +1,13 @@
+import type JSZip from 'jszip';
+
 export interface ArchiveEntryBudget {
   name: string;
   compressedSize?: number;
   uncompressedSize?: number;
 }
 
-export const MAX_ARCHIVE_ENTRIES = 30000;
-export const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 2048 * 1024 * 1024;
+export const MAX_ARCHIVE_ENTRIES = 20000;
+export const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 512 * 1024 * 1024;
 export const MAX_ARCHIVE_ENTRY_BYTES = 64 * 1024 * 1024;
 export const MAX_ARCHIVE_COMPRESSION_RATIO = 100;
 
@@ -29,4 +31,13 @@ export function validateArchiveBudget(entries: ArchiveEntryBudget[]): void {
       throw new Error('The archive expands beyond the safe size limit.');
     }
   }
+}
+
+export function validateZipArchive(zip: JSZip): void {
+  const entries: ArchiveEntryBudget[] = Object.values(zip.files).map((f) => ({
+    name: f.name,
+    uncompressedSize: (f as any)._data?.uncompressedSize,
+    compressedSize: (f as any)._data?.compressedSize,
+  }));
+  validateArchiveBudget(entries);
 }

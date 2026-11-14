@@ -3,7 +3,7 @@
  * Detects format using binary magic byte signatures, container inspection, and file extension ties.
  */
 
-import { getFormatFromExtension, SUPPORTED_FORMATS, type FormatInfo } from '../../models/Book.ts';
+import { getFormatFromExtension, SUPPORTED_FORMATS, type BookFormat, type FormatInfo } from '../../models/Book.ts';
 
 export interface DetectionResult extends FormatInfo {
   confidence: number;
@@ -132,7 +132,23 @@ export class FormatDetector {
       bytes[6] === 0x1a &&
       bytes[7] === 0xe1
     ) {
-      return { ...SUPPORTED_FORMATS.doc, confidence: 0.95 };
+      // Content-based inspection of OLE2 directory stream signatures
+      const sample = new TextDecoder('latin1').decode(bytes.subarray(0, Math.min(bytes.length, 8192)));
+      let detectedSubtype: BookFormat | null = null;
+      if (sample.includes('W\x00o\x00r\x00k\x00b\x00o\x00o\x00k\x00') || sample.includes('B\x00o\x00o\x00k\x00')) {
+        detectedSubtype = 'xls';
+      } else if (sample.includes('_\x00_\x00s\x00u\x00b\x00s\x00t\x00g\x00') || sample.includes('_\x00_\x00a\x00t\x00t\x00a\x00c\x00h\x00')) {
+        detectedSubtype = 'msg';
+      } else if (sample.includes('P\x00o\x00w\x00e\x00r\x00P\x00o\x00i\x00n\x00t\x00') || sample.includes('C\x00u\x00r\x00r\x00e\x00n\x00t\x00 \x00U\x00s\x00e\x00r\x00')) {
+        detectedSubtype = ext === 'pps' ? 'pps' : 'ppt';
+      } else if (sample.includes('W\x00P\x00S\x00 \x00O\x00f\x00f\x00i\x00c\x00e\x00')) {
+        detectedSubtype = 'wps';
+      } else if (sample.includes('W\x00o\x00r\x00d\x00D\x00o\x00c\x00u\x00m\x00e\x00n\x00t\x00')) {
+        detectedSubtype = 'doc';
+      }
+
+      const legacyFormat: BookFormat = detectedSubtype || (['xls', 'ppt', 'pps', 'wps', 'msg'].includes(ext) ? ext as BookFormat : 'doc');
+      return { ...SUPPORTED_FORMATS[legacyFormat], confidence: 0.95 };
     }
 
     // 8. Palm Database / MOBI / AZW / AZW3: Check for "BOOKMOBI" or "TEXtREAd" at offset 60..68
@@ -219,7 +235,8 @@ export class FormatDetector {
 
       const namesLower = entries.map((e) => e.name.toLowerCase());
 
-      // 1. EPUB
+      // 1. EPUB and Kobo EPUB. The extension is only used to preserve the
+      // reader variant after the ZIP signature has established a container.
       if (
         headerSnippet.includes('mimetypeapplication/epub+zip') ||
         headerSnippet.includes('META-INF/container.xml') ||
@@ -229,7 +246,9 @@ export class FormatDetector {
         const hasEncryption = headerSnippet.includes('encryption.xml');
         const isDrm = hasRights || hasEncryption;
         return {
-          ...SUPPORTED_FORMATS.epub,
+          ...(ext === 'kepub' || fallbackFilename?.toLowerCase().endsWith('.kepub.epub')
+            ? SUPPORTED_FORMATS.kepub
+            : SUPPORTED_FORMATS.epub),
           confidence: 1.0,
           kind: 'book',
           isDrm,
@@ -241,7 +260,17 @@ export class FormatDetector {
         };
       }
 
-      // 2. DOCX & ODT
+      // 2. Office Open XML / OpenDocument containers. Do not classify every
+      // package containing [Content_Types].xml as DOCX.
+      if (ext === 'xlsx' || ext === 'xlsm' || ext === 'xltx' || ext === 'xltm') {
+        return { ...SUPPORTED_FORMATS[ext as BookFormat], confidence: 0.98, kind: 'book' };
+      }
+      if (ext === 'pptx' || ext === 'pptm' || ext === 'ppsx' || ext === 'ppsm' || ext === 'potx' || ext === 'potm') {
+        return { ...SUPPORTED_FORMATS[ext as BookFormat], confidence: 0.98, kind: 'book' };
+      }
+      if (ext === 'pages' || ext === 'numbers' || ext === 'key') {
+        return { ...SUPPORTED_FORMATS[ext as BookFormat], confidence: 0.95, kind: 'book' };
+      }
       if (
         headerSnippet.includes('word/') ||
         headerSnippet.includes('[Content_Types].xml') ||
@@ -254,6 +283,9 @@ export class FormatDetector {
         namesLower.some((n) => n === 'content.xml' && ext === 'odt')
       ) {
         return { ...SUPPORTED_FORMATS.odt, confidence: 1.0, kind: 'book' };
+      }
+      if (ext === 'ods' || ext === 'odp') {
+        return { ...SUPPORTED_FORMATS[ext], confidence: 0.95, kind: 'book' };
       }
 
       // 3. Android/Java packages -> blocked:app-package
@@ -323,7 +355,7 @@ export class FormatDetector {
         const base = l.split('/').pop() || '';
         return !ignoredCbNames.has(base) && !l.startsWith('__macosx/') && !base.endsWith('.txt') && !base.endsWith('.nfo');
       });
-      const imageExts = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp']);
+      const imageExts = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tif', 'tiff', 'heic', 'heif']);
       const imageEntries = contentEntries.filter((e) => {
         const entryExt = e.name.split('.').pop()?.toLowerCase() || '';
         return imageExts.has(entryExt);
@@ -366,21 +398,23 @@ export class FormatDetector {
         };
       }
 
-      // 7. Otherwise -> unrecognized / blocked
+      // 7. A valid ZIP remains a supported container even when it has no
+      // importable book entry; the reader can inspect image archives directly.
       return {
-        id: 'unknown',
-        label: 'ZIP Container Archive',
-        extensions: ['zip'],
-        mime: 'application/zip',
-        supported: false,
-        confidence: 0,
-        kind: 'blocked',
-        reason: 'ZIP archive with no supported books inside',
+        ...SUPPORTED_FORMATS.zip,
+        confidence: 0.75,
+        kind: 'container',
+        reason: 'ZIP archive with no recognized book entries',
       };
     }
 
     // 10. XML / FB2 / HTML
     const textHead = new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(0, 512)).trim();
+    if (ext === 'json' || ext === 'xml' || ext === 'yaml' || ext === 'yml' || ext === 'log' ||
+        ext === 'eml' || ext === 'mbox' || ext === 'mht' || ext === 'mhtml' ||
+        ext === 'vcf' || ext === 'ics') {
+      return { ...SUPPORTED_FORMATS[ext as BookFormat], confidence: 0.9 };
+    }
     if (textHead.includes('<FictionBook')) {
       return { ...SUPPORTED_FORMATS.fb2, confidence: 0.98 };
     }

@@ -7,13 +7,44 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Book, BookFormat, getFormatFromExtension } from '@/models/Book';
 import { fileStorage } from '@/services/storage/FileStorage';
-import { RarExtractor } from '@/services/archive/RarExtractor';
 import { ImportService } from './ImportService';
 import { logger } from '@/utils/logger';
+
+function getLibArchive(): { ArchiveReader: any; libarchiveWasm: any } | null {
+  try {
+    const req = typeof eval === 'function' ? eval('require') : null;
+    return req ? req('libarchive-wasm') : null;
+  } catch {
+    return null;
+  }
+}
 
 const TAG = 'RarInspectionService';
 const MAX_ENTRIES = 500;
 const MAX_ENTRY_BYTES = 100 * 1024 * 1024; // 100 MB limit per entry
+
+async function readArchiveEntries(bytes: Uint8Array): Promise<{ name: string; size: number; data: Uint8Array }[]> {
+  const lib = getLibArchive();
+  if (!lib) return [];
+  const wasm = await lib.libarchiveWasm();
+  const reader = new lib.ArchiveReader(wasm, new Int8Array(bytes));
+  const entries: { name: string; size: number; data: Uint8Array }[] = [];
+  try {
+    for (const entry of reader.entries()) {
+      const size = entry.getSize();
+      const name = entry.getPathname().replace(/\\/g, '/');
+      if (size > MAX_ENTRY_BYTES || entry.isEncrypted()) {
+        entry.skipData();
+        continue;
+      }
+      const data = entry.readData();
+      if (data) entries.push({ name, size, data: new Uint8Array(data) });
+    }
+    return entries;
+  } finally {
+    reader.free();
+  }
+}
 
 export interface RarBookEntry {
   id: string;
@@ -38,7 +69,7 @@ export class RarInspectionService {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      const rawEntries = RarExtractor.inspect(bytes);
+      const rawEntries = await readArchiveEntries(bytes);
       const entries: RarBookEntry[] = [];
 
       for (let i = 0; i < Math.min(rawEntries.length, MAX_ENTRIES); i++) {
@@ -61,7 +92,7 @@ export class RarInspectionService {
             internalPath: safePath,
             name: fileName,
             format: formatInfo.id as BookFormat,
-            size: Math.min(item.size || item.packedSize, MAX_ENTRY_BYTES),
+            size: Math.min(item.size, MAX_ENTRY_BYTES),
             selected: true,
           });
         }
@@ -94,7 +125,7 @@ export class RarInspectionService {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      const allEntries = RarExtractor.inspect(bytes);
+      const allEntries = await readArchiveEntries(bytes);
       const entryMap = new Map(allEntries.map((e) => [e.name, e]));
 
       const tempDir = `${FileSystem.cacheDirectory || ''}rar_extracted/`;

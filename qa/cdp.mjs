@@ -157,6 +157,7 @@ class Cdp {
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       window.__qaChunks = null;
       const file = new File([bytes], window.__qaName, { type: window.__qaType });
+      window.__lastQaFile = file;
       const dt = new DataTransfer();
       dt.items.add(file);
       window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));

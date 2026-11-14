@@ -60,16 +60,18 @@ if exist "%ProgramFiles%\Lirune Reader\Lirune Reader.exe" (
     goto :done
 )
 
-if exist "%ProgramFiles(x86)%\Lirune Reader\Lirune Reader.exe" (
-    echo [INFO] Found installed Lirune Reader in %ProgramFiles(x86)%\Lirune Reader
-    echo Starting Lirune Reader...
-    if "%1"=="--validate-only" (
-        echo [INFO] Target executable verified: "%ProgramFiles(x86)%\Lirune Reader\Lirune Reader.exe"
-        exit /b 0
-    )
-    start "" "%ProgramFiles(x86)%\Lirune Reader\Lirune Reader.exe" %*
-    goto :done
-)
+set "PF86=%ProgramFiles(x86)%"
+if not defined PF86 goto :skip_pf86
+if not exist "%PF86%\Lirune Reader\Lirune Reader.exe" goto :skip_pf86
+echo [INFO] Found installed Lirune Reader in %PF86%\Lirune Reader
+echo Starting Lirune Reader...
+if "%1"=="--validate-only" goto :validate_pf86
+start "" "%PF86%\Lirune Reader\Lirune Reader.exe" %*
+goto :done
+:validate_pf86
+echo [INFO] Target executable verified: "%PF86%\Lirune Reader\Lirune Reader.exe"
+exit /b 0
+:skip_pf86
 
 REM 3. Fallback to developer source execution via Electron
 echo [INFO] No standalone or installed binary found.

@@ -184,6 +184,18 @@ jobs:
         working-directory: mobile
         run: npx expo prebuild --no-install --platform android
 
+      - name: Configure CI Android Signing Keystore
+        working-directory: mobile/android
+        run: |
+          mkdir -p ~/.gradle
+          if ! grep -q "LIRUNE_RELEASE_STORE_FILE" ~/.gradle/gradle.properties 2>/dev/null; then
+            keytool -genkeypair -v -keystore ci-release.keystore -alias lirune-ci -keyalg RSA -keysize 2048 -validity 10000 -storepass liruneci -keypass liruneci -dname "CN=LiruneCI, OU=CI, O=Lirune, L=SanFrancisco, S=CA, C=US"
+            echo "LIRUNE_RELEASE_STORE_FILE=$(pwd)/ci-release.keystore" >> ~/.gradle/gradle.properties
+            echo "LIRUNE_RELEASE_STORE_PASSWORD=liruneci" >> ~/.gradle/gradle.properties
+            echo "LIRUNE_RELEASE_KEY_ALIAS=lirune-ci" >> ~/.gradle/gradle.properties
+            echo "LIRUNE_RELEASE_KEY_PASSWORD=liruneci" >> ~/.gradle/gradle.properties
+          fi
+
       - name: Assemble Android Release APK
         working-directory: mobile/android
         run: ./gradlew :app:assembleRelease --stacktrace

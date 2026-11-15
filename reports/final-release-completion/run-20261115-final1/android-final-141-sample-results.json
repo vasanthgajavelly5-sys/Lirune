@@ -1,0 +1,1135 @@
+{
+  "totalSamples": 141,
+  "passed": 141,
+  "failed": 0,
+  "results": [
+    {
+      "file": "mobi_sample_low.mobi",
+      "format": "mobi",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "mobi_sample_medium.mobi",
+      "format": "mobi",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "mobi_sample_high.mobi",
+      "format": "mobi",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "doc_sample_low.doc",
+      "format": "doc",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "doc_sample_medium.doc",
+      "format": "doc",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "doc_sample_high.doc",
+      "format": "doc",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "txt_sample_low.txt",
+      "format": "txt",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "txt_sample_medium.txt",
+      "format": "txt",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "txt_sample_high.txt",
+      "format": "txt",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "fbz_sample_low.fbz",
+      "format": "fbz",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "cb7_sample_low.cb7",
+      "format": "cb7",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ppt_sample_low.ppt",
+      "format": "ppt",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ppt_sample_medium.ppt",
+      "format": "ppt",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ppt_sample_high.ppt",
+      "format": "ppt",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "chm_sample_low.chm",
+      "format": "chm",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "png_sample_low.png",
+      "format": "png",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "png_sample_medium.png",
+      "format": "png",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "png_sample_high.png",
+      "format": "png",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "zip_sample_low.zip",
+      "format": "zip",
+      "tier": "low",
+      "classification": "containers",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "zip_sample_medium.zip",
+      "format": "zip",
+      "tier": "medium",
+      "classification": "containers",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "zip_sample_high.zip",
+      "format": "zip",
+      "tier": "high",
+      "classification": "containers",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "md_sample_low.md",
+      "format": "md",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "md_sample_medium.md",
+      "format": "md",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "md_sample_high.md",
+      "format": "md",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "cbz_sample_low.cbz",
+      "format": "cbz",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "cbz_sample_medium.cbz",
+      "format": "cbz",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "cbz_sample_high.cbz",
+      "format": "cbz",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "docx_sample_low.docx",
+      "format": "docx",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "docx_sample_medium.docx",
+      "format": "docx",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "docx_sample_high.docx",
+      "format": "docx",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "jpg_sample_low.jpg",
+      "format": "jpg",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "jpg_sample_medium.jpg",
+      "format": "jpg",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "jpg_sample_high.jpg",
+      "format": "jpg",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "epub_sample_low.epub",
+      "format": "epub",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "epub_sample_medium.epub",
+      "format": "epub",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "epub_sample_high.epub",
+      "format": "epub",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "pdf_sample_low.pdf",
+      "format": "pdf",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "pdf_sample_medium.pdf",
+      "format": "pdf",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "pdf_sample_high.pdf",
+      "format": "pdf",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "odt_sample_low.odt",
+      "format": "odt",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "odt_sample_medium.odt",
+      "format": "odt",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "odt_sample_high.odt",
+      "format": "odt",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "rtf_sample_low.rtf",
+      "format": "rtf",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "rtf_sample_medium.rtf",
+      "format": "rtf",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "rtf_sample_high.rtf",
+      "format": "rtf",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "fb2_sample_low.fb2",
+      "format": "fb2",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "fb2_sample_medium.fb2",
+      "format": "fb2",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "fb2_sample_high.fb2",
+      "format": "fb2",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "cbr_sample_low.cbr",
+      "format": "cbr",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "cbt_sample_low.cbt",
+      "format": "cbt",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "tiff_sample_low.tiff",
+      "format": "tiff",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "tiff_sample_medium.tiff",
+      "format": "tiff",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "tiff_sample_high.tiff",
+      "format": "tiff",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "djvu_sample_low.djvu",
+      "format": "djvu",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "html_sample_low.html",
+      "format": "html",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "html_sample_medium.html",
+      "format": "html",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "html_sample_high.html",
+      "format": "html",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "kepub_sample_low.kepub.epub",
+      "format": "kepub",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "kepub_sample_medium.kepub.epub",
+      "format": "kepub",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "kepub_sample_high.kepub.epub",
+      "format": "kepub",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xps_sample_low.xps",
+      "format": "xps",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xps_sample_medium.xps",
+      "format": "xps",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xps_sample_high.xps",
+      "format": "xps",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "csv_sample_low.csv",
+      "format": "csv",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "csv_sample_medium.csv",
+      "format": "csv",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "csv_sample_high.csv",
+      "format": "csv",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "tsv_sample_low.tsv",
+      "format": "tsv",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "tsv_sample_medium.tsv",
+      "format": "tsv",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "tsv_sample_high.tsv",
+      "format": "tsv",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xlsx_sample_low.xlsx",
+      "format": "xlsx",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xlsx_sample_medium.xlsx",
+      "format": "xlsx",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xlsx_sample_high.xlsx",
+      "format": "xlsx",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xls_sample_low.xls",
+      "format": "xls",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xls_sample_medium.xls",
+      "format": "xls",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xls_sample_high.xls",
+      "format": "xls",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ods_sample_low.ods",
+      "format": "ods",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ods_sample_medium.ods",
+      "format": "ods",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ods_sample_high.ods",
+      "format": "ods",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xlsm_sample_low.xlsm",
+      "format": "xlsm",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xlsm_sample_medium.xlsm",
+      "format": "xlsm",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xlsm_sample_high.xlsm",
+      "format": "xlsm",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xltx_sample_low.xltx",
+      "format": "xltx",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xltx_sample_medium.xltx",
+      "format": "xltx",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xltx_sample_high.xltx",
+      "format": "xltx",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xlsb_sample_low.xlsb",
+      "format": "xlsb",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xlsb_sample_medium.xlsb",
+      "format": "xlsb",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xlsb_sample_high.xlsb",
+      "format": "xlsb",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "pptx_sample_low.pptx",
+      "format": "pptx",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "pptx_sample_medium.pptx",
+      "format": "pptx",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "pptx_sample_high.pptx",
+      "format": "pptx",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "odp_sample_low.odp",
+      "format": "odp",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "odp_sample_medium.odp",
+      "format": "odp",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "odp_sample_high.odp",
+      "format": "odp",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ppsx_sample_low.ppsx",
+      "format": "ppsx",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ppsx_sample_medium.ppsx",
+      "format": "ppsx",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ppsx_sample_high.ppsx",
+      "format": "ppsx",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "webp_sample_low.webp",
+      "format": "webp",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "webp_sample_medium.webp",
+      "format": "webp",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "webp_sample_high.webp",
+      "format": "webp",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "gif_sample_low.gif",
+      "format": "gif",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "gif_sample_medium.gif",
+      "format": "gif",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "gif_sample_high.gif",
+      "format": "gif",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "bmp_sample_low.bmp",
+      "format": "bmp",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "bmp_sample_medium.bmp",
+      "format": "bmp",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "bmp_sample_high.bmp",
+      "format": "bmp",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "svg_sample_low.svg",
+      "format": "svg",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "svg_sample_medium.svg",
+      "format": "svg",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "svg_sample_high.svg",
+      "format": "svg",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "avif_sample_low.avif",
+      "format": "avif",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "avif_sample_medium.avif",
+      "format": "avif",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "avif_sample_high.avif",
+      "format": "avif",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "heic_sample_low.heic",
+      "format": "heic",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "heic_sample_medium.heic",
+      "format": "heic",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "heic_sample_high.heic",
+      "format": "heic",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "heif_sample_low.heif",
+      "format": "heif",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "heif_sample_medium.heif",
+      "format": "heif",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "heif_sample_high.heif",
+      "format": "heif",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "mht_sample_low.mht",
+      "format": "mht",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "mht_sample_medium.mht",
+      "format": "mht",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "mht_sample_high.mht",
+      "format": "mht",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xml_sample_low.xml",
+      "format": "xml",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xml_sample_medium.xml",
+      "format": "xml",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "xml_sample_high.xml",
+      "format": "xml",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "json_sample_low.json",
+      "format": "json",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "json_sample_medium.json",
+      "format": "json",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "json_sample_high.json",
+      "format": "json",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "yaml_sample_low.yaml",
+      "format": "yaml",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "yaml_sample_medium.yaml",
+      "format": "yaml",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "yaml_sample_high.yaml",
+      "format": "yaml",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "log_sample_low.log",
+      "format": "log",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "log_sample_medium.log",
+      "format": "log",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "log_sample_high.log",
+      "format": "log",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "eml_sample_low.eml",
+      "format": "eml",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "eml_sample_medium.eml",
+      "format": "eml",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "eml_sample_high.eml",
+      "format": "eml",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "vcf_sample_low.vcf",
+      "format": "vcf",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "vcf_sample_medium.vcf",
+      "format": "vcf",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "vcf_sample_high.vcf",
+      "format": "vcf",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ics_sample_low.ics",
+      "format": "ics",
+      "tier": "low",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ics_sample_medium.ics",
+      "format": "ics",
+      "tier": "medium",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    },
+    {
+      "file": "ics_sample_high.ics",
+      "format": "ics",
+      "tier": "high",
+      "classification": "primary",
+      "status": "PASS",
+      "notes": "Imported, rendered, and touch navigation verified cleanly on Android 11 (API 30) emulator"
+    }
+  ]
+}

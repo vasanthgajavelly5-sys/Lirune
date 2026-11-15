@@ -1,0 +1,2 @@
+ANDROID  4ceaa7d6b999ab23dbe909feaf987cc7d69ca43edfcae5817289ac1b83f27fd1  Lirune-Reader-v5.0.0-release.apk
+WINDOWS  5fa2d29d4bf478259b89ff0c6641a2cf404ce1736b5d2cd75bf6f9e64727a7a5  Lirune.Reader-6.0.0-Setup.exe

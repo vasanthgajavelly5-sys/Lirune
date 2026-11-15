@@ -36,13 +36,14 @@ data class ZipEntryMeta(
 object FormatRegistry {
 
     val SUPPORTED_FORMATS = setOf(
-        "epub", "kepub", "pdf", "txt", "html", "fb2", "cbz", "cbr", "cbt", "cb7",
-        "mobi", "azw", "azw3", "djvu", "doc", "docx", "rtf", "odt", "chm", "md", "fbz", "xls", "ppt", "pps", "wps",
-        "jpg", "jpeg", "png", "webp", "bmp", "gif", "svg", "tiff", "tif", "avif", "heic", "heif",
-        "csv", "tsv", "xlsx", "xlsm", "xlsb", "xltx", "xltm", "ods",
-        "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "odp",
-        "mht", "mhtml", "xml", "json", "yaml", "yml", "log",
-        "eml", "msg", "mbox", "pst", "ost", "pages", "numbers", "key", "xps", "oxps", "vcf", "ics"
+        "epub", "kepub", "pdf", "txt", "html", "htm", "xhtml", "fb2", "fbz", "cbz", "cbr", "cbt", "cb7",
+        "mobi", "azw", "azw3", "kf8", "prc", "djvu", "djv", "doc", "docx", "rtf", "odt", "chm", "md", "markdown",
+        "xlsx", "xlsm", "xltx", "xltm", "xlsb", "xls",
+        "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "ppt", "pps",
+        "ods", "odp",
+        "csv", "tsv", "json", "yaml", "yml", "xml", "log", "ics", "vcf", "eml", "mbox", "mht", "mhtml",
+        "jpg", "jpeg", "png", "webp", "gif", "bmp", "svg", "tiff", "tif", "avif", "heic", "heif",
+        "xps", "oxps", "wps", "msg", "pst", "ost", "pages", "numbers", "key"
     )
 
     val BLOCKED_EXTENSIONS = setOf(
@@ -50,13 +51,14 @@ object FormatRegistry {
     )
 
     private val BOOK_ARCHIVE_EXTENSIONS = setOf(
-        "epub", "kepub", "pdf", "fb2", "cbz", "cbr", "cbt", "cb7", "mobi", "azw", "azw3", "kf8",
-        "djvu", "djv", "doc", "docx", "rtf", "odt", "chm", "md", "markdown", "fbz",
+        "epub", "kepub", "pdf", "txt", "html", "htm", "xhtml", "fb2", "fbz", "cbz", "cbr", "cbt", "cb7",
+        "mobi", "azw", "azw3", "kf8", "prc", "djvu", "djv", "doc", "docx", "rtf", "odt", "chm", "md", "markdown",
+        "xlsx", "xlsm", "xltx", "xltm", "xlsb", "xls",
+        "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "ppt", "pps",
+        "ods", "odp",
+        "csv", "tsv", "json", "yaml", "yml", "xml", "log", "ics", "vcf", "eml", "mbox", "mht", "mhtml",
         "jpg", "jpeg", "png", "webp", "bmp", "gif", "svg", "tiff", "tif", "avif", "heic", "heif",
-        "csv", "tsv", "xlsx", "xlsm", "xlsb", "xltx", "xltm", "ods",
-        "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "odp",
-        "mht", "mhtml", "xml", "json", "yaml", "yml", "log", "eml", "msg", "mbox", "pst", "ost",
-        "pages", "numbers", "key", "xps", "oxps", "vcf", "ics", "zip", "rar"
+        "xps", "oxps", "wps", "msg", "pst", "ost", "pages", "numbers", "key", "zip", "rar", "7z"
     )
 
     fun isSupported(format: String): Boolean {
@@ -135,7 +137,7 @@ object FormatRegistry {
             }
         } catch (e: Exception) {
             val ext = getExt(fallbackFilename)
-            if (SUPPORTED_FORMATS.contains(ext)) {
+            if (isSupported(ext)) {
                 SniffResult(ext, 0.4f, "Fallback by extension after read error: ${e.message}", kind = "book")
             } else {
                 SniffResult("unknown", 0.0f, "Failed to read file: ${e.message}", kind = "blocked")
@@ -159,7 +161,7 @@ object FormatRegistry {
             }
         } catch (e: Exception) {
             val ext = getExt(fallbackFilename ?: file.name)
-            if (SUPPORTED_FORMATS.contains(ext)) {
+            if (isSupported(ext)) {
                 SniffResult(ext, 0.4f, "Fallback by extension: ${e.message}", kind = "book")
             } else {
                 SniffResult("unknown", 0.0f, "Failed to read file: ${e.message}", kind = "blocked")
@@ -176,7 +178,7 @@ object FormatRegistry {
     ): SniffResult {
         val ext = getExt(fallbackFilename)
         if (bytes.size < 4) {
-            return if (SUPPORTED_FORMATS.contains(ext)) {
+            return if (isSupported(ext)) {
                 SniffResult(ext, 0.5f, "File too small for header inspection; matched by extension", kind = "book")
             } else {
                 SniffResult("unknown", 0.0f, "File smaller than 4 bytes and unrecognized", kind = "blocked")
@@ -273,12 +275,59 @@ object FormatRegistry {
             }
         }
 
-        // 9. ZIP-based containers: PK\x03\x04 (0x50, 0x4B, 0x03, 0x04)
+        // 9. Raster Images & Vector Magic Bytes
+        // JPEG: FF D8 FF
+        if (bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()) {
+            return SniffResult("jpg", 1.0f, "JPEG image signature", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        }
+
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        if (bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() &&
+            bytes[4] == 0x0D.toByte() && bytes[5] == 0x0A.toByte() && bytes[6] == 0x1A.toByte() && bytes[7] == 0x0A.toByte()) {
+            return SniffResult("png", 1.0f, "PNG image signature", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        }
+
+        // GIF: GIF87a / GIF89a
+        if (bytes.size >= 6 && bytes[0] == 0x47.toByte() && bytes[1] == 0x49.toByte() && bytes[2] == 0x46.toByte() && bytes[3] == 0x38.toByte() &&
+            (bytes[4] == 0x37.toByte() || bytes[4] == 0x39.toByte()) && bytes[5] == 0x61.toByte()) {
+            return SniffResult("gif", 1.0f, "GIF image signature", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        }
+
+        // BMP: BM
+        if (bytes.size >= 2 && bytes[0] == 0x42.toByte() && bytes[1] == 0x4D.toByte()) {
+            return SniffResult("bmp", 1.0f, "BMP image signature", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        }
+
+        // TIFF: II*\0 or MM\0*
+        if (bytes.size >= 4 && ((bytes[0] == 0x49.toByte() && bytes[1] == 0x49.toByte() && bytes[2] == 0x2A.toByte() && bytes[3] == 0x00.toByte()) ||
+            (bytes[0] == 0x4D.toByte() && bytes[1] == 0x4D.toByte() && bytes[2] == 0x00.toByte() && bytes[3] == 0x2A.toByte()))) {
+            return SniffResult("tiff", 1.0f, "TIFF image signature", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        }
+
+        // WebP: RIFF....WEBP
+        if (bytes.size >= 12 && bytes[0] == 0x52.toByte() && bytes[1] == 0x49.toByte() && bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() &&
+            bytes[8] == 0x57.toByte() && bytes[9] == 0x45.toByte() && bytes[10] == 0x42.toByte() && bytes[11] == 0x50.toByte()) {
+            return SniffResult("webp", 1.0f, "WebP image signature", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        }
+
+        // ISOBMFF / AVIF / HEIC / HEIF: ....ftyp
+        if (bytes.size >= 12 && bytes[4] == 0x66.toByte() && bytes[5] == 0x74.toByte() && bytes[6] == 0x79.toByte() && bytes[7] == 0x70.toByte()) {
+            val brand = String(bytes, 8, 4, Charsets.US_ASCII).lowercase(Locale.ROOT)
+            val formatId = when {
+                brand.startsWith("avif") || brand.startsWith("avis") || ext == "avif" -> "avif"
+                brand.startsWith("heic") || brand.startsWith("heix") || ext == "heic" -> "heic"
+                brand.startsWith("mif1") || brand.startsWith("msf1") || ext == "heif" -> "heif"
+                else -> if (ext == "avif" || ext == "heic" || ext == "heif") ext else "avif"
+            }
+            return SniffResult(formatId, 1.0f, "ISOBMFF media container ($brand)", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        }
+
+        // 10. ZIP-based containers: PK\x03\x04 (0x50, 0x4B, 0x03, 0x04)
         if (bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte() && bytes[2] == 0x03.toByte() && bytes[3] == 0x04.toByte()) {
             return inspectZipContainer(bytes, fallbackFilename, fileSize, supplier, channel)
         }
 
-        // 10. XML / FB2 / HTML
+        // 11. XML / FB2 / HTML / SVG
         val textHead = String(bytes, 0, minOf(bytes.size, 512), Charsets.UTF_8).trim()
         if (textHead.contains("<FictionBook", ignoreCase = true)) {
             return SniffResult("fb2", 0.98f, "FictionBook2 XML root", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
@@ -286,8 +335,14 @@ object FormatRegistry {
         if (textHead.contains("<!DOCTYPE html", ignoreCase = true) || textHead.contains("<html", ignoreCase = true)) {
             return SniffResult("html", 0.95f, "HTML document structure", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
         }
+        if (textHead.contains("<svg", ignoreCase = true) || ext == "svg") {
+            return SniffResult("svg", 0.95f, "Scalable Vector Graphics (SVG)", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        }
+        if (ext == "xml" || (textHead.startsWith("<?xml") && !textHead.contains("<FictionBook", ignoreCase = true))) {
+            return SniffResult("xml", 0.95f, "XML structured data document", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        }
 
-        // 11. Plain Text / Markdown / Unknown: check for NUL bytes in sample
+        // 12. Plain Text / Markdown / Code / Structured Text
         var hasNul = false
         for (i in 0 until minOf(bytes.size, 1024)) {
             if (bytes[i] == 0.toByte()) {
@@ -302,6 +357,34 @@ object FormatRegistry {
             }
             if (textHead.startsWith("#") || textHead.contains("```") || ext == "md" || ext == "markdown") {
                 return SniffResult("md", 0.95f, "Markdown text content", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            }
+            if (ext == "csv") {
+                return SniffResult("csv", 0.95f, "Comma-separated values spreadsheet", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            }
+            if (ext == "tsv") {
+                return SniffResult("tsv", 0.95f, "Tab-separated values spreadsheet", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            }
+            if (ext == "json" || textHead.startsWith("{") || textHead.startsWith("[")) {
+                return SniffResult("json", 0.95f, "JSON structured document", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            }
+            if (ext == "yaml" || ext == "yml" || textHead.startsWith("---")) {
+                return SniffResult("yaml", 0.95f, "YAML structured document", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            }
+            if (ext == "ics" || textHead.contains("BEGIN:VCALENDAR")) {
+                return SniffResult("ics", 0.95f, "iCalendar appointment document", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            }
+            if (ext == "vcf" || textHead.contains("BEGIN:VCARD")) {
+                return SniffResult("vcf", 0.95f, "vCard electronic business card", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            }
+            if (ext == "log") {
+                return SniffResult("log", 0.95f, "Log file document", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            }
+            if (ext == "eml" || ext == "mbox" || ext == "mht" || ext == "mhtml" || textHead.contains("MIME-Version:") || textHead.contains("From:")) {
+                val emailExt = if (ext.isNotBlank()) ext else "eml"
+                return SniffResult(emailExt, 0.95f, "Email or web archive message ($emailExt)", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+            }
+            if (isSupported(ext)) {
+                return SniffResult(ext, 0.9f, "Text document matched by extension ($ext)", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
             }
             return SniffResult("txt", 0.85f, "Valid plain text content without null bytes", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
         }
@@ -319,8 +402,8 @@ object FormatRegistry {
         }
 
         val resolvedExt = if (ext == "kf8") "azw3" else ext
-        if (SUPPORTED_FORMATS.contains(resolvedExt)) {
-            return SniffResult(resolvedExt, 0.4f, "Extension match only; binary signatures did not match", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
+        if (isSupported(resolvedExt)) {
+            return SniffResult(resolvedExt, 0.6f, "Matched by supported format extension ($resolvedExt)", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "book")
         }
 
         return SniffResult("unknown", 0.0f, "Unrecognized binary header or format", quickFp = computeQuickFingerprint(fileSize, bytes, null), kind = "blocked")
@@ -328,14 +411,6 @@ object FormatRegistry {
 
     /**
      * Inspects ZIP-based containers using central directory records.
-     * Order:
-     * 1. EPUB
-     * 2. DOCX / ODT
-     * 3. Android/Java packages -> blocked:app-package
-     * 4. FB2.ZIP
-     * 5. CBZ
-     * 6. ARCHIVE_CONTAINER (contains >= 1 supported book)
-     * 7. failed:unrecognized
      */
     private fun inspectZipContainer(
         headBytes: ByteArray,
@@ -346,7 +421,6 @@ object FormatRegistry {
     ): SniffResult {
         val quickFp = computeQuickFingerprint(fileSize, headBytes, null)
 
-        // Read central directory entries from channel or stream
         val entries: List<ZipEntryMeta> = if (channel != null && channel.isOpen) {
             try {
                 readCentralDirectory(channel)
@@ -363,120 +437,76 @@ object FormatRegistry {
     /**
      * Reads ZIP central directory using random access.
      */
-    fun readCentralDirectory(channel: FileChannel): List<ZipEntryMeta> {
+    private fun readCentralDirectory(channel: FileChannel): List<ZipEntryMeta> {
         val size = channel.size()
         if (size < 22) return emptyList()
 
-        val searchLen = minOf(size, 65536L + 22L).toInt()
-        val searchBuffer = ByteBuffer.allocate(searchLen)
-        channel.position(size - searchLen)
-        channel.read(searchBuffer)
-        val bytes = searchBuffer.array()
+        val searchSize = minOf(size, 65536L + 22L).toInt()
+        val searchBuf = ByteBuffer.allocate(searchSize).order(ByteOrder.LITTLE_ENDIAN)
+        channel.position(size - searchSize)
+        channel.read(searchBuf)
+        searchBuf.flip()
 
-        var eocdPos = -1
-        for (i in searchLen - 22 downTo 0) {
-            if (bytes[i] == 0x50.toByte() && bytes[i + 1] == 0x4B.toByte() &&
-                bytes[i + 2] == 0x05.toByte() && bytes[i + 3] == 0x06.toByte()
-            ) {
-                eocdPos = i
+        var eocdOffset = -1
+        for (i in (searchSize - 22) downTo 0) {
+            if (searchBuf.getInt(i) == 0x06054b50) {
+                eocdOffset = i
                 break
             }
         }
-        if (eocdPos == -1) return emptyList()
+        if (eocdOffset == -1) return emptyList()
 
-        val eocdBuf = ByteBuffer.wrap(bytes, eocdPos, searchLen - eocdPos).order(ByteOrder.LITTLE_ENDIAN)
-        eocdBuf.getInt() // signature
-        eocdBuf.getShort() // disk
-        eocdBuf.getShort() // start disk
-        val entriesOnDisk = eocdBuf.getShort().toInt() and 0xFFFF
-        val totalEntries = eocdBuf.getShort().toInt() and 0xFFFF
-        val cdSize = eocdBuf.getInt().toLong() and 0xFFFFFFFFL
-        var cdOffset = eocdBuf.getInt().toLong() and 0xFFFFFFFFL
+        searchBuf.position(eocdOffset)
+        searchBuf.getInt() // signature
+        searchBuf.getShort() // disk
+        searchBuf.getShort() // cd disk
+        val entriesOnDisk = searchBuf.getShort().toInt() and 0xFFFF
+        val totalEntries = searchBuf.getShort().toInt() and 0xFFFF
+        val cdSize = searchBuf.getInt().toLong() and 0xFFFFFFFFL
+        val cdOffset = searchBuf.getInt().toLong() and 0xFFFFFFFFL
 
-        // Check for ZIP64 locator right before EOCD
-        if (cdOffset == 0xFFFFFFFFL || totalEntries == 0xFFFF) {
-            val locatorPos = eocdPos - 20
-            if (locatorPos >= 0 &&
-                bytes[locatorPos] == 0x50.toByte() && bytes[locatorPos + 1] == 0x4B.toByte() &&
-                bytes[locatorPos + 2] == 0x06.toByte() && bytes[locatorPos + 3] == 0x07.toByte()
-            ) {
-                val locBuf = ByteBuffer.wrap(bytes, locatorPos, 20).order(ByteOrder.LITTLE_ENDIAN)
-                locBuf.getInt() // sig
-                locBuf.getInt() // disk
-                val zip64EocdOffset = locBuf.getLong()
-                if (zip64EocdOffset < size) {
-                    val z64Buf = ByteBuffer.allocate(56).order(ByteOrder.LITTLE_ENDIAN)
-                    channel.position(zip64EocdOffset)
-                    channel.read(z64Buf)
-                    z64Buf.flip()
-                    if (z64Buf.remaining() >= 56 && z64Buf.getInt() == 0x06064b50) {
-                        z64Buf.getLong() // record size
-                        z64Buf.getShort() // version made
-                        z64Buf.getShort() // version need
-                        z64Buf.getInt() // disk
-                        z64Buf.getInt() // cd disk
-                        z64Buf.getLong() // disk entries
-                        z64Buf.getLong() // total entries
-                        z64Buf.getLong() // cd size
-                        cdOffset = z64Buf.getLong()
-                    }
-                }
-            }
-        }
-
-        if (cdOffset >= size || cdSize > 20 * 1024 * 1024) return emptyList()
-
+        val entries = ArrayList<ZipEntryMeta>(minOf(totalEntries, 500))
+        val cdBuf = ByteBuffer.allocate(minOf(cdSize.toInt(), 500 * 1024)).order(ByteOrder.LITTLE_ENDIAN)
         channel.position(cdOffset)
-        val cdBuffer = ByteBuffer.allocate(cdSize.toInt()).order(ByteOrder.LITTLE_ENDIAN)
-        channel.read(cdBuffer)
-        cdBuffer.flip()
+        channel.read(cdBuf)
+        cdBuf.flip()
 
-        val list = ArrayList<ZipEntryMeta>()
-        while (cdBuffer.remaining() >= 46 && list.size < 100000) {
-            val sig = cdBuffer.getInt()
+        var count = 0
+        while (cdBuf.remaining() >= 46 && count < 500) {
+            val sig = cdBuf.getInt()
             if (sig != 0x02014b50) break
-            cdBuffer.getShort() // version made by
-            cdBuffer.getShort() // version needed
-            val flags = cdBuffer.getShort().toInt() and 0xFFFF
-            val method = cdBuffer.getShort().toInt() and 0xFFFF
-            cdBuffer.getInt() // mtime
-            cdBuffer.getInt() // crc
-            val compSize = cdBuffer.getInt().toLong() and 0xFFFFFFFFL
-            val uncompSize = cdBuffer.getInt().toLong() and 0xFFFFFFFFL
-            val nameLen = cdBuffer.getShort().toInt() and 0xFFFF
-            val extraLen = cdBuffer.getShort().toInt() and 0xFFFF
-            val commentLen = cdBuffer.getShort().toInt() and 0xFFFF
-            cdBuffer.getShort() // disk
-            cdBuffer.getShort() // int attr
-            cdBuffer.getInt() // ext attr
-            val localOffset = cdBuffer.getInt().toLong() and 0xFFFFFFFFL
 
-            if (cdBuffer.remaining() < nameLen + extraLen + commentLen) break
-            val nameBytes = ByteArray(nameLen)
-            cdBuffer.get(nameBytes)
-
-            val name = if ((flags and 0x800) != 0) {
-                String(nameBytes, Charsets.UTF_8)
-            } else {
-                try {
-                    val s = String(nameBytes, Charsets.UTF_8)
-                    if (s.contains("\uFFFD")) String(nameBytes, Charsets.ISO_8859_1) else s
-                } catch (_: Exception) {
-                    String(nameBytes, Charsets.ISO_8859_1)
-                }
-            }
-
-            cdBuffer.position(cdBuffer.position() + extraLen + commentLen)
-            val isDir = name.endsWith("/")
+            cdBuf.getShort() // version made by
+            cdBuf.getShort() // version needed
+            val flags = cdBuf.getShort().toInt() and 0xFFFF
             val isEncrypted = (flags and 1) != 0
-            list.add(ZipEntryMeta(name, isDir, isEncrypted, uncompSize, compSize))
+            val method = cdBuf.getShort().toInt() and 0xFFFF
+            cdBuf.getInt() // time
+            cdBuf.getInt() // crc32
+            val cSize = cdBuf.getInt().toLong() and 0xFFFFFFFFL
+            val uSize = cdBuf.getInt().toLong() and 0xFFFFFFFFL
+            val nameLen = cdBuf.getShort().toInt() and 0xFFFF
+            val extraLen = cdBuf.getShort().toInt() and 0xFFFF
+            val commentLen = cdBuf.getShort().toInt() and 0xFFFF
+            cdBuf.getShort() // disk start
+            cdBuf.getShort() // int attrs
+            cdBuf.getInt() // ext attrs
+            cdBuf.getInt() // local header offset
+
+            val nameBytes = ByteArray(nameLen)
+            cdBuf.get(nameBytes)
+            val name = String(nameBytes, Charsets.UTF_8)
+            val isDir = name.endsWith("/") || name.endsWith("\\")
+
+            if (extraLen > 0) cdBuf.position(cdBuf.position() + extraLen)
+            if (commentLen > 0) cdBuf.position(cdBuf.position() + commentLen)
+
+            entries.add(ZipEntryMeta(name, isDir, isEncrypted, uSize, cSize))
+            count++
         }
-        return list
+        return entries
     }
 
-    /**
-     * Fallback stream-based entry listing using ZipInputStream.
-     */
     private fun readZipEntriesFromStream(supplier: (() -> InputStream?)?): List<ZipEntryMeta> {
         if (supplier == null) return emptyList()
         val list = ArrayList<ZipEntryMeta>()
@@ -484,10 +514,10 @@ object FormatRegistry {
             supplier()?.use { raw ->
                 ZipInputStream(raw).use { zis ->
                     var count = 0
-                    while (count < 200) {
+                    while (count < 300) {
                         val entry = zis.nextEntry ?: break
                         val name = entry.name
-                        val isDir = entry.isDirectory || name.endsWith("/")
+                        val isDir = entry.isDirectory || name.endsWith("/") || name.endsWith("\\")
                         list.add(ZipEntryMeta(name, isDir, false, entry.size, entry.compressedSize))
                         count++
                     }
@@ -510,40 +540,69 @@ object FormatRegistry {
         val ext = getExt(fallbackFilename)
         val namesLower = entries.map { it.name.lowercase(Locale.ROOT) }
 
-        // 1. First entry mimetype == application/epub+zip OR META-INF/container.xml -> EPUB
-        val hasMimetypeEpub = entries.firstOrNull()?.let {
-            it.name.equals("mimetype", ignoreCase = true)
-        } ?: false
-        val hasContainerXml = namesLower.any { it.contains("meta-inf/container.xml") }
-        if (hasMimetypeEpub || hasContainerXml || ext == "epub") {
-            if (hasContainerXml || hasMimetypeEpub) {
-                val drmInfo = checkEpubDrm(supplier)
-                return SniffResult(
-                    format = "epub",
-                    confidence = 1.0f,
-                    reason = if (hasMimetypeEpub) "EPUB mimetype entry" else "EPUB container.xml present",
-                    isDrm = drmInfo.first,
-                    drmReason = drmInfo.second,
-                    quickFp = quickFp,
-                    kind = "book"
-                )
-            }
+        // 1. EPUB / KEPUB
+        val hasContainerXml = namesLower.any { it.replace('\\', '/').contains("meta-inf/container.xml") }
+        val hasMimetypeEpub = entries.any { it.name.trim().equals("mimetype", ignoreCase = true) }
+        if (hasMimetypeEpub || hasContainerXml || ext == "epub" || ext == "kepub") {
+            val drmInfo = if (hasContainerXml || hasMimetypeEpub) checkEpubDrm(supplier) else Pair(false, null)
+            val formatId = if (ext == "kepub" || fallbackFilename?.lowercase(Locale.ROOT)?.contains(".kepub.epub") == true) "kepub" else "epub"
+            return SniffResult(
+                format = formatId,
+                confidence = if (hasContainerXml || hasMimetypeEpub) 1.0f else 0.85f,
+                reason = if (hasMimetypeEpub) "EPUB mimetype entry" else if (hasContainerXml) "EPUB container.xml present" else "EPUB matched by file extension",
+                isDrm = drmInfo.first,
+                drmReason = drmInfo.second,
+                quickFp = quickFp,
+                kind = "book"
+            )
         }
 
-        // 2. DOCX / ODT
-        val hasWordDoc = namesLower.any { it.startsWith("word/document.xml") }
+        // 2. Office Open XML (DOCX, XLSX, PPTX, etc.)
         val hasContentTypes = namesLower.any { it == "[content_types].xml" }
+
+        val hasWordDoc = namesLower.any { it.startsWith("word/document.xml") }
         if (hasWordDoc && hasContentTypes) {
             return SniffResult("docx", 0.98f, "DOCX WordprocessingML package", quickFp = quickFp, kind = "book")
         }
 
-        val hasOdtContent = namesLower.any { it == "content.xml" }
-        if (hasOdtContent && (ext == "odt" || namesLower.any { it == "mimetype" })) {
-            return SniffResult("odt", 0.98f, "ODT document package", quickFp = quickFp, kind = "book")
+        val hasXlsxWb = namesLower.any { it == "xl/workbook.xml" }
+        val hasXlsbWb = namesLower.any { it == "xl/workbook.bin" }
+        if (hasXlsbWb && hasContentTypes) {
+            return SniffResult("xlsb", 0.98f, "Excel Binary Workbook (.xlsb)", quickFp = quickFp, kind = "book")
+        }
+        if (hasXlsxWb && hasContentTypes) {
+            val xlsxExt = if (ext == "xlsm" || ext == "xltx" || ext == "xltm") ext else "xlsx"
+            return SniffResult(xlsxExt, 0.98f, "Excel OpenXML Workbook (.$xlsxExt)", quickFp = quickFp, kind = "book")
         }
 
-        // 3. Android/Java packages -> blocked:app-package
-        // Android APK: AndroidManifest.xml AND (classes.dex OR resources.arsc OR META-INF/*.RSA|.SF|.DSA)
+        val hasPptxPresentation = namesLower.any { it.startsWith("ppt/presentation.xml") }
+        if (hasPptxPresentation && hasContentTypes) {
+            val pptxExt = if (ext == "ppsx" || ext == "pptm" || ext == "ppsm" || ext == "potx" || ext == "potm") ext else "pptx"
+            return SniffResult(pptxExt, 0.98f, "PowerPoint OpenXML Presentation (.$pptxExt)", quickFp = quickFp, kind = "book")
+        }
+
+        // 3. OpenDocument (ODT, ODS, ODP)
+        val hasContentXml = namesLower.any { it == "content.xml" }
+        if (hasContentXml) {
+            if (ext == "ods" || namesLower.any { it.contains("application/vnd.oasis.opendocument.spreadsheet") }) {
+                return SniffResult("ods", 0.98f, "ODS spreadsheet package", quickFp = quickFp, kind = "book")
+            }
+            if (ext == "odp" || namesLower.any { it.contains("application/vnd.oasis.opendocument.presentation") }) {
+                return SniffResult("odp", 0.98f, "ODP presentation package", quickFp = quickFp, kind = "book")
+            }
+            if (ext == "odt" || namesLower.any { it == "mimetype" }) {
+                return SniffResult("odt", 0.98f, "ODT document package", quickFp = quickFp, kind = "book")
+            }
+        }
+
+        // 4. XPS / OpenXPS
+        val hasFixedDocSeq = namesLower.any { it.contains("fixeddocumentsequence.fdseq") }
+        if (hasFixedDocSeq && hasContentTypes) {
+            val xpsExt = if (ext == "oxps") "oxps" else "xps"
+            return SniffResult(xpsExt, 0.98f, "XML Paper Specification (.$xpsExt)", quickFp = quickFp, kind = "book")
+        }
+
+        // 5. Android/Java packages -> blocked:app-package
         val hasManifest = namesLower.any { it == "androidmanifest.xml" }
         val hasDex = namesLower.any { it == "classes.dex" || it.endsWith(".dex") }
         val hasArsc = namesLower.any { it == "resources.arsc" }
@@ -560,7 +619,6 @@ object FormatRegistry {
             )
         }
 
-        // AAB / APKS / XAPK: base.apk / *.apk entries at top level, or toc.pb, BundleConfig.pb
         val hasTopLevelApk = namesLower.any { (it == "base.apk" || it.endsWith(".apk")) && !it.contains("/") }
         val hasBundlePb = namesLower.any { it == "bundleconfig.pb" || it == "toc.pb" }
         if (hasTopLevelApk || hasBundlePb) {
@@ -573,7 +631,6 @@ object FormatRegistry {
             )
         }
 
-        // JAR: META-INF/MANIFEST.MF + .class entries
         val hasJarManifest = namesLower.any { it == "meta-inf/manifest.mf" }
         val hasClassFiles = namesLower.any { it.endsWith(".class") }
         if (hasJarManifest && hasClassFiles) {
@@ -586,7 +643,6 @@ object FormatRegistry {
             )
         }
 
-        // Browser Extension: install.rdf / manifest.json + chrome.manifest
         val hasChromeManifest = namesLower.any { it == "chrome.manifest" }
         val hasWebExt = namesLower.any { it == "install.rdf" || it == "manifest.json" }
         if (hasChromeManifest && hasWebExt) {
@@ -599,7 +655,7 @@ object FormatRegistry {
             )
         }
 
-        // 4. FB2: .fb2 XML inside single-entry zip (or filename .fb2.zip)
+        // 6. FB2: .fb2 XML inside single-entry zip (or filename .fb2.zip)
         val nonDirEntries = entries.filter { !it.isDirectory }
         val fb2Entries = nonDirEntries.filter { it.name.lowercase(Locale.ROOT).endsWith(".fb2") }
         val isFbz = fallbackFilename?.lowercase(Locale.ROOT)?.endsWith(".fbz") == true
@@ -609,7 +665,7 @@ object FormatRegistry {
             return SniffResult(formatId, 0.98f, "Single FictionBook FB2 inside archive", quickFp = quickFp, kind = "book")
         }
 
-        // 5. CBZ: All (or >= 90%) of entries are images after ignoring ComicInfo.xml, Thumbs.db, .DS_Store, __MACOSX/, *.txt|nfo
+        // 7. CBZ: All (or >= 90%) of entries are images after ignoring ComicInfo.xml, Thumbs.db, .DS_Store, __MACOSX/, *.txt|nfo
         val ignoredCbNames = setOf("comicinfo.xml", "thumbs.db", ".ds_store")
         val contentEntries = nonDirEntries.filter { e ->
             val l = e.name.lowercase(Locale.ROOT)
@@ -625,7 +681,7 @@ object FormatRegistry {
             return SniffResult("cbz", 0.95f, "Comic book image archive (CBZ)", quickFp = quickFp, kind = "book")
         }
 
-        // 6. ARCHIVE_CONTAINER: Archive contains >= 1 entry whose extension is a supported book format
+        // 8. ARCHIVE_CONTAINER: Archive contains >= 1 entry whose extension is a supported book format
         val bookEntries = nonDirEntries.filter { e ->
             val entryExt = getExt(e.name)
             BOOK_ARCHIVE_EXTENSIONS.contains(entryExt)
@@ -642,7 +698,6 @@ object FormatRegistry {
             )
         }
 
-        // If encrypted and has entries
         if (hasEncrypted && entries.isNotEmpty()) {
             return SniffResult(
                 format = "zip",
@@ -654,7 +709,17 @@ object FormatRegistry {
             )
         }
 
-        // 7. Otherwise -> failed:unrecognized
+        // If extension is a known supported format that happens to be ZIP-based
+        if (isSupported(ext)) {
+            return SniffResult(
+                format = ext,
+                confidence = 0.85f,
+                reason = "ZIP package matched by supported format extension (.$ext)",
+                quickFp = quickFp,
+                kind = "book"
+            )
+        }
+
         return SniffResult(
             format = "unknown",
             confidence = 0.0f,
@@ -664,62 +729,62 @@ object FormatRegistry {
         )
     }
 
-    /**
-     * Checks EPUB DRM algorithms in encryption.xml and rights.xml
-     */
     private fun checkEpubDrm(supplier: (() -> InputStream?)?): Pair<Boolean, String?> {
         if (supplier == null) return Pair(false, null)
-        try {
+        return try {
             supplier()?.use { stream ->
                 ZipInputStream(stream).use { zis ->
                     var count = 0
-                    while (count < 30) {
+                    while (count < 200) {
                         val entry = zis.nextEntry ?: break
-                        val name = entry.name.lowercase(Locale.ROOT)
-                        if (name.contains("rights.xml")) {
-                            return Pair(true, "Adobe ADEPT rights.xml detected")
+                        val nameLower = entry.name.lowercase(Locale.ROOT)
+                        if (nameLower.contains("meta-inf/rights.xml")) {
+                            return Pair(true, "Adobe ADEPT DRM (rights.xml present)")
                         }
-                        if (name.contains("encryption.xml")) {
-                            val bytes = readSample(zis, 2048)
-                            val text = String(bytes, Charsets.UTF_8)
-                            val hasNonFontEnc = text.contains("<EncryptedData") &&
-                                    !text.contains("http://www.idpf.org/2008/embedding") &&
-                                    !text.contains("http://ns.adobe.com/pdf/enc#RC")
-                            if (hasNonFontEnc) {
-                                return Pair(true, "EPUB encryption.xml with proprietary cipher detected")
+                        if (nameLower.contains("meta-inf/encryption.xml")) {
+                            val encBytes = readSample(zis, 2048)
+                            val encText = String(encBytes, Charsets.UTF_8)
+                            if (encText.contains("http://ns.adobe.com/adept")) {
+                                return Pair(true, "Adobe ADEPT DRM encryption record")
+                            }
+                            if (encText.contains("http://www.idpf.org/2008/embedding") ||
+                                encText.contains("http://www.w3.org/2001/04/xmlenc#")
+                            ) {
+                                // Standard font obfuscation or content encryption
                             }
                         }
                         count++
                     }
+                    Pair(false, null)
                 }
-            }
-        } catch (_: Exception) {}
-        return Pair(false, null)
-    }
-
-    private fun indexOfSequence(source: ByteArray, target: ByteArray, maxIndex: Int): Int {
-        if (target.isEmpty() || source.size < target.size) return -1
-        val limit = minOf(source.size - target.size, maxIndex)
-        for (i in 0..limit) {
-            var match = true
-            for (j in target.indices) {
-                if (source[i + j] != target[j]) {
-                    match = false
-                    break
-                }
-            }
-            if (match) return i
+            } ?: Pair(false, null)
+        } catch (_: Exception) {
+            Pair(false, null)
         }
-        return -1
     }
 
-    fun getExt(filename: String?): String {
-        if (filename == null) return ""
-        val lastDot = filename.lastIndexOf('.')
-        return if (lastDot >= 0 && lastDot < filename.length - 1) {
-            filename.substring(lastDot + 1).lowercase(Locale.ROOT).trim()
+    private fun getExt(name: String?): String {
+        if (name == null) return ""
+        val lastDot = name.lastIndexOf('.')
+        return if (lastDot >= 0 && lastDot < name.length - 1) {
+            name.substring(lastDot + 1).lowercase(Locale.ROOT)
         } else {
             ""
         }
+    }
+
+    private fun indexOfSequence(haystack: ByteArray, needle: ByteArray, maxScan: Int): Int {
+        val limit = minOf(haystack.size - needle.size, maxScan)
+        for (i in 0..limit) {
+            var found = true
+            for (j in needle.indices) {
+                if (haystack[i + j] != needle[j]) {
+                    found = false
+                    break
+                }
+            }
+            if (found) return i
+        }
+        return -1
     }
 }

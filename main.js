@@ -831,6 +831,42 @@ ipcMain.handle('archive:extract-rar', async (event, arrayBuffer) => {
   }
 });
 
+// Parse binary Excel (.xlsb) workbook
+ipcMain.handle('xlsb:parse', async (event, arrayBuffer) => {
+  requireTrustedSender(event);
+  try {
+    const { parseXlsb } = await import('xlsb-parser');
+    const buf = Buffer.from(arrayBuffer);
+    if (buf.length > MAX_BOOK_FILE_SIZE) throw new Error('XLSB exceeds maximum file size');
+    return await parseXlsb(buf, { maxRowsPerSheet: 5000, maxZipBytes: 64 * 1024 * 1024 });
+  } catch (err) {
+    console.error('Failed to parse XLSB workbook:', err);
+    throw err;
+  }
+});
+
+// Decode HEIF / HEIC raster image
+ipcMain.handle('heif:decode', async (event, arrayBuffer) => {
+  requireTrustedSender(event);
+  try {
+    const libheif = require('libheif-js');
+    const buf = Buffer.from(arrayBuffer);
+    if (buf.length > MAX_BOOK_FILE_SIZE) throw new Error('Image exceeds maximum file size');
+    const decoder = new libheif.HeifDecoder();
+    const images = decoder.decode(buf);
+    if (!images?.length) throw new Error('This image contains no readable frames.');
+    const image = images[0];
+    const width = image.get_width();
+    const height = image.get_height();
+    const imageData = { data: new Uint8ClampedArray(width * height * 4) };
+    await new Promise((resolve, reject) => image.display(imageData, r => r ? resolve(r) : reject(new Error('Could not decode HEIF image.'))));
+    return { width, height, rgba: imageData.data.buffer };
+  } catch (err) {
+    console.error('Failed to decode HEIF image:', err);
+    throw err;
+  }
+});
+
 /**
  * Inspect an archive buffer (ZIP, 7z, RAR) and return a list of contained book files.
  * Validates against path traversal and only returns files matching SUPPORTED_EXTENSIONS.

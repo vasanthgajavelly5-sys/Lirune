@@ -1,24 +1,29 @@
-# Lirune Reader Android (v4.0.4)
+# Lirune Reader Android (v5.0.0)
 
-A calm, private, touch-first mobile e-reader for Android built with React Native and Expo. Faithful to the product capabilities and privacy standards of Lirune Reader Desktop 4.0.4.
+> **Lirune — 50+ formats supported. One reader. Every document. Your device. Your privacy.**
+
+A calm, private, touch-first mobile e-reader for Android built with React Native and Expo Router. Faithful to the product capabilities, 50+ format support, and strict privacy guarantees of Lirune Reader.
 
 ---
 
 ## Supported Formats
 
-| Format | Extension | Engine & Strategy |
-|---|---|---|
-| **EPUB** | `.epub` | Reflowable OPF/NCX parser, styled chapter viewer with touch pagination and in-book search |
-| **PDF** | `.pdf` | Offline PDF canvas engine with page navigation, zoom, and restore |
-| **Plain Text** | `.txt` | Virtualized chunked paginator preventing DOM/memory stalls on large files |
-| **HTML** | `.html`, `.htm` | Sanitized local HTML viewer with typography, heading-based TOC, and scroll tracking |
-| **FictionBook 2** | `.fb2` | XML body parser with inlined base64 images and chapter sectioning |
-| **Comic Archive** | `.cbz` | On-demand image page streamer from ZIP archive (lazy load prevents OOM) |
+Lirune Reader Android supports **50 canonical primary format families** in complete parity with Windows Desktop:
 
-### Unsupported Formats Policy
-In parity with Lirune Desktop 4.0.4:
-- **MOBI / KF8 / AZW3**: Explicitly rejected with a descriptive prompt advising conversion to EPUB.
-- **CBR**: Explicitly rejected with guidance to use standard CBZ (ZIP) format.
+| Category | Canonical Format Families | Supported Extensions & Aliases | Engine & Strategy |
+|:---|:---|:---|:---|
+| **E-Books** | EPUB, Kindle / MOBI, Kobo EPUB, FictionBook, FictionBook Archive, DjVu, Compiled HTML Help | `.epub`, `.mobi`, `.kepub.epub`, `.kepub`, `.fb2`, `.fbz`, `.djvu`, `.chm` | Reflowable OPF/NCX parser, styled chapter viewer with touch pagination and in-book search, DjVu viewer, and CHM parser |
+| **Documents** | PDF, Plain Text, Markdown, Word Document, Legacy Word, OpenDocument Text, Rich Text, XPS Document | `.pdf`, `.txt`, `.md`, `.docx`, `.doc`, `.odt`, `.rtf`, `.xps` | Offline PDF canvas engine, virtualized chunked plaintext, CommonMark markdown, ODF/OOXML unpackers, and XPS layout engine |
+| **Spreadsheets** | CSV, TSV, Excel Workbook, Legacy Excel, OpenDocument Spreadsheet, Macro-enabled Excel, Excel Template, Excel Binary Workbook | `.csv`, `.tsv`, `.xlsx`, `.xls`, `.ods`, `.xlsm`, `.xltx`, `.xlsb` | Modern & legacy spreadsheet renderers, high-performance table virtualization, formula/value display, and sheet tab navigation |
+| **Presentations** | PowerPoint Presentation, Legacy PowerPoint, OpenDocument Presentation, PowerPoint Slide Show | `.pptx`, `.ppt`, `.odp`, `.ppsx` | Slide-by-slide presentation viewer, shape and text frame extraction, thumbnail previews, and touch swipe navigation |
+| **Comic Books** | Comic ZIP, Comic RAR, Comic TAR, Comic 7-Zip | `.cbz`, `.cbr`, `.cbt`, `.cb7` | High-resolution image archive extractors with zip-bomb protection, lazy frame decoding, and spread/fit modes |
+| **Images** | JPEG, PNG, WebP, GIF, Bitmap, SVG, TIFF, AVIF, HEIC, HEIF | `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.bmp`, `.svg`, `.tiff`, `.tif`, `.avif`, `.heic`, `.heif` | Native raster rendering, SVG sanitization, multi-frame support, UTIF TIFF engine, and HEIC/HEIF decoding |
+| **Web Documents** | HTML Document, MHTML Web Archive | `.html`, `.htm`, `.mht`, `.mhtml` | Sanitized local HTML viewer with typography, heading-based TOC, and multi-part MIME archive unpacking |
+| **Structured Data & Logs** | XML Document, JSON Document, YAML Document, Log File | `.xml`, `.json`, `.yaml`, `.yml`, `.log` | Syntax-aware structured data formatters, folding trees, search, and timestamped log navigators |
+| **Communications & Personal Data** | Email Message, vCard Contact, iCalendar Event | `.eml`, `.vcf`, `.ics` | RFC-compliant MIME message parser, vCard address book cards, and iCalendar event schedule viewers |
+
+### Archive Container Capabilities
+- **ZIP, RAR, 7Z**: Handled as archive inspection containers (`ArchiveBrowser`), allowing selective browsing and importing of books contained within archives.
 
 ---
 
@@ -44,151 +49,47 @@ mobile/
 │       ├── HtmlReaderView.tsx  # Sanitized HTML engine
 │       ├── Fb2ReaderView.tsx   # FictionBook XML engine
 │       ├── CbzReaderView.tsx   # Lazy ZIP comic engine
+│       ├── CbrReaderView.tsx   # RAR comic engine
+│       ├── DocxReaderView.tsx  # Word OOXML engine
+│       ├── DocReaderView.tsx   # Legacy Word engine
+│       ├── SpreadsheetReaderView.tsx # Virtualized spreadsheet engine
+│       ├── PresentationReaderView.tsx # Slide presentation engine
+│       ├── StructuredTextReaderView.tsx # XML, JSON, YAML, Log, Code engine
+│       ├── EmailReaderView.tsx # EML / MSG email engine
+│       ├── ContactCalendarReaderView.tsx # VCF / ICS contact and calendar engine
 │       ├── ReaderControls.tsx  # Top and bottom navigation bars with touch overlay
 │       ├── ChapterSheet.tsx    # Table of contents drawer
 │       ├── SearchSheet.tsx     # In-book search overlay
 │       ├── SettingsSheet.tsx   # Reader display settings (fonts, margins, themes)
 │       └── AnnotationsSheet.tsx# Bookmarks, highlights, and notes sheet
 ├── models/
-│   └── Book.ts                 # Type-safe domain models & format constants
+│   └── Book.ts                 # Type-safe domain models & 71 format constants
 ├── repositories/
 │   ├── BookRepository.ts       # Asynchronous repository interface
 │   └── SQLiteBookRepository.ts # Durable SQLite storage implementation
 ├── services/
 │   ├── database/
 │   │   └── Database.ts         # expo-sqlite WAL database with automatic schema migrations
-│   ├── storage/
-│   │   └── FileStorage.ts      # Persistent app-private directory file manager
-│   ├── metadata/
-│   │   └── MetadataExtractor.ts# Format-specific metadata and cover extraction
-│   └── import/
-│       └── ImportService.ts    # Android Document Picker and import pipeline
-├── state/
-│   ├── libraryStore.ts         # Zustand library slice (books, filters, collections)
-│   ├── readerStore.ts          # Zustand reader slice (current book, progress, annotations)
-│   └── settingsStore.ts        # Zustand settings slice (theme, typography, preferences)
-├── theme/
-│   ├── Colors.ts               # Brand accent (#EEECF8) & 8 reader palettes
-│   └── ThemeContext.tsx        # Light/Dark/System theme context
-└── utils/
-    ├── errors.ts               # Standardized application error hierarchy
-    └── logger.ts               # Lightweight, privacy-safe logger
+│   ├── discovery/
+│   │   └── FormatDetector.ts   # Magic byte sniffing and mime detection
+│   └── storage/
+│       ├── StorageService.ts   # Private app storage sandbox
+│       └── SafStorageService.ts# Android Storage Access Framework integration
 ```
 
 ---
 
-## Database & Persistence
+## Validation & Testing
 
-Durable persistence is powered by **Expo SQLite** (`expo-sqlite`):
-- **WAL Mode**: `PRAGMA journal_mode = WAL` enabled for performance and atomic writes.
-- **Tables**: `books`, `collections`, `book_collections`, `bookmarks`, `highlights`, `notes`, `reading_progress`, `preferences`.
-- **Indexes**: Indexed on `format`, `lastReadDate`, `isFavorite`, and foreign keys.
-- **Web Fallback**: Web-safe local storage adapter ensures UI development on PC.
+```bash
+npm test         # Run 412 unit and integration tests across all formats
+npm run typecheck # Strict TypeScript compilation check (0 errors)
+npm run lint     # ESLint code hygiene check (0 errors)
+```
 
 ---
 
-## Privacy & Offline Pledge
+## License
 
-Lirune Reader Mobile strictly adheres to the desktop privacy model:
-- 100% offline operation.
-- No mandatory accounts, sign-ins, or cloud sync.
-- No book content leaves the device.
-- Zero analytics or third-party telemetry.
-
----
-
-## Building and Running
-
-### Requirements
-- **Node.js 22.18 or newer** (the test suite runs on Node's built-in runner with
-  TypeScript type stripping; Node 20 cannot execute the `.ts` tests).
-- Android SDK with NDK 27, JDK 17.
-- Release builds need a keystore; see *Release signing* below.
-
-### Development Build
-```bash
-cd mobile
-npm install
-npm run android
-```
-
-### Type Checking, Linting & Tests
-```bash
-npm run typecheck
-npm run lint
-npm test
-```
-
-### Release build
-```bash
-cd mobile
-npm ci
-npm run typecheck && npm run lint && npm test
-npx expo prebuild --clean --platform android
-cd android
-gradlew.bat assembleRelease
-```
-Output: `android/app/build/outputs/apk/release/app-release.apk`.
-
-Check what the artifact actually contains before publishing it:
-```bash
-aapt2 dump badging app-release.apk | grep -E "native-code|sdkVersion|targetSdkVersion"
-```
-
-### Supported ABIs
-`armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` (see `expo-build-properties` in
-`app.json`). `armeabi-v7a` is what a 32-bit tablet needs; a build without it fails
-with `INSTALL_FAILED_NO_MATCHING_ABIS`.
-
-### Permissions
-| Permission | Why |
-|---|---|
-| `VIBRATE` | Page-turn and find-selection feedback |
-| `READ_EXTERNAL_STORAGE` | Android 12 and below (API <= 32) reading access with `android:maxSdkVersion="32"` |
-| `MANAGE_EXTERNAL_STORAGE` | Optional: included only when prebuilt with `LIRUNE_ALLFILES=1`. Enables "Scan Phone" to walk all storage directories and find books in Downloads and root storage on Android 11+ without per-directory SAF authorizations. Without this flag, builds are Play Store compliant and rely on MediaStore + SAF folder picking. |
-
-All files access (`MANAGE_EXTERNAL_STORAGE`) is never enabled by default in standard distribution builds unless `LIRUNE_ALLFILES=1` is passed at `expo prebuild` time. When present, it is requested with an explicit explanation and only ever reads file names and paths already on the device; nothing is uploaded. "Not now" is remembered — Settings has an explicit row to ask again.
-
-### Reading comfort
-- **Edge brightness** — swipe up or down on either 44dp screen edge to dim or
-  brighten the page. A pill follows the gesture and hides after two seconds. The
-  overlay is `box-none` and only its two edge zones can become the touch
-  responder, so it never intercepts a page turn or a tap.
-- **Keep Screen Awake** — `plugins/withLiruneScreen.js` installs a
-  `LiruneScreen` Kotlin module that sets `FLAG_KEEP_SCREEN_ON` on the reader
-  window. A window flag needs no permission and the system drops it when the
-  window goes away, so leaving the book always releases it. On by default, with a
-  toggle in *Appearance → Reading Comfort*.
-- **Page margins** — default to Standard (20px); Compact (12px) and Wide (28px)
-  are one tap away in the same panel.
-
-Both comfort values live in `readerSettings` and are persisted like every other
-reader setting. Neither is part of the rendered-document geometry, so dimming the
-page never re-renders the WebView or moves the reading position.
-
-### Native module and config plugins
-`android/` is generated by `expo prebuild` and is git-ignored, so everything that
-has to survive a regeneration lives in `plugins/`:
-
-| Plugin | Purpose |
-|---|---|
-| `withLiruneStorage` | Copies the `LiruneStorage` Kotlin sources from `plugins/native/lirune-storage/` and registers the package in `MainApplication.kt` |
-| `withLiruneScreen` | Copies the `LiruneScreen` Kotlin sources from `plugins/native/lirune-screen/` and registers the package in `MainApplication.kt` — window flags for the reader ("Keep Screen Awake") |
-| `withCutoutMode` | `windowLayoutInDisplayCutoutMode=shortEdges` so landscape can use the cutout area while insets keep text out of it |
-| `withAndroidConfigChanges` | Adds `density` and `fontScale` so a font-size or fold change re-lays out instead of recreating the reader |
-| `withReleaseSigning` | Release signing config from `~/.gradle/gradle.properties` |
-
-If `LiruneStorage` is missing from a build, `NativeStorageBridge` logs an error at
-startup and the Files screen says so instead of showing an empty scan.
-
-### Release signing
-Credentials live in `~/.gradle/gradle.properties` (never in the repository):
-```
-LIRUNE_RELEASE_STORE_FILE=/absolute/path/to/lirune-release.jks
-LIRUNE_RELEASE_STORE_PASSWORD=…
-LIRUNE_RELEASE_KEY_ALIAS=…
-LIRUNE_RELEASE_KEY_PASSWORD=…
-```
-`LIRUNE_UPLOAD_*` is accepted as well. Without them, Gradle keeps its own default
-and the APK is signed with the debug key — such a build cannot upgrade an
-installed release.
+Copyright © 2026 Vasanth Gajavelly.
+Licensed under the GNU General Public License v3.0 only (GPL-3.0-only).

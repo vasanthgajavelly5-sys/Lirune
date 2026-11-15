@@ -645,9 +645,9 @@ export default function FoldersScreen() {
   const handleAddFiles = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: SUPPORTED_DOCUMENT_MIMES,
+        type: [...SUPPORTED_DOCUMENT_MIMES, '*/*'],
         multiple: true,
-        copyToCacheDirectory: false,
+        copyToCacheDirectory: true,
       });
 
       if (result.canceled || !result.assets || result.assets.length === 0) return;
@@ -889,7 +889,7 @@ export default function FoldersScreen() {
     const toEnqueue = selectedEntries.map((e) => ({
       uri: e.uri,
       name: e.name,
-      format: e.format || 'epub',
+      format: e.format || (e.name.split('.').pop()?.toLowerCase() || 'epub'),
     }));
     await enqueue(toEnqueue);
     setToastMessage(`Queued ${toEnqueue.length} item(s) for import`);

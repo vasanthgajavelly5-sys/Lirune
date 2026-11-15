@@ -262,7 +262,7 @@ export class FormatDetector {
 
       // 2. Office Open XML / OpenDocument containers. Do not classify every
       // package containing [Content_Types].xml as DOCX.
-      if (ext === 'xlsx' || ext === 'xlsm' || ext === 'xltx' || ext === 'xltm') {
+      if (ext === 'xlsx' || ext === 'xlsm' || ext === 'xlsb' || ext === 'xltx' || ext === 'xltm') {
         return { ...SUPPORTED_FORMATS[ext as BookFormat], confidence: 0.98, kind: 'book' };
       }
       if (ext === 'pptx' || ext === 'pptm' || ext === 'ppsx' || ext === 'ppsm' || ext === 'potx' || ext === 'potm') {

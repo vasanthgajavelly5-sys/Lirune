@@ -201,9 +201,10 @@ const BookFormat = (() => {
       const text = decodeHead(head, 4096).toLowerCase();
       const leading = text.replace(/^[\s﻿]+/, '');
       if (leading.startsWith('{\\rtf')) return finish('rtf', 'signature');
-      if (leading.startsWith('<?xml') || leading.startsWith('<fictionbook')) return finish('fb2', 'signature');
+      if (leading.startsWith('<fictionbook') || (leading.startsWith('<?xml') && leading.includes('<fictionbook'))) return finish('fb2', 'signature');
       if (leading.startsWith('<!doctype html') || leading.startsWith('<html')) return finish('html', 'signature');
       if (leading.startsWith('<svg')) return finish('svg', 'signature');
+      if (leading.startsWith('<?xml') && ext === 'xml') return finish('xml', 'signature');
       if (isProbablyText(text)) {
         // A readable text header: HTML when it carries markup, plain text
         // otherwise. Neither guess is allowed to hide an unreadable file, so
@@ -251,7 +252,7 @@ const BookFormat = (() => {
         if (ext === 'odp') return finish('odp', 'signature');
         return { ...FORMATS.odt, source: 'signature' };
       }
-      if (zip.file('xl/workbook.xml')) {
+      if (zip.file('xl/workbook.xml') || zip.file('xl/workbook.bin')) {
         const xlFormat = ['xlsm', 'xlsb', 'xltx', 'xltm'].includes(ext) ? ext : 'xlsx';
         return finish(xlFormat, 'signature');
       }

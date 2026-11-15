@@ -300,6 +300,7 @@ export const SUPPORTED_FORMATS: Record<BookFormat, FormatInfo> = {
 };
 
 export const SUPPORTED_DOCUMENT_MIMES: string[] = [
+  '*/*',
   'application/epub+zip',
   'application/pdf',
   'text/plain',

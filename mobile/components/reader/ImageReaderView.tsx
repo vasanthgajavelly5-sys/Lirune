@@ -161,6 +161,10 @@ export function ImageReaderView({
           source={{ uri: imageUri }}
           style={[styles.image, { width: windowWidth, height: windowHeight * 0.85 }]}
           resizeMode="contain"
+          onError={(e) => {
+            logger.warn(TAG, 'Image rendering failed in viewer', e?.nativeEvent);
+            setLoadError('Unable to display image preview.');
+          }}
         />
       </ScrollView>
     </View>

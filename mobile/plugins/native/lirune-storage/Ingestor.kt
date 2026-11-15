@@ -39,6 +39,11 @@ class Ingestor(
     init {
         if (!booksDir.exists()) {
             booksDir.mkdirs()
+        } else {
+            // Remove incomplete .part files left by interrupted imports
+            booksDir.listFiles { _, name -> name.endsWith(".part") }?.forEach { stale ->
+                try { stale.delete() } catch (_: Exception) {}
+            }
         }
     }
 
@@ -132,6 +137,9 @@ class Ingestor(
                 // Call fsync to guarantee durability
                 fos.fd.sync()
             }
+        } catch (t: Throwable) {
+            try { partFile.delete() } catch (_: Exception) {}
+            throw t
         } finally {
             try { inputStream.close() } catch (_: Exception) {}
         }
@@ -156,6 +164,7 @@ class Ingestor(
 
         // Atomic rename
         if (!partFile.renameTo(finalFile)) {
+            try { partFile.delete() } catch (_: Exception) {}
             throw IllegalStateException("Failed to atomically rename .part file to $finalFile")
         }
 

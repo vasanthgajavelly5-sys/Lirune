@@ -27,16 +27,26 @@ const ImageAdapter = (() => {
       height = ifd.height;
       rgba = UTIF.toRGBA8(ifd);
     } else {
-      const module = await import('../../node_modules/libheif-js/libheif-wasm/libheif-bundle.mjs');
-      const decoder = new (module.default || module).HeifDecoder();
-      const images = decoder.decode(bytes);
-      if (!images?.length) throw new Error(`This ${ext.toUpperCase()} image contains no readable frames.`);
-      const image = images[0];
-      width = image.get_width();
-      height = image.get_height();
-      const imageData = new ImageData(width, height);
-      await new Promise((resolve, reject) => image.display(imageData, result => result ? resolve(result) : reject(new Error(`Could not decode ${ext.toUpperCase()} image.`))));
-      rgba = imageData.data;
+      if (window.liruneDesktop?.decodeHeif) {
+        const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        const result = await window.liruneDesktop.decodeHeif(arrayBuffer);
+        width = result.width;
+        height = result.height;
+        rgba = new Uint8ClampedArray(result.rgba);
+      } else {
+        const module = await import('../../node_modules/libheif-js/libheif-wasm/libheif-bundle.mjs');
+        const factory = module.default || module;
+        const libheif = typeof factory === 'function' ? factory() : factory;
+        const decoder = new libheif.HeifDecoder();
+        const images = decoder.decode(bytes);
+        if (!images?.length) throw new Error(`This ${ext.toUpperCase()} image contains no readable frames.`);
+        const image = images[0];
+        width = image.get_width();
+        height = image.get_height();
+        const imageData = new ImageData(width, height);
+        await new Promise((resolve, reject) => image.display(imageData, result => result ? resolve(result) : reject(new Error(`Could not decode ${ext.toUpperCase()} image.`))));
+        rgba = imageData.data;
+      }
     }
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || width * height > 100_000_000) {
       throw new Error('Image dimensions exceed the safe rendering limit.');
@@ -67,7 +77,7 @@ const ImageAdapter = (() => {
       if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) throw new Error('This image is empty or exceeds the safe 128 MB limit.');
       const ext = BookFormat.extensionOf(this.record.originalName || this.record.title || '') || 'png';
       const mime = MIME_TYPES[ext] || 'application/octet-stream';
-      const source = ['tiff', 'tif', 'avif', 'heic', 'heif'].includes(ext)
+      const source = ['tiff', 'tif', 'heic', 'heif'].includes(ext)
         ? await normalizeUnsupportedRaster(bytes, ext)
         : new Blob([bytes], { type: mime });
       if (!source) throw new Error(`Could not decode ${ext.toUpperCase()} image.`);

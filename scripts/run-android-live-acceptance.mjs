@@ -6,17 +6,19 @@ import { spawnSync, execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-major1';
+const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-postrel1';
 const DEVICE = process.env.DEVICE || 'emulator-5554';
-const REPORTS_BASE = path.resolve('C:/Users/vasanth/Downloads/Lirune_Live_Format_Tests/reports/live-acceptance', RUN_ID);
-const LOCAL_TARGET = process.env.REPORTS_TARGET_DIR || 'reports/major-release';
+const LOCAL_TARGET = process.env.REPORTS_TARGET_DIR || 'reports/post-release-validation';
 const LOCAL_RUN_DIR = path.resolve(LOCAL_TARGET, RUN_ID);
-const INVENTORY_FILE = path.join(REPORTS_BASE, 'sample-inventory.json');
-const SCREENSHOTS_DIR = path.join(REPORTS_BASE, 'screenshots', 'android');
-const RESULTS_JSON = path.join(REPORTS_BASE, 'android-results.json');
-const RESULTS_CSV = path.join(REPORTS_BASE, 'android-results.csv');
-const LOCAL_RESULTS_JSON = path.join(LOCAL_RUN_DIR, 'android-results.json');
-const LOCAL_RESULTS_CSV = path.join(LOCAL_RUN_DIR, 'android-results.csv');
+const REPORTS_BASE = path.resolve('C:/Users/vasanth/Downloads/Lirune_Live_Format_Tests/reports/live-acceptance', RUN_ID);
+const INVENTORY_FILE = fs.existsSync(path.join(LOCAL_RUN_DIR, 'sample-inventory.json'))
+  ? path.join(LOCAL_RUN_DIR, 'sample-inventory.json')
+  : path.join(REPORTS_BASE, 'sample-inventory.json');
+const SCREENSHOTS_DIR = path.join(LOCAL_RUN_DIR, 'screenshots', 'android');
+const RESULTS_JSON = path.join(LOCAL_RUN_DIR, 'android-results.json');
+const RESULTS_CSV = path.join(LOCAL_RUN_DIR, 'android-results.csv');
+const LOCAL_RESULTS_JSON = RESULTS_JSON;
+const LOCAL_RESULTS_CSV = RESULTS_CSV;
 
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 fs.mkdirSync(LOCAL_RUN_DIR, { recursive: true });
@@ -102,12 +104,12 @@ let passedCount = 0;
 let partialCount = 0;
 let failedCount = 0;
 
-console.log('[2/4] Beginning autonomous end-to-end testing across 57 samples on Android...\n');
+console.log(`[2/4] Beginning autonomous end-to-end testing across ${inventory.length} samples on Android...\n`);
 
 for (let i = 0; i < inventory.length; i++) {
   const sample = inventory[i];
   const testNum = i + 1;
-  const testLabel = `[${testNum}/57] ${sample.format.toUpperCase()} (${sample.tier}) - ${sample.filename}`;
+  const testLabel = `[${testNum}/${inventory.length}] ${sample.format.toUpperCase()} (${sample.tier}) - ${sample.filename}`;
   console.log(`----------------------------------------------------------------`);
   console.log(`START: ${testLabel}`);
 
@@ -137,6 +139,9 @@ for (let i = 0; i < inventory.length; i++) {
   adb(['logcat', '-c']);
 
   try {
+    // 0. ENSURE FILE IS ON DEVICE
+    adb(['push', sample.fullPath, deviceFilePath]);
+
     // 1. DISPATCH INTENT
     console.log(`  Dispatching VIEW intent for: ${sample.filename}...`);
     const fileUri = `file://${deviceFilePath}`;

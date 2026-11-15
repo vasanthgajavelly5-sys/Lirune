@@ -170,8 +170,14 @@ const ExpansionAdapters = (() => {
     async buildSections() {
       const bytes = await this.loadBytes();
       if (bytes.length > MAX_TEXT_BYTES) throw new Error('This binary Excel workbook exceeds the safe 64 MB limit.');
-      const { parseXlsb } = await import('../../node_modules/xlsb-parser/dist/index.js');
-      const workbook = await parseXlsb(bytes, { maxRowsPerSheet: MAX_ROWS, maxZipBytes: MAX_TEXT_BYTES });
+      const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      const workbook = window.liruneDesktop?.parseXlsb
+        ? await window.liruneDesktop.parseXlsb(arrayBuffer)
+        : await (async () => {
+            const { parseXlsb } = await import('../../node_modules/xlsb-parser/dist/index.js');
+            return await parseXlsb(bytes, { maxRowsPerSheet: MAX_ROWS, maxZipBytes: MAX_TEXT_BYTES });
+          })();
+      if (!workbook || !workbook.sheets) throw new Error('Failed to parse binary Excel workbook.');
       const sections = workbook.sheets.map((sheet) => {
         const rows = sheet.rows.map((row) => {
           const indexes = Object.keys(row.cols).map(Number).filter((index) => index >= 0 && index < 100);

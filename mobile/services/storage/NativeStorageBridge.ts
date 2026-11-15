@@ -309,7 +309,7 @@ export const nativeStorage = {
       return await LiruneStorage.ingestFile(options);
     } catch (err) {
       logger.warn(TAG, 'ingestFile failed', err);
-      return null;
+      throw err;
     }
   },
 

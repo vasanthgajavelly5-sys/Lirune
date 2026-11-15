@@ -7,16 +7,18 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 
-const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-major1';
-const REPORTS_BASE = path.resolve('C:/Users/vasanth/Downloads/Lirune_Live_Format_Tests/reports/live-acceptance', RUN_ID);
-const LOCAL_TARGET = process.env.REPORTS_TARGET_DIR || 'reports/major-release';
+const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-postrel1';
+const LOCAL_TARGET = process.env.REPORTS_TARGET_DIR || 'reports/post-release-validation';
 const LOCAL_RUN_DIR = path.resolve(LOCAL_TARGET, RUN_ID);
-const INVENTORY_FILE = path.join(REPORTS_BASE, 'sample-inventory.json');
-const SCREENSHOTS_DIR = path.join(REPORTS_BASE, 'screenshots', 'windows');
-const RESULTS_JSON = path.join(REPORTS_BASE, 'windows-results.json');
-const RESULTS_CSV = path.join(REPORTS_BASE, 'windows-results.csv');
-const LOCAL_RESULTS_JSON = path.join(LOCAL_RUN_DIR, 'windows-results.json');
-const LOCAL_RESULTS_CSV = path.join(LOCAL_RUN_DIR, 'windows-results.csv');
+const REPORTS_BASE = path.resolve('C:/Users/vasanth/Downloads/Lirune_Live_Format_Tests/reports/live-acceptance', RUN_ID);
+const INVENTORY_FILE = fs.existsSync(path.join(LOCAL_RUN_DIR, 'sample-inventory.json'))
+  ? path.join(LOCAL_RUN_DIR, 'sample-inventory.json')
+  : path.join(REPORTS_BASE, 'sample-inventory.json');
+const SCREENSHOTS_DIR = path.join(LOCAL_RUN_DIR, 'screenshots', 'windows');
+const RESULTS_JSON = path.join(LOCAL_RUN_DIR, 'windows-results.json');
+const RESULTS_CSV = path.join(LOCAL_RUN_DIR, 'windows-results.csv');
+const LOCAL_RESULTS_JSON = RESULTS_JSON;
+const LOCAL_RESULTS_CSV = RESULTS_CSV;
 
 // Isolate test user profile
 const TEST_PROFILE_DIR = path.join(os.tmpdir(), 'LiruneLiveTests', RUN_ID, 'windows-profile');
@@ -86,12 +88,12 @@ try {
   for (const id of initialBooks) knownBookIds.add(id);
 
   console.log(`Initial books in isolated library: ${knownBookIds.size}\n`);
-  console.log('[2/4] Beginning autonomous end-to-end testing across 57 samples...\n');
+  console.log(`[2/4] Beginning autonomous end-to-end testing across ${inventory.length} samples...\n`);
 
   for (let i = 0; i < inventory.length; i++) {
     const sample = inventory[i];
     const testNum = i + 1;
-    const testLabel = `[${testNum}/57] ${sample.format.toUpperCase()} (${sample.tier}) - ${sample.filename}`;
+    const testLabel = `[${testNum}/${inventory.length}] ${sample.format.toUpperCase()} (${sample.tier}) - ${sample.filename}`;
     console.log(`----------------------------------------------------------------`);
     console.log(`START: ${testLabel}`);
 

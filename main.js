@@ -98,22 +98,25 @@ if (!gotTheLock && app?.quit) {
       mainWindow.show();
       mainWindow.focus();
 
-      const filePath = extractBookArg(argv);
-      if (filePath) {
-        dispatchOpenFile(filePath);
+      const filePaths = extractBookArgs(argv);
+      if (filePaths.length > 0) {
+        dispatchOpenFiles(filePaths);
       }
     } else {
       createWindow();
-      const filePath = extractBookArg(argv);
-      if (filePath) {
-        dispatchOpenFile(filePath);
+      const filePaths = extractBookArgs(argv);
+      if (filePaths.length > 0) {
+        dispatchOpenFiles(filePaths);
       }
     }
   });
 }
 
-function extractBookArg(args) {
-  if (!Array.isArray(args)) return null;
+let pendingOpenFiles = [];
+
+function extractBookArgs(args) {
+  if (!Array.isArray(args)) return [];
+  const files = [];
   for (const rawArg of args) {
     if (typeof rawArg !== 'string') continue;
     let arg = rawArg.trim();
@@ -125,29 +128,48 @@ function extractBookArg(args) {
     if (!OPENABLE_EXTENSIONS.includes(ext)) continue;
     try {
       if (fs.existsSync(arg) && fs.statSync(arg).isFile()) {
-        return path.resolve(arg);
+        const resolved = path.resolve(arg);
+        if (!files.includes(resolved)) {
+          files.push(resolved);
+        }
       }
     } catch (_) {}
   }
-  return null;
+  return files;
+}
+
+function extractBookArg(args) {
+  const files = extractBookArgs(args);
+  return files.length > 0 ? files[0] : null;
 }
 
 // Extract initial book argument at cold launch as early as possible
-const coldLaunchArg = extractBookArg(process.argv);
-if (coldLaunchArg) {
-  pendingOpenFile = path.resolve(coldLaunchArg);
-  authorizeBookPath(pendingOpenFile);
+const coldLaunchFiles = extractBookArgs(process.argv);
+if (coldLaunchFiles.length > 0) {
+  for (const f of coldLaunchFiles) {
+    authorizeBookPath(f);
+  }
+  pendingOpenFile = coldLaunchFiles[0];
+  pendingOpenFiles = [...coldLaunchFiles];
+}
+
+function dispatchOpenFiles(filePaths) {
+  if (!Array.isArray(filePaths) || filePaths.length === 0) return;
+  for (const f of filePaths) {
+    authorizeBookPath(f);
+  }
+  if (!mainWindow || !isRendererReady) {
+    pendingOpenFiles = [...new Set([...pendingOpenFiles, ...filePaths])];
+    pendingOpenFile = pendingOpenFiles[0];
+    return;
+  }
+  mainWindow.webContents.send('open-files-from-os', filePaths);
+  mainWindow.webContents.send('open-file-from-os', filePaths[0]);
 }
 
 function dispatchOpenFile(filePath) {
   if (!filePath) return;
-  const resolved = path.resolve(filePath);
-  authorizeBookPath(resolved);
-  if (!mainWindow || !isRendererReady) {
-    pendingOpenFile = resolved;
-    return;
-  }
-  mainWindow.webContents.send('open-file-from-os', resolved);
+  dispatchOpenFiles([filePath]);
 }
 
 function isManagedBookPath(filePath) {
@@ -1148,10 +1170,18 @@ ipcMain.handle('app:has-pending-file', (event) => {
 ipcMain.handle('app:signal-renderer-ready', (event) => {
   requireTrustedSender(event);
   isRendererReady = true;
-  if (pendingOpenFile && mainWindow) {
+  if (pendingOpenFiles.length > 0 && mainWindow) {
+    const files = [...pendingOpenFiles];
+    pendingOpenFiles = [];
+    pendingOpenFile = null;
+    for (const f of files) authorizeBookPath(f);
+    mainWindow.webContents.send('open-files-from-os', files);
+    mainWindow.webContents.send('open-file-from-os', files[0]);
+  } else if (pendingOpenFile && mainWindow) {
     const file = pendingOpenFile;
     pendingOpenFile = null;
     authorizeBookPath(file);
+    mainWindow.webContents.send('open-files-from-os', [file]);
     mainWindow.webContents.send('open-file-from-os', file);
   }
   return true;
@@ -1159,13 +1189,22 @@ ipcMain.handle('app:signal-renderer-ready', (event) => {
 
 ipcMain.handle('app:get-pending-file', (event) => {
   requireTrustedSender(event);
-  const file = pendingOpenFile;
+  const file = pendingOpenFile || (pendingOpenFiles.length > 0 ? pendingOpenFiles[0] : null);
   pendingOpenFile = null;
   if (file) {
     authorizeBookPath(file);
     return file;
   }
   return null;
+});
+
+ipcMain.handle('app:get-pending-files', (event) => {
+  requireTrustedSender(event);
+  const files = [...pendingOpenFiles];
+  pendingOpenFiles = [];
+  pendingOpenFile = null;
+  for (const f of files) authorizeBookPath(f);
+  return files;
 });
 
 ipcMain.handle('fs:revoke-pending-book', (event, filePath) => {
@@ -1217,6 +1256,20 @@ ipcMain.handle('shell:open-external', async (event, rawUrl) => {
     return { success: true };
   } catch {
     return { success: false, error: 'Malformed URL' };
+  }
+});
+
+ipcMain.handle('system:open-default-apps', async (event) => {
+  requireTrustedSender(event);
+  try {
+    if (process.platform === 'win32') {
+      await shell.openExternal('ms-settings:defaultapps');
+      return { success: true };
+    }
+    return { success: false, error: 'Platform does not support default apps settings' };
+  } catch (err) {
+    console.warn('Failed to open default apps settings:', err);
+    return { success: false, error: err?.message || 'Failed to open settings' };
   }
 });
 
@@ -1389,17 +1442,31 @@ function ensureWindowsRegistryAssociation() {
   const regCommands = [
     ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe', '/v', 'FriendlyAppName', '/d', 'Lirune Reader', '/f'],
     ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe\\shell\\open\\command', '/ve', '/d', `"${exe}" "%1"`, '/f'],
-    ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe\\SupportedTypes', '/v', '.epub', '/d', '', '/f'],
-    ['add', 'HKCU\\Software\\Classes\\Lirune.epub', '/ve', '/d', 'EPUB Electronic Publication', '/f'],
-    ['add', 'HKCU\\Software\\Classes\\Lirune.epub\\DefaultIcon', '/ve', '/d', `"${exe}",0`, '/f'],
-    ['add', 'HKCU\\Software\\Classes\\Lirune.epub\\shell\\open\\command', '/ve', '/d', `"${exe}" "%1"`, '/f'],
-    ['add', 'HKCU\\Software\\Classes\\.epub', '/ve', '/d', 'Lirune.epub', '/f'],
-    ['add', 'HKCU\\Software\\Classes\\.epub\\OpenWithProgids', '/v', 'Lirune.epub', '/d', '', '/f'],
-    ['add', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.epub\\OpenWithProgids', '/v', 'Lirune.epub', '/d', '', '/f'],
     ['add', 'HKCU\\Software\\Lirune Reader\\Capabilities', '/v', 'ApplicationName', '/d', 'Lirune Reader', '/f'],
-    ['add', 'HKCU\\Software\\Lirune Reader\\Capabilities\\FileAssociations', '/v', '.epub', '/d', 'Lirune.epub', '/f'],
+    ['add', 'HKCU\\Software\\Lirune Reader\\Capabilities', '/v', 'ApplicationDescription', '/d', 'Lirune Universal Offline-First Reader', '/f'],
     ['add', 'HKCU\\Software\\RegisteredApplications', '/v', 'Lirune Reader', '/d', 'Software\\Lirune Reader\\Capabilities', '/f']
   ];
+
+  const extensions = [
+    'epub', 'pdf', 'mobi', 'azw', 'azw3', 'fb2', 'fbz', 'cbz', 'cbr', 'cbt', 'cb7',
+    'docx', 'doc', 'odt', 'rtf', 'txt', 'md', 'markdown', 'html', 'htm', 'chm',
+    'djvu', 'djv', 'ppt', 'png', 'jpg', 'jpeg', 'tiff', 'tif'
+  ];
+
+  for (const ext of extensions) {
+    const progId = `Lirune.${ext}`;
+    const desc = `${ext.toUpperCase()} Document`;
+    regCommands.push(
+      ['add', 'HKCU\\Software\\Classes\\Applications\\Lirune Reader.exe\\SupportedTypes', '/v', `.${ext}`, '/d', '', '/f'],
+      ['add', `HKCU\\Software\\Classes\\${progId}`, '/ve', '/d', desc, '/f'],
+      ['add', `HKCU\\Software\\Classes\\${progId}\\DefaultIcon`, '/ve', '/d', `"${exe}",0`, '/f'],
+      ['add', `HKCU\\Software\\Classes\\${progId}\\shell\\open\\command`, '/ve', '/d', `"${exe}" "%1"`, '/f'],
+      ['add', `HKCU\\Software\\Classes\\.${ext}\\OpenWithProgids`, '/v', progId, '/d', '', '/f'],
+      ['add', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.${ext}\\OpenWithProgids`, '/v', progId, '/d', '', '/f'],
+      ['add', 'HKCU\\Software\\Lirune Reader\\Capabilities\\FileAssociations', '/v', `.${ext}`, '/d', progId, '/f']
+    );
+  }
+
   for (const cmdArgs of regCommands) {
     try {
       spawn('reg', cmdArgs, { stdio: 'ignore', windowsHide: true });

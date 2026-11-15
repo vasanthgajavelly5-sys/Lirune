@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { DictionaryService, WordDefinition } from '@/services/dictionary/DictionaryService';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { useThemeContext } from '@/theme/ThemeContext';
 
 interface DictionaryModalProps {
@@ -38,7 +38,7 @@ export function DictionaryModal({
 }: DictionaryModalProps) {
   const { colors } = useThemeContext();
   const palette = READER_THEMES[themeName] || READER_THEMES.neutral;
-  const isDark = themeName === 'night' || themeName.startsWith('contrast');
+  const isDark = isDarkReaderTheme(themeName);
 
   const [definition, setDefinition] = useState<WordDefinition | null>(null);
   const [isSaved, setIsSaved] = useState(false);

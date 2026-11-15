@@ -290,11 +290,11 @@ const ThemeManager = (() => {
       props: {
         '--bg-base': bgHex,
         '--bg-surface': surfaceHex,
-        '--bg-elevated': mixHex(surfaceHex, dark ? '#FFFFFF' : '#000000', dark ? 0.06 : 0.03),
+        '--bg-elevated': mixHex(surfaceHex, dark ? '#FFFFFF' : '#000000', dark ? 0.08 : 0.04),
         '--bg-card': surfaceHex,
         '--bg-overlay': mixHex(surfaceHex, textHex, 0.08),
-        '--bg-glass': rgbaFromHex(surfaceHex, 0.94),
-        '--bg-glass-nav': rgbaFromHex(surfaceHex, 0.97),
+        '--bg-glass': surfaceHex,
+        '--bg-glass-nav': surfaceHex,
         '--bg-hover': rgbaFromHex(textHex, dark ? 0.09 : 0.055),
         '--bg-active': rgbaFromHex(textHex, dark ? 0.15 : 0.09),
         '--bg-input': rgbaFromHex(textHex, dark ? 0.08 : 0.05),
@@ -322,9 +322,9 @@ const ThemeManager = (() => {
         '--reader-panel-segment-bg': rgbaFromHex(textHex, dark ? 0.08 : 0.055),
         '--reader-panel-segment-active-bg': mixHex(surfaceHex, '#FFFFFF', dark ? 0.16 : 0.65),
         '--reader-panel-segment-active-fg': textHex,
-        '--reader-panel-dropdown-bg': rgbaFromHex(mixHex(surfaceHex, bgHex, 0.25), 0.96),
-        '--reader-panel-group-bg': dark ? rgbaFromHex(textHex, 0.045) : 'var(--bg-surface)',
-        '--reader-panel-btn-bg': dark ? rgbaFromHex(textHex, 0.065) : 'var(--bg-elevated)',
+        '--reader-panel-dropdown-bg': surfaceHex,
+        '--reader-panel-group-bg': dark ? rgbaFromHex(textHex, 0.05) : mixHex(surfaceHex, '#000000', 0.02),
+        '--reader-panel-btn-bg': dark ? rgbaFromHex(textHex, 0.08) : mixHex(surfaceHex, '#000000', 0.04),
         'accent-color': appAccent
       }
     };
@@ -335,6 +335,8 @@ const ThemeManager = (() => {
     el.removeAttribute('data-reader-panel-theme');
     el.removeAttribute('data-reader-theme-name');
     if (el.style) {
+      el.style.backgroundColor = '';
+      el.style.borderColor = '';
       el.style.colorScheme = '';
       for (const prop of READER_SCOPED_TOKEN_PROPS) {
         el.style.removeProperty(prop);
@@ -346,6 +348,7 @@ const ThemeManager = (() => {
     if (!el || !el.style) return;
     el.setAttribute('data-reader-panel-theme', tokens.isDark ? 'dark' : 'light');
     el.setAttribute('data-reader-theme-name', themeName);
+    el.style.backgroundColor = tokens.props['--bg-surface'];
     el.style.colorScheme = tokens.isDark ? 'dark' : 'light';
     for (const [prop, val] of Object.entries(tokens.props)) {
       el.style.setProperty(prop, val);

@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { useThemeContext } from '@/theme/ThemeContext';
 
 interface ThumbnailsSheetProps {
@@ -41,7 +41,7 @@ export function ThumbnailsSheet({
   const insets = useSafeAreaInsets();
   const { colors } = useThemeContext();
   const palette = READER_THEMES[themeName] || READER_THEMES.neutral;
-  const isDark = themeName === 'night' || themeName.startsWith('contrast');
+  const isDark = isDarkReaderTheme(themeName);
   // Measured per render: the sheet is opened from the reader, often after a
   // rotation, and a module-level width would size the thumbnails for the
   // orientation the app started in.

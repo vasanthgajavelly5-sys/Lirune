@@ -17,7 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { SearchResult } from '@/models/Book';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { useThemeContext } from '@/theme/ThemeContext';
 
 interface SearchSheetProps {
@@ -45,7 +45,7 @@ export function SearchSheet({
 
   // Harmonize with reader theme if provided
   const activeTheme = themeName ? READER_THEMES[themeName] || READER_THEMES.neutral : null;
-  const isThemeDark = themeName ? (themeName === 'night' || themeName.startsWith('contrast')) : false;
+  const isThemeDark = isDarkReaderTheme(themeName);
 
   const sheetBg = activeTheme ? activeTheme.bg : colors.surface;
   const surfaceBg = activeTheme ? activeTheme.surface : colors.surfaceElevated;

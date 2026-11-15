@@ -33,7 +33,7 @@ import {
   chunkIndexForByteOffset,
   stripTrailingPartialChar,
 } from '@/services/txt/chunkIndex';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { getNativeFontFamily } from '@/theme/Typography';
 import { logger } from '@/utils/logger';
 
@@ -384,7 +384,7 @@ export function TxtReaderView({
     [handleRelease]
   );
 
-  const isThemeDark = settings.theme === 'night' || settings.theme.startsWith('contrast');
+  const isThemeDark = isDarkReaderTheme(settings.theme);
   const cardBg = palette.surface || palette.bg;
   const cardBorder = isThemeDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
 

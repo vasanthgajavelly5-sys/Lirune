@@ -21,7 +21,7 @@ import {
 import { useStableInsets } from '@/hooks/useStableInsets';
 import { Ionicons } from '@expo/vector-icons';
 import { ReaderSettings, ReaderThemeName, clampReaderBrightness } from '@/models/Book';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { READER_FONTS, getNativeFontFamily } from '@/theme/Typography';
 import { useThemeContext } from '@/theme/ThemeContext';
 import { ProfileModal } from './ProfileModal';
@@ -55,7 +55,7 @@ export function SettingsSheet({
 
   // Dynamic theme matching reader's active theme
   const activeTheme = READER_THEMES[settings.theme] || READER_THEMES.neutral;
-  const isThemeDark = settings.theme === 'night' || settings.theme.startsWith('contrast');
+  const isThemeDark = isDarkReaderTheme(settings.theme);
   const panelBg = activeTheme.bg;
   const surfaceBg = activeTheme.surface;
   const textColor = activeTheme.text;

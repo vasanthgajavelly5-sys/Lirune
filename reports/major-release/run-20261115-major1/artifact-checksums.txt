@@ -1,0 +1,45 @@
+================================================================================
+LIRUNE MAJOR RELEASE 6.0 / 5.0 — PRODUCTION ARTIFACT CHECKSUMS
+================================================================================
+Release Date: 2026-11-15
+Release Targets:
+  - Windows Desktop: Version 6.0.0 (Tag: v6.0.0)
+  - Android Mobile:  Version 5.0.0 (Tag: android-v5.0.0)
+
+--------------------------------------------------------------------------------
+WINDOWS ARTIFACTS
+--------------------------------------------------------------------------------
+File:        dist/Lirune Reader-6.0.0-Setup.exe
+Alternate:   dist/Lirune.Reader-6.0.0-Setup.exe
+Size:        125,533,631 bytes (119.7 MB)
+Format:      NSIS Nullsoft Windows 64-bit Installer
+SHA-256:     5fa2d29d4bf478259b89ff0c6641a2cf404ce1736b5d2cd75bf6f9e64727a7a5
+
+File:        dist/win-unpacked/Lirune Reader.exe
+Architecture: x64
+Electron:    44.11.3
+Launcher:    Launch-Lirune.bat (Validated: PASS)
+
+--------------------------------------------------------------------------------
+ANDROID ARTIFACTS
+--------------------------------------------------------------------------------
+File:        mobile/Lirune-Reader-v5.0.0-release.apk
+Build Task:  :app:assembleRelease (BUILD SUCCESSFUL)
+Size:        77,568,288 bytes (74.0 MB)
+VersionCode: 13
+Min SDK:     24 (Android 7.0+)
+Target SDK:  36 (Android 16)
+Signer:      lirune-release (Keystore: C:/Users/vasanth/.android/keystores/lirune-release.jks)
+SHA-256:     c0fc888c1744f75c92c2e2ecc29a1f8b7bfcb87cffbed734e3a7ff6206faac68
+
+--------------------------------------------------------------------------------
+VERIFICATION INSTRUCTIONS
+--------------------------------------------------------------------------------
+Windows PowerShell:
+  Get-FileHash -Algorithm SHA256 "Lirune.Reader-6.0.0-Setup.exe"
+  Get-FileHash -Algorithm SHA256 "Lirune-Reader-v5.0.0-release.apk"
+
+Linux / macOS / Git Bash:
+  sha256sum "Lirune.Reader-6.0.0-Setup.exe"
+  sha256sum "Lirune-Reader-v5.0.0-release.apk"
+================================================================================

@@ -243,3 +243,15 @@ export const READER_THEMES: Record<string, ReaderThemePalette> = {
     border: '#313244',
   },
 };
+
+export function isDarkReaderTheme(themeName?: string | null): boolean {
+  if (!themeName) return false;
+  if (themeName === 'contrast4') return false;
+  if (['night', 'contrast1', 'contrast2', 'contrast3', 'nord', 'gruvbox', 'solarized', 'rosepine', 'dracula', 'mocha'].includes(themeName)) {
+    return true;
+  }
+  if (themeName.startsWith('contrast') && themeName !== 'contrast4') {
+    return true;
+  }
+  return false;
+}

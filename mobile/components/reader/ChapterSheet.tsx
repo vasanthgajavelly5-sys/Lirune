@@ -18,7 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TOCItem } from '@/models/Book';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { useThemeContext } from '@/theme/ThemeContext';
 
 const ITEM_HEIGHT = 48;
@@ -52,7 +52,7 @@ export function ChapterSheet({
   const insets = useSafeAreaInsets();
   const { colors } = useThemeContext();
   const activeTheme = READER_THEMES[themeName] || READER_THEMES.neutral;
-  const isThemeDark = themeName === 'night' || themeName.startsWith('contrast');
+  const isThemeDark = isDarkReaderTheme(themeName);
 
   const sheetBg = activeTheme.bg;
   const surfaceBg = activeTheme.surface;

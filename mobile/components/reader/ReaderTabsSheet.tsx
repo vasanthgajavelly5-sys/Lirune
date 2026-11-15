@@ -17,7 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Book } from '@/models/Book';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useThemeContext } from '@/theme/ThemeContext';
 
@@ -42,7 +42,7 @@ export function ReaderTabsSheet({
   const { colors } = useThemeContext();
   const { books } = useLibraryStore();
   const activeTheme = READER_THEMES[themeName] || READER_THEMES.neutral;
-  const isThemeDark = themeName === 'night' || themeName.startsWith('contrast');
+  const isThemeDark = isDarkReaderTheme(themeName);
 
   const sheetBg = activeTheme.bg;
   const surfaceBg = activeTheme.surface;

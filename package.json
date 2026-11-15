@@ -1,7 +1,7 @@
 {
   "name": "lirune",
   "productName": "Lirune Reader",
-  "version": "5.6.5",
+  "version": "6.0.0",
   "description": "A private, open-source Windows EPUB reader",
   "main": "main.js",
   "scripts": {
@@ -111,13 +111,35 @@
       ],
       "icon": "assets/icon.ico",
       "fileAssociations": [
-        {
-          "ext": "epub",
-          "name": "EPUB Electronic Publication",
-          "description": "Electronic Publication Book File",
-          "role": "Viewer",
-          "icon": "assets/icon.ico"
-        }
+        { "ext": "epub", "name": "EPUB Electronic Publication", "description": "EPUB Publication", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "pdf", "name": "Portable Document Format", "description": "PDF Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "mobi", "name": "Mobipocket E-Book", "description": "MOBI E-Book", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "azw", "name": "Kindle E-Book", "description": "Kindle E-Book", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "azw3", "name": "Kindle Format 8", "description": "Kindle KF8 E-Book", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "fb2", "name": "FictionBook 2.0", "description": "FictionBook 2.0", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "fbz", "name": "Compressed FictionBook", "description": "Compressed FictionBook", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "cbz", "name": "Comic Book Archive (ZIP)", "description": "Comic Book ZIP Archive", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "cbr", "name": "Comic Book Archive (RAR)", "description": "Comic Book RAR Archive", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "cbt", "name": "Comic Book Archive (TAR)", "description": "Comic Book TAR Archive", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "cb7", "name": "Comic Book Archive (7Z)", "description": "Comic Book 7Z Archive", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "docx", "name": "Microsoft Word Document", "description": "Word Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "doc", "name": "Microsoft Word 97-2004 Document", "description": "Legacy Word Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "odt", "name": "OpenDocument Text", "description": "OpenDocument Text Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "rtf", "name": "Rich Text Format", "description": "Rich Text Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "txt", "name": "Plain Text Document", "description": "Text Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "md", "name": "Markdown Document", "description": "Markdown Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "markdown", "name": "Markdown Document", "description": "Markdown Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "html", "name": "HTML Document", "description": "HyperText Markup Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "htm", "name": "HTML Document", "description": "HyperText Markup Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "chm", "name": "Compiled HTML Help", "description": "Compiled HTML Help File", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "djvu", "name": "DjVu Document", "description": "DjVu Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "djv", "name": "DjVu Document", "description": "DjVu Document", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "ppt", "name": "PowerPoint Presentation", "description": "PowerPoint Presentation", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "png", "name": "PNG Image", "description": "Portable Network Graphic", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "jpg", "name": "JPEG Image", "description": "JPEG Image File", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "jpeg", "name": "JPEG Image", "description": "JPEG Image File", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "tiff", "name": "TIFF Image", "description": "Tagged Image File", "role": "Viewer", "icon": "assets/icon.ico" },
+        { "ext": "tif", "name": "TIFF Image", "description": "Tagged Image File", "role": "Viewer", "icon": "assets/icon.ico" }
       ]
     },
     "nsis": {

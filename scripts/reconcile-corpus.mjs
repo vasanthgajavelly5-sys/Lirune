@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-beta1';
+const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-major1';
 const CORPUS_DIR = 'C:/Users/vasanth/Downloads/Lirune_Live_Format_Tests';
 const RUN_DIR = path.join(CORPUS_DIR, 'reports/live-acceptance', RUN_ID);
-const LOCAL_RUN_DIR = path.resolve('reports/beta-release', RUN_ID);
+const LOCAL_TARGET = process.env.REPORTS_TARGET_DIR || 'reports/major-release';
+const LOCAL_RUN_DIR = path.resolve(LOCAL_TARGET, RUN_ID);
 fs.mkdirSync(RUN_DIR, { recursive: true });
 fs.mkdirSync(LOCAL_RUN_DIR, { recursive: true });
 const SHA_FILE = path.join(CORPUS_DIR, 'SHA256SUMS.txt');

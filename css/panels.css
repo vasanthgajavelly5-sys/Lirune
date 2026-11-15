@@ -478,11 +478,41 @@
 .full-settings-spacer { height: 1px; background: var(--border-subtle); margin: var(--sp-2) 0; }
 
 .app-theme-swatch {
-  width: 22px; height: 22px; border-radius: 7px;
-  border: 1px solid var(--border-default); display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all var(--dur-fast);
 }
-.app-theme-swatch[data-swatch='dark']  { background: linear-gradient(135deg, #171A21 50%, #0D0F14 50%); }
-.app-theme-swatch[data-swatch='light'] { background: linear-gradient(135deg, #F7F7FB 50%, #E3E4EC 50%); }
+.app-theme-swatch svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.app-theme-swatch[data-swatch='dark'] {
+  background: var(--bg-inset, #171A21);
+  color: #E2E8F0;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.app-theme-swatch[data-swatch='light'] {
+  background: var(--bg-inset, #F1F5F9);
+  color: #D97706;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+.layout-opt.active .app-theme-swatch[data-swatch='dark'],
+.layout-opt[aria-pressed='true'] .app-theme-swatch[data-swatch='dark'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.layout-opt.active .app-theme-swatch[data-swatch='light'],
+.layout-opt[aria-pressed='true'] .app-theme-swatch[data-swatch='light'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
 
 .storage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: var(--sp-2); }
 .storage-stat {
@@ -1420,90 +1450,264 @@
 
 /* Reader-scoped panel theme overrides beat ancestor [data-theme="dark"] */
 .panel[data-reader-panel-theme] {
-  color: var(--text-primary);
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-subtle) !important;
+  scrollbar-color: var(--border-default) transparent;
 }
-.panel[data-reader-panel-theme] .setting-switch {
-  background: var(--reader-panel-switch-bg);
-  border-color: var(--border-subtle);
+
+.panel[data-reader-panel-theme] .panel-header {
+  background: var(--bg-surface) !important;
+  border-bottom-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
 }
-.panel[data-reader-panel-theme] .setting-switch[aria-checked="true"] {
-  background: var(--reader-panel-switch-active-bg);
-  border-color: transparent;
-  box-shadow: 0 2px 10px var(--accent-glow);
+
+.panel[data-reader-panel-theme] .panel-header h3,
+.panel[data-reader-panel-theme] #settings-panel-title,
+.panel[data-reader-panel-theme] #toc-panel-title {
+  color: var(--text-primary) !important;
 }
-.panel[data-reader-panel-theme] .setting-switch[aria-checked="true"] .setting-switch-thumb {
-  background: var(--text-on-accent);
+
+.panel[data-reader-panel-theme] .settings-body,
+.panel[data-reader-panel-theme] .toc-list,
+.panel[data-reader-panel-theme] .toc-search {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-subtle) !important;
 }
-.panel[data-reader-panel-theme] .segmented {
-  background: var(--reader-panel-segment-bg);
-  border-color: var(--border-subtle);
-}
-.panel[data-reader-panel-theme] .segment-opt:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-.panel[data-reader-panel-theme] .segment-opt.active {
-  background: var(--reader-panel-segment-active-bg);
-  color: var(--reader-panel-segment-active-fg);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
-}
-.panel[data-reader-panel-theme] .quick-expand-btn {
-  background: var(--accent);
-  color: var(--text-on-accent);
-  box-shadow: 0 4px 16px var(--accent-glow);
-}
-.panel[data-reader-panel-theme] .quick-expand-btn:hover {
-  filter: brightness(1.06);
-  box-shadow: 0 6px 22px var(--accent-glow-strong);
-}
-.panel[data-reader-panel-theme] .full-settings-nav-item {
-  background: var(--reader-panel-btn-bg);
-  border-color: var(--border-subtle);
-  color: var(--text-secondary);
-}
-.panel[data-reader-panel-theme] .full-settings-nav-item:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-default);
-  color: var(--text-primary);
-}
-.panel[data-reader-panel-theme] .full-settings-nav-item.active {
-  background: var(--accent);
-  color: var(--text-on-accent);
-  border-color: transparent;
-  box-shadow: 0 2px 10px var(--accent-glow);
-}
+
 .panel[data-reader-panel-theme] .settings-group,
 .panel[data-reader-panel-theme] .about-card {
-  background: var(--reader-panel-group-bg);
-  border-color: var(--border-subtle);
+  background: var(--reader-panel-group-bg) !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+}
+
+.panel[data-reader-panel-theme] .setting-section-title,
+.panel[data-reader-panel-theme] .setting-label {
+  color: var(--text-primary) !important;
+}
+
+.panel[data-reader-panel-theme] .setting-hint,
+.panel[data-reader-panel-theme] .setting-label span,
+.panel[data-reader-panel-theme] .setting-subheading,
+.panel[data-reader-panel-theme] .settings-section-heading p {
+  color: var(--text-tertiary) !important;
+}
+
+.panel[data-reader-panel-theme] .setting-row {
+  border-bottom-color: var(--border-subtle) !important;
+}
+
+.panel[data-reader-panel-theme] .setting-switch {
+  background: var(--reader-panel-switch-bg) !important;
+  border-color: var(--border-subtle) !important;
+}
+.panel[data-reader-panel-theme] .setting-switch[aria-checked="true"] {
+  background: var(--reader-panel-switch-active-bg) !important;
+  border-color: transparent !important;
+  box-shadow: 0 2px 10px var(--accent-glow) !important;
+}
+.panel[data-reader-panel-theme] .setting-switch[aria-checked="true"] .setting-switch-thumb {
+  background: var(--text-on-accent) !important;
+}
+
+.panel[data-reader-panel-theme] .segmented {
+  background: var(--reader-panel-segment-bg) !important;
+  border-color: var(--border-subtle) !important;
+}
+.panel[data-reader-panel-theme] .segment-opt {
+  color: var(--text-secondary) !important;
+}
+.panel[data-reader-panel-theme] .segment-opt:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .segment-opt.active {
+  background: var(--reader-panel-segment-active-bg) !important;
+  color: var(--reader-panel-segment-active-fg) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18) !important;
+}
+
+.panel[data-reader-panel-theme] .custom-dropdown-trigger {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .custom-dropdown-trigger:hover {
+  background: var(--bg-elevated) !important;
+  border-color: var(--border-strong) !important;
+}
+.panel[data-reader-panel-theme] .custom-dropdown-menu {
+  background: var(--reader-panel-dropdown-bg, var(--bg-surface)) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25) !important;
+}
+.panel[data-reader-panel-theme] .custom-dropdown-item {
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .custom-dropdown-item:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .custom-dropdown-item.active {
+  background: var(--accent-subtle) !important;
+  color: var(--accent-text) !important;
+}
+
+.panel[data-reader-panel-theme] .font-stepper,
+.panel[data-reader-panel-theme] .font-opt,
+.panel[data-reader-panel-theme] .alignment-opt {
+  background: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-secondary) !important;
+}
+.panel[data-reader-panel-theme] .font-opt:hover,
+.panel[data-reader-panel-theme] .alignment-opt:hover {
+  border-color: var(--border-strong) !important;
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .font-opt.active,
+.panel[data-reader-panel-theme] .alignment-opt.active {
+  background: var(--accent-subtle) !important;
+  border-color: var(--border-accent) !important;
+  color: var(--accent-text) !important;
+}
+.panel[data-reader-panel-theme] .stepper-val {
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .stepper-btn {
+  color: var(--text-secondary) !important;
+}
+.panel[data-reader-panel-theme] .stepper-btn:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+.panel[data-reader-panel-theme] .glass-input {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-default) !important;
+}
+.panel[data-reader-panel-theme] .glass-input input {
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .glass-input input::placeholder {
+  color: var(--text-tertiary) !important;
+}
+
+.panel[data-reader-panel-theme] .btn-glass,
+.panel[data-reader-panel-theme] .icon-btn {
+  background: var(--bg-hover) !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .btn-glass:hover,
+.panel[data-reader-panel-theme] .icon-btn:hover {
+  background: var(--bg-active) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
+}
+
+.panel[data-reader-panel-theme] .toc-entry {
+  color: var(--text-secondary) !important;
+}
+.panel[data-reader-panel-theme] .toc-entry:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .toc-entry.active {
+  background: var(--accent-subtle) !important;
+  color: var(--accent-text) !important;
+  font-weight: 600 !important;
+}
+.panel[data-reader-panel-theme] .toc-entry.active::before {
+  background: var(--accent) !important;
+}
+.panel[data-reader-panel-theme] .toc-progress-dot {
+  border-color: var(--border-default) !important;
+}
+.panel[data-reader-panel-theme] .toc-progress-dot.read,
+.panel[data-reader-panel-theme] .toc-progress-dot.partial {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+.panel[data-reader-panel-theme] .toc-empty,
+.panel[data-reader-panel-theme] .toc-filter-empty {
+  color: var(--text-tertiary) !important;
+  padding: var(--sp-4) var(--sp-3);
+  text-align: center;
+  font-size: 0.8125rem;
+}
+
+.panel[data-reader-panel-theme] .quick-expand-btn {
+  background: var(--accent) !important;
+  color: var(--text-on-accent) !important;
+  box-shadow: 0 4px 16px var(--accent-glow) !important;
+}
+.panel[data-reader-panel-theme] .quick-expand-btn:hover {
+  filter: brightness(1.06) !important;
+  box-shadow: 0 6px 22px var(--accent-glow-strong) !important;
+}
+.panel[data-reader-panel-theme] .full-settings-nav-item {
+  background: var(--reader-panel-btn-bg) !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--text-secondary) !important;
+}
+.panel[data-reader-panel-theme] .full-settings-nav-item:hover {
+  background: var(--bg-hover) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
+}
+.panel[data-reader-panel-theme] .full-settings-nav-item.active {
+  background: var(--accent) !important;
+  color: var(--text-on-accent) !important;
+  border-color: transparent !important;
+  box-shadow: 0 2px 10px var(--accent-glow) !important;
 }
 .panel[data-reader-panel-theme] .reset-settings-btn {
-  background: var(--reader-panel-btn-bg);
-  border-color: var(--border-default);
-  color: var(--text-secondary);
+  background: var(--reader-panel-btn-bg) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-secondary) !important;
 }
 .panel[data-reader-panel-theme] .reset-settings-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
+  background: var(--bg-hover) !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text-primary) !important;
 }
+.panel[data-reader-panel-theme] ::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.panel[data-reader-panel-theme] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.panel[data-reader-panel-theme] ::-webkit-scrollbar-thumb {
+  background: var(--border-default) !important;
+  border-radius: var(--r-full);
+}
+.panel[data-reader-panel-theme] ::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong) !important;
+}
+
 .panel[data-reader-panel-theme="light"] .danger-group .reset-settings-btn {
-  color: #C53030;
-  background: rgba(220, 38, 38, 0.06);
-  border-color: rgba(220, 38, 38, 0.22);
+  color: #C53030 !important;
+  background: rgba(220, 38, 38, 0.06) !important;
+  border-color: rgba(220, 38, 38, 0.22) !important;
 }
 .panel[data-reader-panel-theme="light"] .danger-group .reset-settings-btn:hover {
-  background: rgba(220, 38, 38, 0.14);
-  border-color: rgba(220, 38, 38, 0.4);
-  color: #B91C1C;
+  background: rgba(220, 38, 38, 0.14) !important;
+  border-color: rgba(220, 38, 38, 0.4) !important;
+  color: #B91C1C !important;
 }
 .panel[data-reader-panel-theme="dark"] .danger-group .reset-settings-btn {
-  color: #F87171;
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.28);
+  color: #F87171 !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.28) !important;
 }
 .panel[data-reader-panel-theme="dark"] .danger-group .reset-settings-btn:hover {
-  background: rgba(239, 68, 68, 0.22);
-  border-color: rgba(239, 68, 68, 0.46);
-  color: #FCA5A5;
+  background: rgba(239, 68, 68, 0.22) !important;
+  border-color: rgba(239, 68, 68, 0.46) !important;
+  color: #FCA5A5 !important;
 }

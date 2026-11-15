@@ -5,9 +5,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-beta1';
+const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-major1';
 const BASE_DIR = path.resolve('C:/Users/vasanth/Downloads/Lirune_Live_Format_Tests/reports/live-acceptance', RUN_ID);
-const LOCAL_DIR = path.resolve('reports/beta-release', RUN_ID);
+const LOCAL_TARGET = process.env.REPORTS_TARGET_DIR || 'reports/major-release';
+const LOCAL_DIR = path.resolve(LOCAL_TARGET, RUN_ID);
 fs.mkdirSync(BASE_DIR, { recursive: true });
 fs.mkdirSync(LOCAL_DIR, { recursive: true });
 

@@ -42,8 +42,13 @@ const desktopApi = {
   onOpenFile: (callback) => {
     ipcRenderer.on('open-file-from-os', (_event, filePath) => callback(filePath));
   },
+  onOpenFiles: (callback) => {
+    ipcRenderer.on('open-files-from-os', (_event, filePaths) => callback(filePaths));
+  },
+  openDefaultAppsSettings: () => ipcRenderer.invoke('system:open-default-apps'),
   signalRendererReady: () => ipcRenderer.invoke('app:signal-renderer-ready'),
   getPendingOpenFile: () => ipcRenderer.invoke('app:get-pending-file'),
+  getPendingOpenFiles: () => ipcRenderer.invoke('app:get-pending-files'),
   hasPendingOpenFile: () => ipcRenderer.invoke('app:has-pending-file'),
   revokePendingBookFile: (filePath) => ipcRenderer.invoke('fs:revoke-pending-book', filePath),
   extractRarArchive: (buffer) => ipcRenderer.invoke('archive:extract-rar', buffer),

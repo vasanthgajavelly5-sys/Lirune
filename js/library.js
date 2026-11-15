@@ -717,7 +717,8 @@ const RENDER_BATCH_SIZE = 50;
       }
     };
 
-    [browseBtn, addBtn, addMoreBtn].forEach(btn => {
+    const homeCaptionAddBtn = document.getElementById('home-caption-add-btn');
+    [browseBtn, addBtn, addMoreBtn, homeCaptionAddBtn].forEach(btn => {
       if (btn) btn.addEventListener('click', openImport);
     });
     closeImportBtn?.addEventListener('click', closeImport);
@@ -850,8 +851,27 @@ const RENDER_BATCH_SIZE = 50;
       }
     }
 
-    // Windows OS launch / Double-click EPUB file listener
-    if (window.noveraDesktop && window.noveraDesktop.onOpenFile) {
+    // Windows OS launch / Double-click file listener
+    const handleIncomingFiles = async (files) => {
+      if (!Array.isArray(files) || files.length === 0) return;
+      await openBookFromFilePath(files[0]);
+      for (let i = 1; i < files.length; i++) {
+        try {
+          const file = await window.noveraDesktop.readBookFile(files[i]);
+          if (file?.data) {
+            await importOneFile(file.data, file.name, file.size || file.data.byteLength, files[i]);
+          }
+        } catch (e) {
+          console.warn('Could not queue incoming file:', files[i], e);
+        }
+      }
+    };
+
+    if (window.noveraDesktop && window.noveraDesktop.onOpenFiles) {
+      window.noveraDesktop.onOpenFiles((filePaths) => {
+        handleIncomingFiles(filePaths);
+      });
+    } else if (window.noveraDesktop && window.noveraDesktop.onOpenFile) {
       window.noveraDesktop.onOpenFile((filePath) => {
         openBookFromFilePath(filePath);
       });
@@ -859,9 +879,14 @@ const RENDER_BATCH_SIZE = 50;
 
     if (window.noveraDesktop && window.noveraDesktop.signalRendererReady) {
       window.noveraDesktop.signalRendererReady().then(async () => {
-        const pending = await window.noveraDesktop.getPendingOpenFile?.();
-        if (pending) {
-          openBookFromFilePath(pending);
+        const pendingFiles = await window.noveraDesktop.getPendingOpenFiles?.();
+        if (Array.isArray(pendingFiles) && pendingFiles.length > 0) {
+          handleIncomingFiles(pendingFiles);
+        } else {
+          const pending = await window.noveraDesktop.getPendingOpenFile?.();
+          if (pending) {
+            openBookFromFilePath(pending);
+          }
         }
       }).catch(err => console.warn('Could not signal renderer ready:', err));
     }

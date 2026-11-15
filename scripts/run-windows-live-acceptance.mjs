@@ -7,9 +7,10 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 
-const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-beta1';
+const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-major1';
 const REPORTS_BASE = path.resolve('C:/Users/vasanth/Downloads/Lirune_Live_Format_Tests/reports/live-acceptance', RUN_ID);
-const LOCAL_RUN_DIR = path.resolve('reports/beta-release', RUN_ID);
+const LOCAL_TARGET = process.env.REPORTS_TARGET_DIR || 'reports/major-release';
+const LOCAL_RUN_DIR = path.resolve(LOCAL_TARGET, RUN_ID);
 const INVENTORY_FILE = path.join(REPORTS_BASE, 'sample-inventory.json');
 const SCREENSHOTS_DIR = path.join(REPORTS_BASE, 'screenshots', 'windows');
 const RESULTS_JSON = path.join(REPORTS_BASE, 'windows-results.json');

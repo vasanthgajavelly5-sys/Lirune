@@ -47,7 +47,7 @@ import {
 import { resolveZipHref, archiveDirname } from '@/services/epub/zipPaths';
 import { toPlainText } from '@/services/epub/markup';
 import { fileStorage } from '@/services/storage/FileStorage';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { getCssFontFamily } from '@/theme/Typography';
 import { logger } from '@/utils/logger';
 import { validateArchiveBudget } from '@/services/security/archiveBudget';
@@ -434,7 +434,7 @@ export function EpubReaderView({
 
   const isPaginated = settings.flow !== 'scrolled';
   const palette = READER_THEMES[settings.theme] || READER_THEMES.night;
-  const isDark = settings.theme === 'night' || settings.theme.startsWith('contrast');
+  const isDark = isDarkReaderTheme(settings.theme);
   const [initialPalette] = useState(() => palette);
 
   /**

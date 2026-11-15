@@ -1,11 +1,11 @@
 @echo off
 setlocal
 set ELECTRON_RUN_AS_NODE=
-title Lirune Reader v5.6.5 - A calm home for your books
+title Lirune Reader v6.0.0 - A calm home for your books
 cd /d "%~dp0"
 
 echo ========================================================
-echo Launching Lirune Reader v5.6.5 (Desktop)...
+echo Launching Lirune Reader v6.0.0 (Desktop)...
 echo ========================================================
 
 REM Support dry-run / validation flag for testing and CI
@@ -14,10 +14,10 @@ if "%1"=="--test-dry-run" (
     exit /b 0
 )
 
-REM 1. Check local packaged release build (v5.6.5) in dist\win-unpacked
+REM 1. Check local packaged release build (v6.0.0) in dist\win-unpacked
 if exist "%~dp0dist\win-unpacked\Lirune Reader.exe" (
-    echo [INFO] Found local packaged v5.6.5 release: dist\win-unpacked\Lirune Reader.exe
-    echo Starting Lirune Reader v5.6.5...
+    echo [INFO] Found local packaged v6.0.0 release: dist\win-unpacked\Lirune Reader.exe
+    echo Starting Lirune Reader v6.0.0...
     if "%1"=="--validate-only" (
         echo [INFO] Target executable verified: "%~dp0dist\win-unpacked\Lirune Reader.exe"
         exit /b 0
@@ -26,7 +26,7 @@ if exist "%~dp0dist\win-unpacked\Lirune Reader.exe" (
     goto :done
 )
 
-REM 2. Fallback: Run directly from current repository source via Electron (v5.6.5)
+REM 2. Fallback: Run directly from current repository source via Electron (v6.0.0)
 echo [INFO] Packaged binary not found in dist\win-unpacked.
 echo Checking Node.js development environment to launch from source...
 
@@ -55,7 +55,7 @@ if "%1"=="--validate-only" (
     exit /b 0
 )
 
-echo Starting Lirune Reader v5.6.5 desktop client from source...
+echo Starting Lirune Reader v6.0.0 desktop client from source...
 if exist "node_modules\.bin\electron.cmd" (
     call "node_modules\.bin\electron.cmd" . %*
 ) else (

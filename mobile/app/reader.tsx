@@ -57,7 +57,7 @@ import { ThumbnailsSheet } from '@/components/reader/ThumbnailsSheet';
 import { ReaderTabsSheet } from '@/components/reader/ReaderTabsSheet';
 import { ttsService } from '@/services/tts/TtsService';
 import { parseSpineTarget, classifyReadingUnitType, extractExplicitChapterNumber } from '@/services/epub/navigation';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { useThemeContext } from '@/theme/ThemeContext';
 import { Bookmark, TOCItem, SearchResult, Book, clampReaderBrightness } from '@/models/Book';
 import type { SelectionPayload } from '@/services/reader/selectionBridge';
@@ -390,7 +390,7 @@ export default function ReaderScreen() {
   }, [currentBook, openBook, resolveCurrentBook]);
 
   const palette = READER_THEMES[readerSettings.theme] || READER_THEMES.sepia;
-  const isThemeDark = readerSettings.theme === 'night' || readerSettings.theme.startsWith('contrast');
+  const isThemeDark = isDarkReaderTheme(readerSettings.theme);
 
   // Declared with the other hooks: this screen returns early for every
   // resolution state, so a hook below those returns would run only sometimes.

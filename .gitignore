@@ -37,6 +37,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Local configuration, certificates, and signing material
+.agents/
 .env
 .env.*
 !.env.example

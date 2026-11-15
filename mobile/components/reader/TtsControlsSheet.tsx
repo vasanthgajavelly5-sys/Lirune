@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { ttsService, TtsState } from '@/services/tts/TtsService';
-import { READER_THEMES } from '@/theme/Colors';
+import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { useThemeContext } from '@/theme/ThemeContext';
 
 interface TtsControlsSheetProps {
@@ -36,7 +36,7 @@ export function TtsControlsSheet({
   const insets = useSafeAreaInsets();
   const { colors } = useThemeContext();
   const palette = READER_THEMES[themeName] || READER_THEMES.neutral;
-  const isDark = themeName === 'night' || themeName.startsWith('contrast');
+  const isDark = isDarkReaderTheme(themeName);
 
   const [ttsState, setTtsState] = useState<TtsState>(ttsService.getState());
   const [showVoicePicker, setShowVoicePicker] = useState(false);

@@ -508,9 +508,13 @@ const SettingsUI = (() => {
   function buildAppThemeControls() {
     const grid = document.getElementById('app-theme-grid');
     if (!grid) return;
+    const icons = {
+      dark: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>',
+      light: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>'
+    };
     grid.innerHTML = ThemeManager.APP_THEMES.map(theme => `
       <button type="button" class="layout-opt" data-app-theme="${theme}" aria-pressed="false">
-        <span class="app-theme-swatch" data-swatch="${theme}" aria-hidden="true"></span>
+        <span class="app-theme-swatch" data-swatch="${theme}" aria-hidden="true">${icons[theme] || ''}</span>
         <span>${Utils.escapeHTML(theme === 'dark' ? 'Dark' : 'Light')}</span>
       </button>
     `).join('');
@@ -552,7 +556,19 @@ const SettingsUI = (() => {
     const host = document.getElementById('general-controls');
     if (!host) return;
     const prefs = AppPrefs.getAll();
+    const isDesktop = Boolean(window.noveraDesktop?.openDefaultAppsSettings);
     host.innerHTML = `
+      ${isDesktop ? `
+      <div class="setting-row">
+        <div class="setting-text">
+          <div class="setting-label">Default book reader</div>
+          <div class="setting-sublabel">Set Lirune as your default reader for EPUB, PDF, and reading formats in Windows</div>
+        </div>
+        <button type="button" class="btn btn-secondary" id="fs-make-default-btn" style="white-space:nowrap;">
+          Make Lirune my default reader
+        </button>
+      </div>
+      ` : ''}
       ${switchRow('fs-confirm-delete', 'Confirm book removal', 'Show a confirmation dialog before deleting books from your library', prefs.confirmDelete)}
       ${switchRow('fs-restore-last', 'Reopen last book on startup', 'Automatically open the most recently read book when Lirune launches', prefs.restoreLastBook)}
       ${switchRow('fs-save-progress', 'Auto-save reading position', 'Continuously record exact reading progress across reading sessions', prefs.saveProgress)}
@@ -1251,6 +1267,18 @@ const SettingsUI = (() => {
 
       if (event.target.closest('#expand-settings-btn')) {
         expand();
+        return;
+      }
+      if (event.target.closest('#fs-make-default-btn')) {
+        try {
+          if (window.noveraDesktop?.openDefaultAppsSettings) {
+            await window.noveraDesktop.openDefaultAppsSettings();
+          } else {
+            Utils.toast('Default apps settings available on desktop', 'info');
+          }
+        } catch (e) {
+          Utils.toast('Could not open default apps settings', 'error');
+        }
         return;
       }
       if (event.target.closest('#settings-back-btn')) {

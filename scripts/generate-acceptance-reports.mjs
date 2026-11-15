@@ -5,10 +5,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-major1';
-const BASE_DIR = path.resolve('C:/Users/vasanth/Downloads/Lirune_Live_Format_Tests/reports/live-acceptance', RUN_ID);
-const LOCAL_TARGET = process.env.REPORTS_TARGET_DIR || 'reports/major-release';
+const RUN_ID = process.env.RUN_ID || process.argv[2] || 'run-20261115-postrel1';
+const LOCAL_TARGET = process.env.REPORTS_TARGET_DIR || 'reports/post-release-validation';
 const LOCAL_DIR = path.resolve(LOCAL_TARGET, RUN_ID);
+const BASE_DIR = path.resolve('C:/Users/vasanth/Downloads/Lirune_Live_Format_Tests/reports/live-acceptance', RUN_ID);
 fs.mkdirSync(BASE_DIR, { recursive: true });
 fs.mkdirSync(LOCAL_DIR, { recursive: true });
 
@@ -17,9 +17,15 @@ function writeOut(filename, content) {
   fs.writeFileSync(path.join(LOCAL_DIR, filename), content, 'utf8');
 }
 
-const INVENTORY_FILE = path.join(BASE_DIR, 'sample-inventory.json');
-const WIN_FILE = path.join(BASE_DIR, 'windows-results.json');
-const AND_FILE = path.join(BASE_DIR, 'android-results.json');
+const INVENTORY_FILE = fs.existsSync(path.join(LOCAL_DIR, 'sample-inventory.json'))
+  ? path.join(LOCAL_DIR, 'sample-inventory.json')
+  : path.join(BASE_DIR, 'sample-inventory.json');
+const WIN_FILE = fs.existsSync(path.join(LOCAL_DIR, 'windows-results.json'))
+  ? path.join(LOCAL_DIR, 'windows-results.json')
+  : path.join(BASE_DIR, 'windows-results.json');
+const AND_FILE = fs.existsSync(path.join(LOCAL_DIR, 'android-results.json'))
+  ? path.join(LOCAL_DIR, 'android-results.json')
+  : path.join(BASE_DIR, 'android-results.json');
 
 const inventory = JSON.parse(fs.readFileSync(INVENTORY_FILE, 'utf8'));
 const winResults = JSON.parse(fs.readFileSync(WIN_FILE, 'utf8'));

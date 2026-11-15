@@ -1,11 +1,11 @@
 @echo off
 setlocal
 set ELECTRON_RUN_AS_NODE=
-title Lirune Reader - A calm home for your books
+title Lirune Reader v5.6.5 - A calm home for your books
 cd /d "%~dp0"
 
 echo ========================================================
-echo Launching Lirune Reader (Desktop)...
+echo Launching Lirune Reader v5.6.5 (Desktop)...
 echo ========================================================
 
 REM Support dry-run / validation flag for testing and CI
@@ -14,10 +14,10 @@ if "%1"=="--test-dry-run" (
     exit /b 0
 )
 
-REM 1. Check local packaged release build (v5.6.2+) in dist\win-unpacked
+REM 1. Check local packaged release build (v5.6.5) in dist\win-unpacked
 if exist "%~dp0dist\win-unpacked\Lirune Reader.exe" (
-    echo [INFO] Found latest packaged release: dist\win-unpacked\Lirune Reader.exe
-    echo Starting Lirune Reader...
+    echo [INFO] Found local packaged v5.6.5 release: dist\win-unpacked\Lirune Reader.exe
+    echo Starting Lirune Reader v5.6.5...
     if "%1"=="--validate-only" (
         echo [INFO] Target executable verified: "%~dp0dist\win-unpacked\Lirune Reader.exe"
         exit /b 0
@@ -26,56 +26,9 @@ if exist "%~dp0dist\win-unpacked\Lirune Reader.exe" (
     goto :done
 )
 
-REM 2. Check installed desktop application in user or system program directories
-if exist "%LOCALAPPDATA%\Programs\Lirune Reader\Lirune Reader.exe" (
-    echo [INFO] Found installed Lirune Reader in %LOCALAPPDATA%\Programs\Lirune Reader
-    echo Starting Lirune Reader...
-    if "%1"=="--validate-only" (
-        echo [INFO] Target executable verified: "%LOCALAPPDATA%\Programs\Lirune Reader\Lirune Reader.exe"
-        exit /b 0
-    )
-    start "" "%LOCALAPPDATA%\Programs\Lirune Reader\Lirune Reader.exe" %*
-    goto :done
-)
-
-if exist "%LOCALAPPDATA%\Programs\lirune-reader\Lirune Reader.exe" (
-    echo [INFO] Found installed Lirune Reader in %LOCALAPPDATA%\Programs\lirune-reader
-    echo Starting Lirune Reader...
-    if "%1"=="--validate-only" (
-        echo [INFO] Target executable verified: "%LOCALAPPDATA%\Programs\lirune-reader\Lirune Reader.exe"
-        exit /b 0
-    )
-    start "" "%LOCALAPPDATA%\Programs\lirune-reader\Lirune Reader.exe" %*
-    goto :done
-)
-
-if exist "%ProgramFiles%\Lirune Reader\Lirune Reader.exe" (
-    echo [INFO] Found installed Lirune Reader in %ProgramFiles%\Lirune Reader
-    echo Starting Lirune Reader...
-    if "%1"=="--validate-only" (
-        echo [INFO] Target executable verified: "%ProgramFiles%\Lirune Reader\Lirune Reader.exe"
-        exit /b 0
-    )
-    start "" "%ProgramFiles%\Lirune Reader\Lirune Reader.exe" %*
-    goto :done
-)
-
-set "PF86=%ProgramFiles(x86)%"
-if not defined PF86 goto :skip_pf86
-if not exist "%PF86%\Lirune Reader\Lirune Reader.exe" goto :skip_pf86
-echo [INFO] Found installed Lirune Reader in %PF86%\Lirune Reader
-echo Starting Lirune Reader...
-if "%1"=="--validate-only" goto :validate_pf86
-start "" "%PF86%\Lirune Reader\Lirune Reader.exe" %*
-goto :done
-:validate_pf86
-echo [INFO] Target executable verified: "%PF86%\Lirune Reader\Lirune Reader.exe"
-exit /b 0
-:skip_pf86
-
-REM 3. Fallback to developer source execution via Electron
-echo [INFO] No standalone or installed binary found.
-echo Checking Node.js development environment...
+REM 2. Fallback: Run directly from current repository source via Electron (v5.6.5)
+echo [INFO] Packaged binary not found in dist\win-unpacked.
+echo Checking Node.js development environment to launch from source...
 
 REM Verify Node.js is installed
 where node >nul 2>&1
@@ -102,7 +55,7 @@ if "%1"=="--validate-only" (
     exit /b 0
 )
 
-echo Starting Lirune Reader desktop client from source...
+echo Starting Lirune Reader v5.6.5 desktop client from source...
 if exist "node_modules\.bin\electron.cmd" (
     call "node_modules\.bin\electron.cmd" . %*
 ) else (

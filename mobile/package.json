@@ -20,7 +20,7 @@
     "libarchive-wasm": "^1.2.0",
     "pdfjs-dist": "4.10.38",
     "pst-parser": "^0.0.7",
-    "react": "19.2.3",
+    "react": "19.3.1",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-reanimated": "~4.5.0",
@@ -34,7 +34,7 @@
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "@types/jszip": "^3.4.0",
-    "@types/react": "~19.2.2",
+    "@types/react": "~19.3.0",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
     "typescript": "~6.0.3"

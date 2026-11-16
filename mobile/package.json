@@ -13,7 +13,7 @@
     "expo-modules-core": "~57.0.20",
     "expo-router": "~57.0.24",
     "expo-speech": "^57.0.3",
-    "expo-splash-screen": "~57.0.10",
+    "expo-splash-screen": "~58.0.14",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "jszip": "^3.10.2",

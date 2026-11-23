@@ -24,7 +24,7 @@ if (!hasCertificate) {
 }
 
 const hookPath = path.join(__dirname, 'builder-env-hook.js');
-const args = ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'nsis'];
+const args = ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'nsis', '--publish', 'never'];
 let temporaryConfig;
 let temporaryDir;
 if (!hasCertificate) {

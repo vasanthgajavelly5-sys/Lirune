@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Base64
 import android.webkit.MimeTypeMap
@@ -310,7 +311,7 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
                     putString("mode", res.mode)
                     putString("pathOrUri", res.pathOrUri)
                     putString("title", res.title)
-                    putString("author", res.author)
+                    if (res.author != null) putString("author", res.author) else putNull("author")
                     putString("format", res.format)
                     putBoolean("isDuplicate", res.isDuplicate)
                 }
@@ -921,6 +922,34 @@ class LiruneStorageModule(private val reactContext: ReactApplicationContext) :
                 }
             } catch (_: Exception) {
                 promise.resolve(null)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun getFileName(uriString: String, promise: Promise) {
+        moduleScope.launch(Dispatchers.IO) {
+            try {
+                val uri = Uri.parse(uriString)
+                var name: String? = null
+                if ("content" == uri.scheme) {
+                    reactContext.contentResolver.query(
+                        uri,
+                        arrayOf(OpenableColumns.DISPLAY_NAME),
+                        null, null, null
+                    )?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (idx >= 0) name = cursor.getString(idx)
+                        }
+                    }
+                }
+                if (name == null) {
+                    name = uri.lastPathSegment ?: uri.path?.substringAfterLast('/') ?: ""
+                }
+                promise.resolve(name)
+            } catch (e: Exception) {
+                promise.resolve("") // non-fatal; caller will fall back to path parse
             }
         }
     }

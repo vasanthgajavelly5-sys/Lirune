@@ -35,7 +35,7 @@ import { EpubArchive } from '@/services/epub/archive';
 import { readEpubPackage, type EpubPackage } from '@/services/epub/package';
 import { extractChapterDocument, type ChapterDocument } from '@/services/epub/chapter';
 import { buildContinuousShell, buildReaderDocument, readerCss } from '@/services/epub/readerDocument';
-import { createSpineTarget, parseSpineTarget, classifyReadingUnitType, type EpubNavigationTarget } from '@/services/epub/navigation';
+import { createSpineTarget, parseSpineTarget, type EpubNavigationTarget } from '@/services/epub/navigation';
 import {
   computeSizeAwareProgress,
   formatBlockLocator,
@@ -795,6 +795,32 @@ export function EpubReaderView({
           setActiveChapter(initialChapter);
           setCurrentChapterIndex(initialIdx);
 
+          // Resolve the cover HTML once per book open, independent of which
+          // chapter is restored. The cover is shown prepended to chapter 0.
+          //
+          // Priority:
+          //  1. epubPackage.coverPath from OPF (data URI from archive)
+          //  2. book.coverUrl from the extracted thumbnail on disk
+          //
+          // Skip if the first chapter body already contains the cover URI (it was
+          // embedded by the chapter extractor).
+          let resolvedCoverHtml: string | undefined;
+          if (epubPackage.coverPath) {
+            const coverUri = await archive.dataUri(epubPackage.coverPath);
+            if (coverUri && !initialChapter.body.includes(epubPackage.coverPath)) {
+              resolvedCoverHtml =
+                `<div class="epub-cover-container"><img src="${coverUri}" alt="Cover" style="max-width:100%;max-height:85vh;object-fit:contain;margin:auto;display:block;" /></div>`;
+            }
+          }
+          if (!resolvedCoverHtml && book.coverUrl) {
+            // Fallback: use the extracted cover persisted at import time.
+            // coverUrl is a local file:// path that works inside the WebView.
+            const coverSrc = book.coverUrl.startsWith('file://') ? book.coverUrl : `file://${book.coverUrl}`;
+            resolvedCoverHtml =
+              `<div class="epub-cover-container"><img src="${coverSrc}" alt="Cover" style="max-width:100%;max-height:85vh;object-fit:contain;margin:auto;display:block;" /></div>`;
+          }
+          setCoverHtml(resolvedCoverHtml);
+
           // Queue lazy location generation for AFTER first paint
           pendingLocationsBookIdRef.current = book.id;
           pendingSpinesRef.current = loadedChapters.map((c) => ({ idref: c.id, path: c.itemPath }));
@@ -804,26 +830,6 @@ export function EpubReaderView({
           // the reader never paints once with fallback dimensions.
           if (liveGeometryRef.current && isMeasured) setAppliedGeometry(liveGeometryRef.current);
           if (settings.flow === 'scrolled') {
-            let resolvedCoverHtml: string | undefined = undefined;
-            const hasCoverInSpine = loadedChapters.some(
-              (c, idx) =>
-                idx <= 1 &&
-                (classifyReadingUnitType(c.title, c.itemPath) === 'cover' ||
-                  c.itemPath.toLowerCase().includes('cover') ||
-                  c.id.toLowerCase().includes('cover') ||
-                  /^(?:cover|jacket|titlepage)$/i.test(c.title.trim()) ||
-                  Boolean(
-                    epubPackage.coverPath &&
-                      (c as any).body && (c as any).body.includes(epubPackage.coverPath.split('/').pop() || '____no_match____')
-                  ))
-            );
-            if (epubPackage.coverPath && !hasCoverInSpine) {
-              const coverUri = await archive.dataUri(epubPackage.coverPath);
-              if (coverUri) {
-                resolvedCoverHtml = `<div class="epub-cover-container"><img src="${coverUri}" alt="Cover" style="max-width:100%;max-height:85vh;object-fit:contain;margin:auto;display:block;" /></div>`;
-              }
-            }
-            setCoverHtml(resolvedCoverHtml);
             setContinuousSeed({
               body: initialChapter.body,
               css: initialChapter.css,
@@ -1585,7 +1591,11 @@ function resolveSpineTarget(
             }
           )
         : '<p>Loading…</p>'
-      : `<div class="epub-chapter-content">${activeChapter?.body ?? '<p>Loading…</p>'}</div>`;
+      : `<div class="epub-chapter-content">${
+          currentChapterIndex === 0 && coverHtml
+            ? `${coverHtml}${activeChapter?.body ?? '<p>Loading…</p>'}`
+            : (activeChapter?.body ?? '<p>Loading…</p>')
+        }</div>`;
 
   const bookCss =
     geometry.mode === 'continuous' ? (continuousSeed?.css ?? '') : (activeChapter?.css ?? '');

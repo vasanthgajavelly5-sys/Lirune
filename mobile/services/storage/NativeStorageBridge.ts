@@ -303,10 +303,16 @@ export const nativeStorage = {
     format: string;
     existingSha256List?: string[];
     jobId?: number;
-  }): Promise<NativeIngestResult | null> {
-    if (!this.isAvailable()) return null;
+  }): Promise<NativeIngestResult> {
+    if (!this.isAvailable()) {
+      throw new Error('Android storage module is unavailable; rebuild the native application before importing files.');
+    }
     try {
-      return await LiruneStorage.ingestFile(options);
+      const result = await LiruneStorage.ingestFile(options);
+      if (!result || typeof result.bookId !== 'string' || typeof result.pathOrUri !== 'string') {
+        throw new Error('Android ingestion returned an invalid result.');
+      }
+      return result;
     } catch (err) {
       logger.warn(TAG, 'ingestFile failed', err);
       throw err;
@@ -528,6 +534,19 @@ export const nativeStorage = {
       logger.warn(TAG, `readZipEntryText failed for ${entryPath}`, err);
       return null;
     }
+  },
+
+  async getFileName(uri: string): Promise<string> {
+    if (this.isAvailable() && typeof LiruneStorage.getFileName === 'function') {
+      try {
+        const name = await LiruneStorage.getFileName(uri);
+        if (typeof name === 'string' && name.length > 0) return name;
+      } catch {
+        // non-fatal
+      }
+    }
+    // Fallback: last segment of the URI path
+    return decodeURIComponent(uri.split('/').pop() || '');
   },
 
   async copyContentUriToStorage(sourceUri: string, destPath: string): Promise<number | null> {

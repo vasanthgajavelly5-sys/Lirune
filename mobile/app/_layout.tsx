@@ -100,9 +100,27 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
         handledUrlRef.current = url;
         try {
           const cleanUrl = url.split('?')[0].split('#')[0];
-          const decoded = decodeURIComponent(cleanUrl);
-          const parts = decoded.includes('/') ? decoded.split('/') : decoded.split('%2F');
-          const fileName = parts[parts.length - 1] || 'book';
+
+          // Prefer the display name from ContentResolver for content:// URIs
+          // so that opaque document IDs like "msf:1000000034" never become the
+          // filename.  Fallback to path parsing for file:// and when native is unavailable.
+          let fileName: string;
+          if (cleanUrl.startsWith('content://')) {
+            const resolved = await nativeStorage.getFileName(cleanUrl);
+            if (resolved && resolved.includes('.')) {
+              fileName = resolved;
+            } else {
+              // ContentResolver returned an extensionless id; keep it but let
+              // sniff() work from magic bytes rather than extension.
+              const decoded = decodeURIComponent(cleanUrl);
+              const parts = decoded.split('/');
+              fileName = parts[parts.length - 1] || resolved || 'book';
+            }
+          } else {
+            const decoded = decodeURIComponent(cleanUrl);
+            const parts = decoded.includes('/') ? decoded.split('/') : decoded.split('%2F');
+            fileName = parts[parts.length - 1] || 'book';
+          }
           logger.debug(TAG, 'Received external file intent');
 
           let targetUri = url;

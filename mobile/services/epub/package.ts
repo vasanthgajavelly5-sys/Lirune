@@ -111,7 +111,9 @@ export function parseOpfMetadata(opfXml: string, opfPath?: string): OpfMetadata 
   // EPUB 2 names the cover with <meta name="cover" content="id">; EPUB 3 marks the
   // manifest item with properties="cover-image".
   let coverHref: string | undefined;
-  const coverMeta = /<meta\b[^>]*\bname\s*=\s*["']cover["'][^>]*\bcontent\s*=\s*["']([^"']+)["']/i.exec(metadataXml);
+  const coverMeta =
+    /<meta\b[^>]*\bname\s*=\s*["']cover["'][^>]*\bcontent\s*=\s*["']([^"']+)["']/i.exec(metadataXml) ||
+    /<meta\b[^>]*\bcontent\s*=\s*["']([^"']+)["'][^>]*\bname\s*=\s*["']cover["']/i.exec(metadataXml);
   if (coverMeta) {
     const itemPattern = new RegExp(
       `<item\\b[^>]*\\bid\\s*=\\s*["']${coverMeta[1].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>`,
@@ -172,14 +174,23 @@ function parseMetadataTitle(opfXml: string): string {
 }
 
 /**
- * Resolves the cover image declared by `meta name="cover"` or the EPUB 3
- * `properties="cover-image"` manifest item.
+ * Resolves the cover image path from the OPF, using the same priority order as
+ * MetadataExtractor so library cards and the in-reader cover always agree.
+ *
+ * Priority:
+ *  1. EPUB 2 `<meta name="cover" content="id">` → manifest id lookup
+ *  2. EPUB 3 `properties="cover-image"` manifest item
+ *  3. Manifest item whose `id` is exactly "cover" (image media type)
+ *  4. Any manifest image item whose id contains "cover"
+ *  5. EPUB 2 `<guide><reference type="cover" href="..."/></guide>`
+ *  6. Any image manifest item whose href contains "cover" or "titlepage"
  */
 function resolveCover(
   opfXml: string,
   opfDir: string,
   manifest: Map<string, EpubManifestItem>
 ): string | null {
+  // 1. EPUB 2 <meta name="cover" content="id">
   const metaCover = /<meta\b([^>]*)>/gi;
   let match: RegExpExecArray | null;
   while ((match = metaCover.exec(opfXml)) !== null) {
@@ -193,9 +204,35 @@ function resolveCover(
       if (candidate) return candidate;
     }
   }
+
+  // 2. EPUB 3 properties="cover-image"
   for (const item of manifest.values()) {
     if (item.properties?.split(/\s+/).includes('cover-image')) return item.path;
   }
+
+  // 3. Manifest item with id exactly "cover" (must be an image)
+  const exactCover = manifest.get('cover');
+  if (exactCover && /^image\//i.test(exactCover.mediaType)) return exactCover.path;
+
+  // 4. Any image item whose id contains "cover"
+  for (const [id, item] of manifest.entries()) {
+    if (/\bcover\b/i.test(id) && /^image\//i.test(item.mediaType)) return item.path;
+  }
+
+  // 5. EPUB 2 guide <reference type="cover" ...>
+  const guideRef = /<reference\b[^>]*\btype\s*=\s*["']cover["'][^>]*>/i.exec(opfXml);
+  if (guideRef) {
+    const href = attribute(guideRef[0], 'href');
+    if (href) return resolveZipPath(opfDir, href.split('#')[0]);
+  }
+
+  // 6. Heuristic: image item with "cover" or "titlepage" in its href
+  for (const item of manifest.values()) {
+    if (/^image\//i.test(item.mediaType) && /cover|titlepage/i.test(item.href)) {
+      return item.path;
+    }
+  }
+
   return null;
 }
 

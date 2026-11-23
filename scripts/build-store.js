@@ -18,6 +18,13 @@ if (missingAppxAssets.length || missingSourceAssets.length) {
   process.exit(1);
 }
 config.directories = { ...(config.directories || {}), buildResources: buildResourcesDir };
+const forbiddenAppxExtensions = new Set(['chm']);
+if (Array.isArray(config.fileAssociations)) {
+  config.fileAssociations = config.fileAssociations.filter(fa => !forbiddenAppxExtensions.has(fa.ext.toLowerCase()));
+}
+if (config.win && Array.isArray(config.win.fileAssociations)) {
+  config.win.fileAssociations = config.win.fileAssociations.filter(fa => !forbiddenAppxExtensions.has(fa.ext.toLowerCase()));
+}
 config.appx = {
   ...(config.appx || {}),
   publisher: 'CN=65585C77-A179-46B9-B0CA-60D868923F03',
@@ -29,7 +36,7 @@ config.win = { ...(config.win || {}), target: [{ target: 'appx', arch: ['x64'] }
 const configPath = path.join(os.tmpdir(), `novera-store-${process.pid}.json`);
 fs.writeFileSync(configPath, JSON.stringify(config));
 const hookPath = path.join(__dirname, 'builder-env-hook.js');
-const result = spawnSync(process.execPath, ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'appx', '--config', configPath], {
+const result = spawnSync(process.execPath, ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'appx', '--config', configPath, '--publish', 'never'], {
   stdio: 'inherit',
   env: { ...process.env }
 });

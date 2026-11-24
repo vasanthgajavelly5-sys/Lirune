@@ -20,6 +20,7 @@ import { Book } from '@/models/Book';
 import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { useLibraryStore } from '@/state/libraryStore';
 import { useThemeContext } from '@/theme/ThemeContext';
+import { getStoredCoverUri } from '@/utils/thumbnailUtils';
 
 interface ReaderTabsSheetProps {
   visible: boolean;
@@ -133,9 +134,9 @@ export function ReaderTabsSheet({
                 >
                   {/* Thumbnail / Cover */}
                   <View style={[styles.coverThumb, { backgroundColor: item.coverColor || colors.surfaceElevated }]}>
-                    {item.coverUrl ? (
+                    {getStoredCoverUri(item) ? (
                       <Image
-                        source={{ uri: item.coverUrl.startsWith('file://') ? item.coverUrl : `file://${item.coverUrl}` }}
+                        source={{ uri: getStoredCoverUri(item) }}
                         style={styles.coverImage}
                         resizeMode="cover"
                       />

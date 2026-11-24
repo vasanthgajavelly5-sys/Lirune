@@ -213,6 +213,24 @@ export class ImportService {
 
         const format = resolvedFormat;
 
+        // Check for duplicate after copy when size is now known
+        if (fileSizeHint === undefined && fileSize > 0) {
+          const postCopyDuplicate = findDuplicate(
+            {
+              format,
+              fileName,
+              size: fileSize,
+              title: fileName,
+            },
+            existingBooks
+          );
+          if (postCopyDuplicate) {
+            logger.debug(TAG, `Book already exists in library after sizing (${postCopyDuplicate.id})`);
+            await fileStorage.deleteBookFiles(destPath);
+            return { success: true, book: postCopyDuplicate, isDuplicate: true };
+          }
+        }
+
         // 4. Extract format-specific metadata & cover
         const metadata = await MetadataExtractor.extract(
           destPath,

@@ -12,7 +12,7 @@
  * the reader restore from the CFI it just persisted.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import type { WebViewProps } from 'react-native-webview';
 import { logger } from '@/utils/logger';
@@ -46,27 +46,42 @@ export function useWebViewRecovery({ savePosition, onMessage, scope }: WebViewRe
   const [reloadCount, setReloadCount] = useState(0);
   const [isRecovering, setIsRecovering] = useState(false);
   const attemptsRef = useRef(0);
+  const isMountedRef = useRef(true);
+  const savePositionRef = useRef(savePosition);
+  savePositionRef.current = savePosition;
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const recover = useCallback(
     (reason: string) => {
+      if (!isMountedRef.current) return;
       // A renderer that dies immediately on every reload is a bug, not a crash;
       // retrying forever would spin the CPU and drain the battery.
       if (attemptsRef.current >= 3) {
         logger.error(TAG, `${scope}: giving up after ${attemptsRef.current} recovery attempts (${reason})`);
-        onMessage?.('This document keeps crashing. Try re-opening it, or re-import the file.');
+        onMessageRef.current?.('This document keeps crashing. Try re-opening it, or re-import the file.');
         return;
       }
       attemptsRef.current += 1;
       logger.warn(TAG, `${scope}: WebView renderer lost (${reason}), rebuilding`);
       // Whatever the reader knows right now is the last position that can be kept.
-      savePosition?.();
-      onMessage?.('The document renderer was closed by the system. Restoring your place…');
+      savePositionRef.current?.();
+      onMessageRef.current?.('The document renderer was closed by the system. Restoring your place…');
       setIsRecovering(true);
       setReloadCount((count) => count + 1);
       // Give the remounted view a moment before the message is cleared.
-      setTimeout(() => setIsRecovering(false), 1200);
+      setTimeout(() => {
+        if (isMountedRef.current) setIsRecovering(false);
+      }, 1200);
     },
-    [onMessage, savePosition, scope]
+    [scope]
   );
 
   return {
@@ -76,17 +91,23 @@ export function useWebViewRecovery({ savePosition, onMessage, scope }: WebViewRe
       onRenderProcessGone:
         Platform.OS === 'android'
           ? (event) => {
-              // The app must not touch this view again: the docs require the
-              // WebView to be torn down and remounted, never reused.
-              const crashed =
-                (event?.nativeEvent as { crashed?: boolean } | undefined)?.crashed ?? true;
-              recover(crashed ? 'renderer crashed' : 'renderer gone');
+              if (!isMountedRef.current) return;
+              // Only recover if the render process genuinely crashed.
+              // If Android killed the renderer cleanly because the view was unmounted,
+              // detached, or reclaimed under system isolation, recover must NOT fire.
+              const nativeEvent = event?.nativeEvent as { didCrash?: boolean; crashed?: boolean } | undefined;
+              const didCrash = nativeEvent?.didCrash ?? nativeEvent?.crashed ?? false;
+              if (didCrash) {
+                recover('renderer crashed');
+              } else {
+                logger.info(TAG, `${scope}: WebView renderer cleanly reaped by OS (view unmounted/isolated)`);
+              }
             }
           : undefined,
       onContentProcessDidTerminate: () => recover('content process terminated'),
       onError: (event) => {
-        logger.error(TAG, `${scope}: WebView error: ${event?.nativeEvent?.description ?? 'unknown'}`);
-        recover('load error');
+        // Subresource or minor load errors must not trigger a destructive WebView remount loop.
+        logger.warn(TAG, `${scope}: WebView load error: ${event?.nativeEvent?.description ?? 'unknown'}`);
       },
       onHttpError: (event) => {
         // Sub-resource 404s are normal in a self-contained viewer document.

@@ -166,6 +166,8 @@ export default function ReaderScreen() {
     async function initBook() {
       if (isExitingRef.current) return;
       if (bookId && (!currentBook || currentBook.id !== bookId)) {
+        setResolutionStatus('resolving');
+        resolvedBookKeyRef.current = null;
         let bookToOpen = books.find((b) => b.id === bookId);
         if (!bookToOpen) {
           try {
@@ -447,8 +449,21 @@ export default function ReaderScreen() {
     [currentBook, openBook, router]
   );
 
+  // Construct active book with resolved local path
+  const resolvedPath =
+    resolvedSource && currentBook && resolvedSource.bookId === currentBook.id ? resolvedSource.path : null;
+  const activeBook: Book | null = useMemo(() => {
+    if (!currentBook) return null;
+    return {
+      ...currentBook,
+      filePath: resolvedPath || currentBook.filePath || currentBook.uri,
+    };
+  }, [currentBook, resolvedPath]);
+
   // Status Screen: Resolving / Loading (lightweight themed first frame)
-  if (!currentBook || resolutionStatus === 'resolving') {
+  // Only display full-screen status if there is no book or the book has no local file path yet.
+  // During warm book switching with existing file paths, the reader stays mounted and transitions smoothly.
+  if (!currentBook || (!activeBook?.filePath && resolutionStatus === 'resolving')) {
     const displayBook = currentBook || (bookId ? books.find((b) => b.id === bookId) : null);
     return (
       <View style={[styles.statusContainer, { backgroundColor: palette.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -582,13 +597,7 @@ export default function ReaderScreen() {
     );
   }
 
-  // Construct active book with resolved local path
-  const resolvedPath =
-    resolvedSource && resolvedSource.bookId === currentBook.id ? resolvedSource.path : null;
-  const activeBook: Book = {
-    ...currentBook,
-    filePath: resolvedPath || currentBook.filePath || currentBook.uri,
-  };
+  if (!activeBook) return null;
 
   /**
    * The one chapter position every surface reads from.
@@ -627,6 +636,7 @@ export default function ReaderScreen() {
         {/* Format-Specific Engine View */}
         {(activeBook.format === 'epub' || activeBook.format === 'kepub') && (
           <EpubReaderView
+            key={activeBook.id}
             book={activeBook}
             settings={effectiveSettings}
             onToggleControls={toggleControls}

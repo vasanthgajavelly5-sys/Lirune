@@ -105,6 +105,7 @@ export default function LibraryScreen() {
   // on first load (only once, gated by hasSeenPermissionPrompt).
   useEffect(() => {
     if (!isSettingsLoaded || !isLibraryLoaded) return;
+    if (useReaderStore.getState().currentBook) return;
 
     if (!hasCompletedWelcome && books.length === 0) {
       // Fresh install: show intro first

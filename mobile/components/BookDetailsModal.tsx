@@ -17,6 +17,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Book } from '@/models/Book';
 import { useThemeContext } from '@/theme/ThemeContext';
+import { getStoredCoverUri } from '@/utils/thumbnailUtils';
 
 export interface BookDetailsModalProps {
   visible: boolean;
@@ -91,16 +92,9 @@ export function BookDetailsModal({
                   { backgroundColor: book.coverColor || colors.accentSoft },
                 ]}
               >
-                {book.coverUrl ? (
+                {getStoredCoverUri(book) ? (
                   <Image
-                    source={{
-                      uri:
-                        book.coverUrl.startsWith('file://') ||
-                        book.coverUrl.startsWith('http') ||
-                        book.coverUrl.startsWith('data:')
-                          ? book.coverUrl
-                          : `file://${book.coverUrl}`,
-                    }}
+                    source={{ uri: getStoredCoverUri(book) }}
                     style={styles.coverImage}
                     resizeMode="cover"
                   />

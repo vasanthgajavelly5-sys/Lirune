@@ -543,7 +543,7 @@ export function EpubReaderView({
     }
     const doc = await extractChapterDocument(archive, item.itemPath, {
       navigationTitle: item.navTitle,
-      lazyImages: true,
+      lazyImages: continuousDocumentRef.current,
     });
     // A book switch during extraction invalidates the result.
     if (archiveRef.current !== archive) return null;
@@ -778,7 +778,7 @@ export function EpubReaderView({
         perf.mark('loadEpub-extractInitialChapter');
         const initialChapter = await extractChapterDocument(archive, loadedChapters[initialIdx].itemPath, {
           navigationTitle: loadedChapters[initialIdx].navTitle,
-          lazyImages: true,
+          lazyImages: settings.flow === 'scrolled' && initialIdx !== 0,
         });
         chapterCacheRef.current.set(initialIdx, initialChapter);
         perf.measure('loadEpub-extractInitialChapter');
@@ -800,24 +800,50 @@ export function EpubReaderView({
           //
           // Priority:
           //  1. epubPackage.coverPath from OPF (data URI from archive)
-          //  2. book.coverUrl from the extracted thumbnail on disk
+          //  2. book.coverUrl from the extracted thumbnail on disk (read as base64 data URI)
           //
-          // Skip if the first chapter body already contains the cover URI (it was
-          // embedded by the chapter extractor).
+          // Never prepend coverHtml if the book's initial chapter already contains a cover image
+          // or is a dedicated cover page — doing so duplicates the cover, blows GPU tile limits,
+          // and crashes Chromium's renderer process.
           let resolvedCoverHtml: string | undefined;
-          if (epubPackage.coverPath) {
-            const coverUri = await archive.dataUri(epubPackage.coverPath);
-            if (coverUri && !initialChapter.body.includes(epubPackage.coverPath)) {
-              resolvedCoverHtml =
-                `<div class="epub-cover-container"><img src="${coverUri}" alt="Cover" style="max-width:100%;max-height:85vh;object-fit:contain;margin:auto;display:block;" /></div>`;
+          const initialHasCover =
+            initialIdx === 0 &&
+            (initialChapter.body.includes('data-cover') ||
+              initialChapter.body.includes('epub-cover') ||
+              (/<(?:img|image)\b/i.test(initialChapter.body) &&
+                initialChapter.body.replace(/<[^>]*>/g, '').trim().length < 500));
+
+          const firstChapterIsCover =
+            loadedChapters.length > 0 &&
+            (/\bcover\b/i.test(loadedChapters[0].id) ||
+              /\bcover\b/i.test(loadedChapters[0].itemPath) ||
+              /\bcover\b/i.test(loadedChapters[0].title || ''));
+
+          if (!initialHasCover && !firstChapterIsCover) {
+            if (epubPackage.coverPath) {
+              const coverUri = await archive.dataUri(epubPackage.coverPath);
+              if (coverUri) {
+                resolvedCoverHtml =
+                  `<div class="epub-cover-container"><img src="${coverUri}" alt="Cover" data-cover="true" style="max-width:100%;max-height:100%;object-fit:contain;margin:auto;display:block;" /></div>`;
+              }
             }
-          }
-          if (!resolvedCoverHtml && book.coverUrl) {
-            // Fallback: use the extracted cover persisted at import time.
-            // coverUrl is a local file:// path that works inside the WebView.
-            const coverSrc = book.coverUrl.startsWith('file://') ? book.coverUrl : `file://${book.coverUrl}`;
-            resolvedCoverHtml =
-              `<div class="epub-cover-container"><img src="${coverSrc}" alt="Cover" style="max-width:100%;max-height:85vh;object-fit:contain;margin:auto;display:block;" /></div>`;
+            if (!resolvedCoverHtml && book.coverUrl) {
+              // Fallback: convert the saved cover on disk into a base64 data URI.
+              // Modern WebViews block file:/// requests from inline HTML / about:blank
+              // origins due to cross-origin local resource restrictions.
+              try {
+                const b64 = await fileStorage.readAsBase64(book.coverUrl);
+                if (b64) {
+                  const ext = book.coverUrl.split('.').pop()?.toLowerCase() || 'jpeg';
+                  const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+                  const coverDataUri = `data:${mime};base64,${b64}`;
+                  resolvedCoverHtml =
+                    `<div class="epub-cover-container"><img src="${coverDataUri}" alt="Cover" data-cover="true" style="max-width:100%;max-height:100%;object-fit:contain;margin:auto;display:block;" /></div>`;
+                }
+              } catch (coverErr) {
+                logger.warn(TAG, 'Failed loading cover fallback from disk', coverErr);
+              }
+            }
           }
           setCoverHtml(resolvedCoverHtml);
 
@@ -852,6 +878,12 @@ export function EpubReaderView({
           perf.mark('waterfall-shellReady');
           perf.measure('waterfall-10-prepareShell', 'waterfall-prepareShell-start');
           setIsLoading(false);
+          // Safety reveal fallback in case WebView first-paint event was dropped
+          if (paintRevealRef.current) clearTimeout(paintRevealRef.current);
+          paintRevealRef.current = setTimeout(() => {
+            paintRevealRef.current = null;
+            setWebViewPainted(true);
+          }, 250);
 
           if (!continuousDocumentRef.current && initialIdx + 1 < loadedChapters.length) {
             setTimeout(() => {
@@ -879,6 +911,12 @@ export function EpubReaderView({
             stack: err?.stack,
           });
           setIsLoading(false);
+          // Safety reveal fallback in case WebView first-paint event was dropped
+          if (paintRevealRef.current) clearTimeout(paintRevealRef.current);
+          paintRevealRef.current = setTimeout(() => {
+            paintRevealRef.current = null;
+            setWebViewPainted(true);
+          }, 250);
         }
       }
     }
@@ -887,8 +925,8 @@ export function EpubReaderView({
     return () => {
       isMounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a reload is keyed on the book path, attempt counter and flow mode
-  }, [book.filePath, book.uri, loadAttempt, settings.flow]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a reload is keyed on the book identity, path, attempt counter and flow mode
+  }, [book.id, book.filePath, book.uri, loadAttempt, settings.flow]);
 
   // Release the archive on unmount and on every book switch.
   useEffect(() => {
@@ -914,7 +952,7 @@ export function EpubReaderView({
       chapterCache.clear();
       packageRef.current = null;
     };
-  }, [book.filePath, book.uri]);
+  }, [book.id, book.filePath, book.uri]);
 
   /* ---------------------------------------------------------------------- */
   /* Layout-affecting changes: capture → re-render → restore                   */
@@ -1375,12 +1413,14 @@ function resolveSpineTarget(
         }
 
         case 'pageTurn':
+          revealWebView();
           setCurrentPage(data.currentPage);
           setTotalPages(data.totalPages);
           restorePendingRef.current = false;
           break;
 
         case 'scrollProgress': {
+          revealWebView();
           restorePendingRef.current = false;
           const chapterIndex = Math.min(
             Math.max(0, Number.isFinite(data.chapterIndex) ? data.chapterIndex : currentIndexRef.current),
@@ -1639,7 +1679,16 @@ function resolveSpineTarget(
 
   const webViewSource = useMemo(() => ({ html: renderedHtml }), [renderedHtml]);
 
-  if (isLoading || !isMeasured) {
+  // Safety fallback: ensure the WebView reveals promptly whenever a new book or document is active
+  useEffect(() => {
+    if (!renderedHtml) return;
+    const timer = setTimeout(() => {
+      setWebViewPainted(true);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [renderedHtml, book.id, book.filePath]);
+
+  if (!isMeasured || (isLoading && chapters.length === 0)) {
     // Nothing is painted until the container has been measured: a guessed 360x640
     // first frame is a visible reflow a few milliseconds later.
     return (
@@ -1754,7 +1803,7 @@ function resolveSpineTarget(
           of transparent/noisy frames before the WebView first-paints. */}
       <WebView
         ref={webViewRef}
-        key={`${geometry.mode}-${loadAttempt}-${book.filePath || book.uri || ''}-${recovery.reloadKey}`}
+        key={`${geometry.mode}-${loadAttempt}-${recovery.reloadKey}`}
         {...READER_WEBVIEW_PROPS}
         {...recovery.recoveryProps}
         source={webViewSource}

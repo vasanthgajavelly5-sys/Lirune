@@ -11,6 +11,27 @@ import { logger } from '@/utils/logger';
 
 const TAG = 'ImportQueueStore';
 
+async function updateJob(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  id: number,
+  state: string,
+  progress: number,
+  error?: string
+): Promise<void> {
+  if (!db) return;
+  try {
+    await db.runAsync(
+      `UPDATE jobs SET state = ?, progress = ?, error = ?, updated_at = ? WHERE id = ?;`,
+      [state, progress, error ?? null, Date.now(), id]
+    );
+  } catch (err) {
+    // The book record is the source of truth. Journal failure is surfaced in
+    // diagnostics/logcat but must not report a successfully persisted book as
+    // failed.
+    logger.error(TAG, `Import journal update failed for job ${id}`, err);
+  }
+}
+
 export interface QueueItem {
   id: number; // job id
   entryId?: number;
@@ -65,7 +86,9 @@ export const useImportQueueStore = create<ImportQueueState>((set, get) => ({
             [Date.now()]
           );
           jobId = res.lastInsertRowId;
-        } catch {}
+        } catch (err) {
+          logger.error(TAG, 'Failed to create import journal row', err);
+        }
       }
 
       newItems.push({
@@ -108,7 +131,9 @@ export const useImportQueueStore = create<ImportQueueState>((set, get) => ({
 
   clearCompleted: () => {
     set((state) => ({
-      items: state.items.filter((item) => item.state !== 'ready'),
+      items: state.items.filter(
+        (item) => item.state !== 'ready' && item.state !== 'failed'
+      ),
     }));
     try {
       const { useLibraryStore } = require('@/state/libraryStore');
@@ -156,12 +181,7 @@ async function processQueue(): Promise<void> {
         items: s.items.map((i) => (i.id === nextItem.id ? { ...i, state: 'importing', progress: 10 } : i)),
       }));
 
-      if (db) {
-        await db.runAsync(`UPDATE jobs SET state = 'importing', progress = 0.1, updated_at = ? WHERE id = ?;`, [
-          Date.now(),
-          nextItem.id,
-        ]);
-      }
+      await updateJob(db, nextItem.id, 'importing', 0.1);
 
       try {
         // Query existing sha256 to avoid duplicates
@@ -205,6 +225,13 @@ async function processQueue(): Promise<void> {
 
         if (ingestResult.isDuplicate) {
           logger.info(TAG, `Book already exists with SHA-256 ${ingestResult.sha256}`);
+          const existingBook = db
+            ? await db.getFirstAsync<{ id: string }>(
+                'SELECT id FROM books WHERE sha256 = ? LIMIT 1;',
+                [ingestResult.sha256]
+              )
+            : null;
+          if (existingBook) ingestResult.bookId = existingBook.id;
         } else {
           const bookFormat = ((ingestResult.format as any) || nextItem.format);
           let extractedMeta: any = null;
@@ -264,22 +291,31 @@ async function processQueue(): Promise<void> {
             },
           });
 
-          // Link in book_files and books sha256
+          // Auxiliary indexing is useful for deduplication and recovery, but it
+          // must not turn a successfully persisted book into a failed import.
           if (db) {
-            await db.runAsync(
-              `UPDATE books SET sha256 = ?, authors = ?, added_at = ?, cover_path = ? WHERE id = ?;`,
-              [
-                ingestResult.sha256,
-                bookAuthor,
-                Date.now(),
-                extractedMeta?.coverUrl || null,
-                ingestResult.bookId,
-              ]
-            );
-            await db.runAsync(
-              `INSERT OR REPLACE INTO book_files (book_id, mode, path_or_uri, size, seekable) VALUES (?, ?, ?, ?, 1);`,
-              [ingestResult.bookId, ingestResult.mode, ingestResult.pathOrUri, ingestResult.size]
-            );
+            try {
+              await db.runAsync(
+                `UPDATE books SET sha256 = ?, authors = ?, added_at = ?, cover_path = ? WHERE id = ?;`,
+                [
+                  ingestResult.sha256,
+                  bookAuthor,
+                  Date.now(),
+                  extractedMeta?.coverUrl || null,
+                  ingestResult.bookId,
+                ]
+              );
+            } catch (indexErr) {
+              logger.warn(TAG, 'Book persisted but legacy search index update failed', indexErr);
+            }
+            try {
+              await db.runAsync(
+                `INSERT OR REPLACE INTO book_files (book_id, mode, path_or_uri, size, seekable) VALUES (?, ?, ?, ?, 1);`,
+                [ingestResult.bookId, ingestResult.mode, ingestResult.pathOrUri, ingestResult.size]
+              );
+            } catch (fileIndexErr) {
+              logger.warn(TAG, 'Book persisted but file index update failed', fileIndexErr);
+            }
           }
 
           // Live update library store as each book is added
@@ -289,12 +325,7 @@ async function processQueue(): Promise<void> {
           } catch {}
         }
 
-        if (db) {
-          await db.runAsync(`UPDATE jobs SET state = 'ready', progress = 1.0, updated_at = ? WHERE id = ?;`, [
-            Date.now(),
-            nextItem.id,
-          ]);
-        }
+        await updateJob(db, nextItem.id, 'ready', 1);
 
         useImportQueueStore.setState((s) => ({
           items: s.items.map((i) =>
@@ -305,13 +336,7 @@ async function processQueue(): Promise<void> {
         logger.error(TAG, `Failed to ingest ${nextItem.name}`, err);
         const errMsg = err?.message || 'Ingest failed';
 
-        if (db) {
-          await db.runAsync(`UPDATE jobs SET state = 'failed', error = ?, updated_at = ? WHERE id = ?;`, [
-            errMsg,
-            Date.now(),
-            nextItem.id,
-          ]);
-        }
+        await updateJob(db, nextItem.id, 'failed', 0, errMsg);
 
         useImportQueueStore.setState((s) => ({
           items: s.items.map((i) => (i.id === nextItem.id ? { ...i, state: 'failed', error: errMsg } : i)),

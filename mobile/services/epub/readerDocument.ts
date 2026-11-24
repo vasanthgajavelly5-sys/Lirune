@@ -174,7 +174,6 @@ export function readerCss(input: ReaderDocumentInput): string {
          pushed, not like a carousel settling. The decelerating curve starts fast
          and stops hard, which is what reads as "responsive" here. */
       transition: transform 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
-      will-change: transform;
     }
     /* Applied for any transform change the reader did not ask to animate
        (a re-measure after a font swap, a pinch zoom). Animating those is what
@@ -227,8 +226,12 @@ export function readerCss(input: ReaderDocumentInput): string {
     }
     img, svg, image, canvas, video {
       max-width: 100% !important;
+      max-height: 100% !important;
       height: auto !important;
       object-fit: contain;
+      box-sizing: border-box;
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
     }
     table {
       max-width: 100% !important;
@@ -361,12 +364,36 @@ export function readerCss(input: ReaderDocumentInput): string {
       margin: 40px 0 20px 0;
     }
     .epub-cover-container {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      margin: 0 auto;
-      max-width: 100%;
-      min-height: 40vh;
+      display: flex !important;
+      justify-content: center !important;
+      align-items: center !important;
+      margin: 0 auto !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      height: 100% !important;
+      max-height: 100% !important;
+      box-sizing: border-box !important;
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+    .svg_outer, .svg_inner {
+      width: 100% !important;
+      max-width: 100% !important;
+      height: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    .epub-cover-container img, img[data-cover="true"] {
+      max-width: 100% !important;
+      max-height: 100% !important;
+      width: auto !important;
+      height: auto !important;
+      object-fit: contain !important;
+      margin: auto !important;
+      display: block !important;
+      box-sizing: border-box !important;
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
     }
     [data-lirune-hidden] { display: none !important; }
 
@@ -556,7 +583,7 @@ function paginatedScript(input: ReaderDocumentInput): string {
       measure: measurePages
     };
 
-    window.addEventListener('load', function () {
+    function initPaginated() {
       window.setTimeout(function () {
         if (initialScrollY > 0) window.scrollTo(0, initialScrollY);
         measurePages();
@@ -564,7 +591,12 @@ function paginatedScript(input: ReaderDocumentInput): string {
         updateTransform(false);
         watchSettledLayout();
       }, 60);
-    });
+    }
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      initPaginated();
+    } else {
+      window.addEventListener('load', initPaginated, { once: true });
+    }
 
     var touchStartX = 0;
     var touchStartY = 0;
@@ -712,16 +744,23 @@ export function buildContinuousShell(
 const FIRST_PAINT_JS = `
 (function () {
   var announced = false;
+  function send() {
+    if (announced) return;
+    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+      announced = true;
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'readerReady' }));
+      } catch (e) {}
+    } else {
+      setTimeout(send, 40);
+    }
+  }
   function announce() {
     if (announced) return;
-    announced = true;
     window.requestAnimationFrame(function () {
-      window.requestAnimationFrame(function () {
-        try {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'readerReady' }));
-        } catch (e) {}
-      });
+      window.requestAnimationFrame(send);
     });
+    setTimeout(send, 250);
   }
   if (document.readyState === 'interactive' || document.readyState === 'complete') {
     announce();
@@ -729,6 +768,7 @@ const FIRST_PAINT_JS = `
     document.addEventListener('DOMContentLoaded', announce, { once: true });
     window.addEventListener('load', announce, { once: true });
   }
+  setTimeout(announce, 500);
 })();
 `;
 

@@ -474,7 +474,12 @@ export async function inlineMarkupResources(
         const path = resolveZipPath(baseDir, href);
         if (!path) return null;
 
-        if (options.lazyImages && token.lower === 'img' && attribute.name === 'src') {
+        if (
+          options.lazyImages &&
+          token.lower === 'img' &&
+          attribute.name === 'src' &&
+          !token.attrs.includes('data-cover')
+        ) {
           return { lazy: true, path };
         }
 
@@ -527,7 +532,7 @@ export async function inlineMarkupResources(
  * must be left alone. This bound is what keeps a hostile 10 MB "SVG" from
  * turning into a long backtracking scan.
  */
-const SVG_SCAN_BUDGET = 96 * 1024;
+const SVG_SCAN_BUDGET = 1024 * 1024;
 
 /**
  * Replaces full-page SVG cover wrappers with a plain `<img>`.
@@ -593,9 +598,17 @@ export function normalizeSvgCovers(html: string): string {
 
 function buildCoverReplacement(inner: string): string | null {
   const tags = scanTokens(inner);
-  if (tags.length !== 1) return null;
-  const image = tags[0];
-  if (image.lower !== 'image' || image.closing) return null;
+  // Find the <image> element
+  const image = tags.find((t) => t.lower === 'image' && !t.closing);
+  if (!image) return null;
+
+  // Make sure this SVG is truly a cover container and not an inline vector diagram/illustration.
+  // Complex illustrations contain geometric drawing shapes like path, rect, circle, polygon, etc.
+  const hasDrawings = tags.some((t) =>
+    ['path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon'].includes(t.lower)
+  );
+  if (hasDrawings) return null;
+
   const attributes = parseAttributes(image.attrs);
   const hrefAttribute =
     attributes.find((a) => a.name === 'xlink:href') ?? attributes.find((a) => a.name === 'href');
@@ -604,8 +617,8 @@ function buildCoverReplacement(inner: string): string | null {
   const alt = attributes.find((a) => a.name === 'alt')?.value ?? '';
   return (
     `<div class="epub-cover-container">` +
-    `<img src="${escapeAttribute(href)}" alt="${escapeAttribute(alt)}" ` +
-    `style="max-width:100%;max-height:80vh;object-fit:contain;margin:auto;display:block;" />` +
+    `<img src="${escapeAttribute(href)}" alt="${escapeAttribute(alt)}" data-cover="true" ` +
+    `style="max-width:100%;max-height:100%;object-fit:contain;margin:auto;display:block;" />` +
     `</div>`
   );
 }

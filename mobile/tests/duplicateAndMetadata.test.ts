@@ -141,6 +141,15 @@ test('the OPF parser resolves the cover against the OPF directory', () => {
   assert.equal(metadata.coverHref, 'OEBPS/images/cover2.jpg');
 });
 
+test('the EPUB 2 cover declaration is found regardless of meta attribute order', () => {
+  const metadata = parseOpfMetadata(
+    '<package><metadata><meta content="cover-image" name="cover"/></metadata>' +
+      '<manifest><item id="cover-image" href="Images/My%20Cover.jpg" media-type="image/jpeg"/></manifest></package>',
+    'OEBPS/content.opf'
+  );
+  assert.equal(metadata.coverHref, 'OEBPS/Images/My Cover.jpg');
+});
+
 test('XML entities and CDATA are decoded', () => {
   assert.equal(decodeXmlText('<![CDATA[Tea &amp; Coffee]]>'), 'Tea & Coffee');
   assert.equal(decodeXmlText('a &lt;b&gt; &quot;c&quot; &#39;d&#39; &#x41;'), `a <b> "c" 'd' A`);

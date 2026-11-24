@@ -233,6 +233,13 @@ function resolveCover(
     }
   }
 
+  // 7. Fallback: first image item in the manifest (matches MetadataExtractor step F)
+  for (const item of manifest.values()) {
+    if (/^image\//i.test(item.mediaType) || /\.(jpe?g|png|webp|gif|svg)$/i.test(item.href)) {
+      return item.path;
+    }
+  }
+
   return null;
 }
 

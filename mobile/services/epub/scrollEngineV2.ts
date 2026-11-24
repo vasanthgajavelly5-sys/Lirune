@@ -544,10 +544,15 @@ export function continuousScriptV2(input: ScrollEngineV2Input): string {
       };
     })();
 
-    window.addEventListener('load', function() {
+    function initContinuous() {
       window.setTimeout(function() {
         window.__liruneV2.supplyChapters([]);
       }, 0);
-    });
+    }
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      initContinuous();
+    } else {
+      window.addEventListener('load', initContinuous, { once: true });
+    }
   `;
 }

@@ -127,6 +127,20 @@ export function ImportQueuePill() {
             <Ionicons name="close" size={18} color="#FFFFFF" />
           )}
         </TouchableOpacity>
+        {hasFinished && (
+          <TouchableOpacity
+            style={[styles.pillDismiss, { backgroundColor: colors.surface }]}
+            onPress={() => {
+              clearCompleted();
+              setIsSheetVisible(false);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss import results"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="close" size={14} color={colors.textSecondary} />
+          </TouchableOpacity>
+        )}
       </Animated.View>
 
       {/* Detail Sheet Modal */}
@@ -294,6 +308,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  pillDismiss: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 24,
+    height: 24,
+    marginLeft: -4,
+    borderRadius: 12,
   },
   // Sheet
   sheetBackdrop: {

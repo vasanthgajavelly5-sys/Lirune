@@ -305,7 +305,36 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       logger.info(TAG, 'Database migration v3 applied successfully');
     }
   } catch (e) {
-    logger.warn(TAG, 'Database migration execution failed or partially complete', String(e));
+    logger.error(TAG, 'Database migration execution failed or partially complete', e);
+  }
+
+  // These tables are also required by the import queue itself. A previous
+  // partially-completed migration can have recorded its schema version before
+  // all statements were committed, so make the journal/index tables
+  // self-healing on every launch instead of turning a persisted book into a
+  // false import failure.
+  try {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS book_files (
+        book_id TEXT REFERENCES books(id) ON DELETE CASCADE,
+        mode TEXT CHECK(mode IN ('managed','linked')),
+        path_or_uri TEXT,
+        size INTEGER,
+        seekable INTEGER,
+        PRIMARY KEY (book_id, path_or_uri)
+      );
+      CREATE TABLE IF NOT EXISTS jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT,
+        entry_id INTEGER,
+        state TEXT,
+        progress REAL,
+        error TEXT,
+        updated_at INTEGER
+      );
+    `);
+  } catch (e) {
+    logger.error(TAG, 'Failed to ensure import persistence tables', e);
   }
 }
 

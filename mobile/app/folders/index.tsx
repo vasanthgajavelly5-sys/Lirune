@@ -656,6 +656,9 @@ export default function FoldersScreen() {
         uri: a.uri,
         name: a.name,
         format: a.name.split('.').pop()?.toLowerCase() || 'epub',
+        // DocumentPicker may return a cache file:// URI. Queue imports must
+        // copy it into durable app storage before creating the library row.
+        mode: 'managed' as const,
       }));
 
       await enqueue(toEnqueue);

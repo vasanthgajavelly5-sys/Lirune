@@ -98,6 +98,18 @@ test('EpubArchive encodes each resource once and reuses the data URI', async () 
   assert.equal(archive.stats().cachedUris, 1);
 });
 
+test('continuous shell includes a declared standalone cover before chapter zero', () => {
+  const html = buildContinuousShell(
+    1,
+    ['Chapter 1'],
+    0,
+    '<p>Text</p>',
+    { coverHtml: '<div class="epub-cover-container"><img src="data:image/jpeg;base64,x"/></div>' }
+  );
+  assert.ok(html.indexOf('chapter-cover') < html.indexOf('chapter-0'));
+  assert.match(html, /data:image\/jpeg;base64,x/);
+});
+
 test('EpubArchive recovers a book whose relative image paths are broken', async () => {
   // A chapter in OEBPS/text/ referencing images/ch1.jpg when the file actually
   // lives in OEBPS/images/ — common in the wild, and what the old linear scan

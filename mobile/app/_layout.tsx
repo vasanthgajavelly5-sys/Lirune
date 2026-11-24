@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, usePathname, useRouter } from 'expo-router';
 import { AppState, InteractionManager } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
@@ -30,6 +30,11 @@ const TAG = 'RootLayout';
 
 function AppInitializer({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
   const { loadSettings, isLoaded: settingsLoaded } = useSettingsStore();
   const { loadLibrary, hasLoaded: libraryLoaded } = useLibraryStore();
 
@@ -89,15 +94,19 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
     return () => subscription.remove();
   }, []);
 
-  const handledUrlRef = useRef<string | null>(null);
+  const lastHandledRef = useRef<{ url: string; time: number } | null>(null);
   const [blockedInfo, setBlockedInfo] = useState<BlockedFileInfo | null>(null);
 
   useEffect(() => {
     async function handleIncomingUri(url: string | null) {
-      if (!url || handledUrlRef.current === url) return;
+      if (!url) return;
+      const now = Date.now();
+      if (lastHandledRef.current?.url === url && now - lastHandledRef.current.time < 1500) {
+        return;
+      }
       // Check if it is a content:// or file:// URI for an ebook or document
       if (url.startsWith('content://') || url.startsWith('file://')) {
-        handledUrlRef.current = url;
+        lastHandledRef.current = { url, time: now };
         try {
           const cleanUrl = url.split('?')[0].split('#')[0];
 
@@ -155,6 +164,11 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
             return;
           }
 
+          // If the filename has no extension, append the detected format extension
+          if (!fileName.includes('.') && sniff.format && sniff.format !== 'unknown') {
+            fileName = `${fileName}.${sniff.format}`;
+          }
+
           if (sniff.kind === 'container' || sniff.format === 'zip') {
             void nativeStorage.clearCurrentIntent();
             router.push({
@@ -172,10 +186,17 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
           if (res.success && res.book) {
             await loadLibrary();
             await useReaderStore.getState().openBook(res.book);
-            router.push({
-              pathname: '/reader',
-              params: { bookId: res.book.id },
-            });
+            if (pathnameRef.current === '/reader') {
+              router.replace({
+                pathname: '/reader',
+                params: { bookId: res.book.id, t: String(Date.now()) },
+              });
+            } else {
+              router.push({
+                pathname: '/reader',
+                params: { bookId: res.book.id, t: String(Date.now()) },
+              });
+            }
           }
         } catch (err) {
           logger.error(TAG, 'Failed processing incoming external file intent', err);

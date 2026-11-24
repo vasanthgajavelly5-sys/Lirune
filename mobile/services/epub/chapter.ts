@@ -174,16 +174,16 @@ export async function extractChapterDocument(
     }
     const css = stylesheets.map((sheet) => sheet.css).join('\n');
 
-    // 2. Resources inside the markup
-    const withResources = await inlineMarkupResources(document, chapterDir, archive, {
+    // 2. SVG covers + bare <image> elements (done before inlining so scan budget is not blown by data URIs)
+    const withImages = convertBareImageElements(normalizeSvgCovers(document));
+
+    // 3. Resources inside the markup
+    const withResources = await inlineMarkupResources(withImages, chapterDir, archive, {
       lazyImages: options.lazyImages,
     });
 
-    // 3. SVG covers + bare <image> elements
-    const withImages = convertBareImageElements(normalizeSvgCovers(withResources));
-
     // 4. Body
-    const body = extractBodyContent(withImages);
+    const body = extractBodyContent(withResources);
 
     // 5. Sanitise
     const sanitized = sanitizeHtml(body.content);

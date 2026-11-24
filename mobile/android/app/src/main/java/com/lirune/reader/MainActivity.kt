@@ -2,6 +2,7 @@ package com.lirune.reader
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 
@@ -13,7 +14,28 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 import expo.modules.ReactActivityDelegateWrapper
 
 class MainActivity : ReactActivity() {
+  private fun normalizeIntent(intent: Intent?) {
+    if (intent == null) return
+    if (intent.data == null) {
+      val clipUri = intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+      if (clipUri != null) {
+        intent.data = clipUri
+      } else if (Intent.ACTION_SEND == intent.action) {
+        val streamUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+          @Suppress("DEPRECATION")
+          intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        }
+        if (streamUri != null) {
+          intent.data = streamUri
+        }
+      }
+    }
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
+    normalizeIntent(intent)
     // Set the theme to AppTheme BEFORE onCreate to support
     // coloring the background, status bar, and navigation bar.
     // This is required for expo-splash-screen.
@@ -36,8 +58,9 @@ class MainActivity : ReactActivity() {
    * 'url' event and external file opens are silently swallowed while the app is in memory.
    */
   override fun onNewIntent(intent: Intent?) {
-    super.onNewIntent(intent)
+    normalizeIntent(intent)
     setIntent(intent)
+    super.onNewIntent(intent)
   }
 
   /**

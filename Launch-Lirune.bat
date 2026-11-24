@@ -26,8 +26,55 @@ if exist "%~dp0dist\win-unpacked\Lirune Reader.exe" (
     goto :done
 )
 
-REM 2. Fallback: Run directly from current repository source via Electron (v6.0.0)
-echo [INFO] Packaged binary not found in dist\win-unpacked.
+REM 2. Check installed desktop application in user or system program directories
+if exist "%LOCALAPPDATA%\Programs\Lirune Reader\Lirune Reader.exe" (
+    echo [INFO] Found installed Lirune Reader in %LOCALAPPDATA%\Programs\Lirune Reader
+    echo Starting Lirune Reader v6.0.0...
+    if "%1"=="--validate-only" (
+        echo [INFO] Target executable verified: "%LOCALAPPDATA%\Programs\Lirune Reader\Lirune Reader.exe"
+        exit /b 0
+    )
+    start "" "%LOCALAPPDATA%\Programs\Lirune Reader\Lirune Reader.exe" %*
+    goto :done
+)
+
+if exist "%LOCALAPPDATA%\Programs\lirune-reader\Lirune Reader.exe" (
+    echo [INFO] Found installed Lirune Reader in %LOCALAPPDATA%\Programs\lirune-reader
+    echo Starting Lirune Reader v6.0.0...
+    if "%1"=="--validate-only" (
+        echo [INFO] Target executable verified: "%LOCALAPPDATA%\Programs\lirune-reader\Lirune Reader.exe"
+        exit /b 0
+    )
+    start "" "%LOCALAPPDATA%\Programs\lirune-reader\Lirune Reader.exe" %*
+    goto :done
+)
+
+if exist "%ProgramFiles%\Lirune Reader\Lirune Reader.exe" (
+    echo [INFO] Found installed Lirune Reader in %ProgramFiles%\Lirune Reader
+    echo Starting Lirune Reader v6.0.0...
+    if "%1"=="--validate-only" (
+        echo [INFO] Target executable verified: "%ProgramFiles%\Lirune Reader\Lirune Reader.exe"
+        exit /b 0
+    )
+    start "" "%ProgramFiles%\Lirune Reader\Lirune Reader.exe" %*
+    goto :done
+)
+
+set "PF86=%ProgramFiles(x86)%"
+if not defined PF86 goto :skip_pf86
+if not exist "%PF86%\Lirune Reader\Lirune Reader.exe" goto :skip_pf86
+echo [INFO] Found installed Lirune Reader in %PF86%\Lirune Reader
+echo Starting Lirune Reader v6.0.0...
+if "%1"=="--validate-only" goto :validate_pf86
+start "" "%PF86%\Lirune Reader\Lirune Reader.exe" %*
+goto :done
+:validate_pf86
+echo [INFO] Target executable verified: "%PF86%\Lirune Reader\Lirune Reader.exe"
+exit /b 0
+:skip_pf86
+
+REM 3. Fallback: Run directly from current repository source via Electron (v6.0.0)
+echo [INFO] Packaged binary not found in dist\win-unpacked or installed programs.
 echo Checking Node.js development environment to launch from source...
 
 REM Verify Node.js is installed

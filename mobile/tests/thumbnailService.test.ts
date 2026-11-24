@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   getThumbnailPath,
   getListCoverUri,
+  getStoredCoverUri,
   THUMBNAIL_WIDTH,
 } from '../utils/thumbnailUtils.ts';
 
@@ -104,6 +105,25 @@ describe('Thumbnail Utilities', () => {
         }),
         'data:image/jpeg;base64,...'
       );
+    });
+
+    describe('getStoredCoverUri', () => {
+      it('uses the original cover when no persisted thumbnail exists', () => {
+        assert.equal(
+          getStoredCoverUri({ coverUrl: '/data/user/0/covers/book.jpg' }),
+          'file:///data/user/0/covers/book.jpg'
+        );
+      });
+
+      it('prefers a persisted thumbnail without inventing a missing path', () => {
+        assert.equal(
+          getStoredCoverUri({
+            coverUrl: '/data/user/0/covers/book.jpg',
+            thumbnailUrl: '/data/user/0/covers/book_thumb.jpg',
+          }),
+          'file:///data/user/0/covers/book_thumb.jpg'
+        );
+      });
     });
   });
 });

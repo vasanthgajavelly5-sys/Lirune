@@ -43,3 +43,21 @@ export function getListCoverUri(book: { coverUrl?: string; thumbnailUrl?: string
   }
   return `file://${candidate}`;
 }
+
+/**
+ * Resolves a cover that is known to be stored. Unlike getListCoverUri, this
+ * does not invent a thumbnail path that may not exist yet.
+ */
+export function getStoredCoverUri(book: { coverUrl?: string; thumbnailUrl?: string }): string | undefined {
+  const candidate = book.thumbnailUrl || book.coverUrl;
+  if (!candidate) return undefined;
+  if (
+    candidate.startsWith('file://') ||
+    candidate.startsWith('http://') ||
+    candidate.startsWith('https://') ||
+    candidate.startsWith('data:')
+  ) {
+    return candidate;
+  }
+  return `file://${candidate}`;
+}

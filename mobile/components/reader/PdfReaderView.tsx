@@ -35,10 +35,18 @@ import { logger } from '@/utils/logger';
 
 const TAG = 'PdfReaderView';
 
-// pdf.js is vendored into the bundle (see scripts/gen-pdfjs.js) and escaped once
-// at module load, so opening a PDF requires no network access at all.
-const PDFJS_INLINE = escapeForInlineScript(PDFJS_SOURCE);
-const PDFJS_WORKER_INLINE = escapeForInlineScript(PDFJS_WORKER);
+// pdf.js is vendored into the bundle (see scripts/gen-pdfjs.js) and escaped lazily on first
+// PDF open rather than at module load, keeping non-PDF startup memory free of ~4 MB string allocations.
+let cachedPdfjsInline: { source: string; worker: string } | null = null;
+function getPdfjsInlineAssets(): { source: string; worker: string } {
+  if (!cachedPdfjsInline) {
+    cachedPdfjsInline = {
+      source: escapeForInlineScript(PDFJS_SOURCE),
+      worker: escapeForInlineScript(PDFJS_WORKER),
+    };
+  }
+  return cachedPdfjsInline;
+}
 
 /** Base64 characters per chunk. 512KB of base64 is ~384KB of file. */
 const CHUNK_BASE64_CHARS = 512 * 1024;
@@ -450,12 +458,12 @@ export function PdfReaderView({
   </script>
   <script>
     try {
-      (function(){\n` + PDFJS_INLINE + `\n}).call(window);
+      (function(){\n` + getPdfjsInlineAssets().source + `\n}).call(window);
     } catch (e) { console.error('PDFJS_SOURCE init error:', e); }
   </script>
   <script>
     try {
-      (function(){\n` + PDFJS_WORKER_INLINE + `\n}).call(window);
+      (function(){\n` + getPdfjsInlineAssets().worker + `\n}).call(window);
     } catch (e) { console.error('PDFJS_WORKER init error:', e); }
   </script>
   <style>

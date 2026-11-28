@@ -155,6 +155,57 @@ if (extraMobile.length) {
   warnings.push(`Android extra non-canonical IDs: ${extraMobile.join(', ')}`);
 }
 
+// 8. Cross-Platform Reader Themes Parity (shared/reader-themes.json vs Desktop & Mobile)
+const sharedThemesPath = path.join(root, 'shared', 'reader-themes.json');
+const desktopThemesSrc = fs.readFileSync(path.join(root, 'js', 'themes.js'), 'utf8');
+const mobileColorsSrc = fs.readFileSync(path.join(root, 'mobile', 'theme', 'Colors.ts'), 'utf8');
+if (!fs.existsSync(sharedThemesPath)) {
+  errors.push('Missing canonical shared/reader-themes.json');
+} else {
+  const canonicalThemes = JSON.parse(fs.readFileSync(sharedThemesPath, 'utf8')).themes || {};
+  for (const [id, spec] of Object.entries(canonicalThemes)) {
+    const deskBlock = desktopThemesSrc.match(new RegExp(`\\b${id}:\\s*\\{([^}]+)\\}`, 's'));
+    const mobBlock = mobileColorsSrc.match(new RegExp(`\\b${id}:\\s*\\{([^}]+)\\}`, 's'));
+    if (!deskBlock) {
+      errors.push(`Theme "${id}" missing in Desktop js/themes.js`);
+      continue;
+    }
+    if (!mobBlock) {
+      errors.push(`Theme "${id}" missing in Mobile mobile/theme/Colors.ts`);
+      continue;
+    }
+    for (const key of ['bg', 'surface', 'text', 'muted', 'link', 'selection']) {
+      const deskVal = deskBlock[1].match(new RegExp(`\\b${key}:\\s*['"]([^'"]+)['"]`))?.[1];
+      const mobVal = mobBlock[1].match(new RegExp(`\\b${key}:\\s*['"]([^'"]+)['"]`))?.[1];
+      if (deskVal !== spec[key]) {
+        errors.push(`Theme "${id}.${key}" mismatch in Desktop js/themes.js: expected "${spec[key]}", got "${deskVal}"`);
+      }
+      if (mobVal !== spec[key]) {
+        errors.push(`Theme "${id}.${key}" mismatch in Mobile Colors.ts: expected "${spec[key]}", got "${mobVal}"`);
+      }
+    }
+  }
+}
+
+// 9. Native Kotlin Plugin vs Generated Android Source Parity (when mobile/android/ is present)
+const pluginKotlinDir = path.join(root, 'mobile', 'plugins', 'native', 'lirune-storage');
+const androidKotlinDir = path.join(root, 'mobile', 'android', 'app', 'src', 'main', 'java', 'com', 'lirune', 'reader', 'storage');
+if (fs.existsSync(pluginKotlinDir) && fs.existsSync(androidKotlinDir)) {
+  for (const file of fs.readdirSync(pluginKotlinDir)) {
+    if (!file.endsWith('.kt')) continue;
+    const pluginContent = fs.readFileSync(path.join(pluginKotlinDir, file), 'utf8').replace(/\r\n/g, '\n');
+    const targetPath = path.join(androidKotlinDir, file);
+    if (!fs.existsSync(targetPath)) {
+      errors.push(`Kotlin file "${file}" exists in plugins/native/lirune-storage/ but is missing in mobile/android/.../storage/`);
+    } else {
+      const targetContent = fs.readFileSync(targetPath, 'utf8').replace(/\r\n/g, '\n');
+      if (pluginContent !== targetContent) {
+        errors.push(`Kotlin drift detected for "${file}" between plugins/native/lirune-storage/ and mobile/android/.../storage/`);
+      }
+    }
+  }
+}
+
 // Print Report
 if (warnings.length > 0) {
   console.log(`\n[WARNINGS] (${warnings.length}):`);

@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 
 const CORPUS = path.join(os.tmpdir(), 'kilo', 'lirune-corpus');
-const GEN = path.join(os.tmpdir(), 'kilo', 'gen-books');
+const GEN = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-gen-books-'));
 const BOOK_COUNT = 300;
 
 let pass = 0;
@@ -30,8 +30,6 @@ function group(name) { console.log(`\n== ${name}`); }
  * rejected and the library would never reach the size under test.
  */
 function generateBooks(count) {
-  fs.rmSync(GEN, { recursive: true, force: true });
-  fs.mkdirSync(GEN, { recursive: true });
   const made = [];
   for (let i = 0; i < count; i++) {
     const title = `Library Volume ${String(i + 1).padStart(3, '0')}`;
@@ -504,5 +502,6 @@ try {
   console.log(`\n${pass}/${pass + failures.length} passed`);
   if (failures.length) console.log(`FAILURES:\n  ${failures.map(f => `[${f}]`).join('\n  ')}`);
   await shutdown(cdp);
+  fs.rmSync(GEN, { recursive: true, force: true });
 }
 process.exit(failures.length ? 1 : 0);

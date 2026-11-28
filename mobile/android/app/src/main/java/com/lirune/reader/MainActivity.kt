@@ -1,9 +1,9 @@
 package com.lirune.reader
 import expo.modules.splashscreen.SplashScreenManager
 
+import android.os.Build
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 
 import com.facebook.react.ReactActivity
@@ -53,9 +53,8 @@ class MainActivity : ReactActivity() {
   override fun getMainComponentName(): String = "main"
 
   /**
-   * singleTask activity: Android delivers a warm-launch intent to onNewIntent instead
-   * of onCreate. Without setIntent() React Native's Linking module never fires the
-   * 'url' event and external file opens are silently swallowed while the app is in memory.
+   * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]
+   * which allows you to enable New Architecture with a single boolean flags [fabricEnabled]
    */
   override fun onNewIntent(intent: Intent?) {
     normalizeIntent(intent)
@@ -63,10 +62,6 @@ class MainActivity : ReactActivity() {
     super.onNewIntent(intent)
   }
 
-  /**
-   * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]
-   * which allows you to enable New Architecture with a single boolean flags [fabricEnabled]
-   */
   override fun createReactActivityDelegate(): ReactActivityDelegate {
     return ReactActivityDelegateWrapper(
           this,

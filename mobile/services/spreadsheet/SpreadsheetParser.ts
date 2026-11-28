@@ -13,6 +13,7 @@
 
 import JSZip from 'jszip';
 import { validateZipArchive } from '../security/archiveBudget.ts';
+import { escapeHtml, decodeXmlEntities, stripHtmlToText } from '../security/sanitizeHtml.ts';
 import { CsvParser, ParsedCsv } from '../csv/CsvParser.ts';
 import { LegacyOfficeParser } from '../legacy/LegacyOfficeParser.ts';
 
@@ -31,15 +32,6 @@ export interface ParsedSpreadsheet {
   title: string;
   sheets: SheetData[];
   html: string;
-}
-
-function escapeHtml(s: string): string {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 export class SpreadsheetParser {
@@ -102,13 +94,7 @@ export class SpreadsheetParser {
         while ((tMatch = tRegex.exec(siMatch[1])) !== null) {
           cellText += tMatch[1];
         }
-        sharedStrings.push(
-          cellText
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-        );
+        sharedStrings.push(decodeXmlEntities(cellText));
       }
     }
 
@@ -230,7 +216,7 @@ export class SpreadsheetParser {
         while ((cm = cellRegex.exec(rowContent)) !== null && curRow.length < MAX_COLS) {
           const cellXml = cm[1];
           const textMatch = cellXml.match(/<text:p[^>]*>([\s\S]*?)<\/text:p>/i);
-          curRow.push(textMatch?.[1]?.replace(/<[^>]+>/g, '').trim() || '');
+          curRow.push(stripHtmlToText(textMatch?.[1] || ''));
         }
 
         if (curRow.some((c) => c !== '')) {
@@ -287,9 +273,9 @@ export class SpreadsheetParser {
     // Fallback: legacy office text extraction
     try {
       const parsed = LegacyOfficeParser.parse(bytes, 'xls');
-      const rows = parsed.html
-        .replace(/<\/p>/gi, '\n')
-        .replace(/<[^>]*>/g, '')
+      const rows = stripHtmlToText(
+        parsed.html.replace(/<\/p>/gi, '\n')
+      )
         .split('\n')
         .map((line) => line.trim())
         .filter(Boolean)

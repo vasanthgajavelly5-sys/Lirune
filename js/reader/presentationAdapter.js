@@ -6,7 +6,7 @@
 const PresentationAdapter = (() => {
   const MAX_SLIDES = 1000;
   const escape = value => Utils.escapeHTML(String(value ?? ''));
-  const decode = value => String(value || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  const decode = value => Utils.decodeXmlEntities(value);
 
   function imageMime(path) {
     const ext = path.split('.').pop()?.toLowerCase();
@@ -56,7 +56,7 @@ const PresentationAdapter = (() => {
     for (const match of xml.matchAll(/<draw:page\b[^>]*>([\s\S]*?)<\/draw:page>/gi)) {
       if (slides.length >= MAX_SLIDES) break;
       const text = [...match[1].matchAll(/<text:p\b[^>]*>([\s\S]*?)<\/text:p>/gi)]
-        .map(item => decode(item[1].replace(/<[^>]+>/g, ''))).filter(Boolean);
+        .map(item => decode(Utils.stripTagsToText(item[1]))).filter(Boolean);
       slides.push(`<section class="presentation-slide"><h3>Slide ${slides.length + 1}</h3>${text.map(value => `<p>${escape(value)}</p>`).join('')}</section>`);
     }
     if (!slides.length) throw new Error('This presentation contains no readable slides.');

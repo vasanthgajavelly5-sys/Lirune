@@ -4,6 +4,7 @@
  */
 
 const NoveraDB = (() => {
+  // DB_NAME 'NoveraDB' is preserved permanently so existing Windows upgrades retain IndexedDB books.
   const DB_NAME = 'NoveraDB';
   const DB_VERSION = 3;
   let dbInstance = null;
@@ -500,3 +501,8 @@ const NoveraDB = (() => {
     migrateLegacyBooks
   };
 })();
+
+const LiruneDB = NoveraDB;
+if (typeof window !== 'undefined') {
+  window.LiruneDB = NoveraDB;
+}

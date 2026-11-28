@@ -346,3 +346,40 @@ function sanitizeOnce(html: string, depth: number): string {
   if (removedStack.length === 0) output += html.slice(cursor);
   return output;
 }
+
+/** Escapes plain text for safe HTML element and attribute interpolation. */
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const XML_ENTITY_MAP: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&apos;': "'",
+  '&#39;': "'",
+};
+
+/** Decodes common XML/HTML entities in a single pass without double-unescaping. */
+export function decodeXmlEntities(value: unknown): string {
+  if (value == null) return '';
+  return String(value).replace(/&(amp|lt|gt|quot|apos|#39);/g, (entity) => XML_ENTITY_MAP[entity] ?? entity);
+}
+
+/** Sanitizes HTML first and iteratively strips tags to extract plain text safely. */
+export function stripHtmlToText(html: string): string {
+  if (!html) return '';
+  let prev: string;
+  let cur = sanitizeHtml(html);
+  do {
+    prev = cur;
+    cur = cur.replace(/<[^>]*>/g, ' ');
+  } while (cur !== prev);
+  return cur.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim();
+}

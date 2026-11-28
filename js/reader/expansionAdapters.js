@@ -152,7 +152,7 @@ const ExpansionAdapters = (() => {
       const sections = [];
       for (const file of textFiles) {
         const source = await file.async('text');
-        const plain = source.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const plain = Utils.stripTagsToText(source);
         if (plain) sections.push({ id: file.name, label: file.name, depth: 0, html: `<h3>${escape(file.name)}</h3><p>${escape(plain)}</p>` });
       }
 

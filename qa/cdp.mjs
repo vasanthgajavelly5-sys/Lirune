@@ -94,6 +94,22 @@ class Cdp {
     return res.result.value;
   }
 
+  /** Executes a function in page context passing structured JSON arguments via CDP CallArgument. */
+  async callFn(fn, args = [], timeout = 30000) {
+    const ctx = await this.send('Runtime.evaluate', { expression: 'globalThis' }, timeout);
+    const res = await this.send('Runtime.callFunctionOn', {
+      objectId: ctx.result.objectId,
+      functionDeclaration: fn.toString(),
+      arguments: args.map(value => ({ value })),
+      awaitPromise: true,
+      returnByValue: true
+    }, timeout);
+    if (res.exceptionDetails) {
+      throw new Error(res.exceptionDetails.exception?.description || res.exceptionDetails.text);
+    }
+    return res.result.value;
+  }
+
   async key(key, { code, ctrl = false, shift = false, alt = false, meta = false } = {}) {
     const modifiers = (alt ? 1 : 0) | (ctrl ? 2 : 0) | (meta ? 4 : 0) | (shift ? 8 : 0);
     const info = KEY_INFO[key] || { keyCode: key.toUpperCase().charCodeAt(0), code: code || '' };
@@ -123,67 +139,32 @@ class Cdp {
   }
 
   async screenshot(file) {
+    const resolved = path.resolve(file);
+    fs.mkdirSync(path.dirname(resolved), { recursive: true });
     const res = await this.send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(file, Buffer.from(res.data, 'base64'));
-    return file;
+    fs.writeFileSync(resolved, Buffer.from(res.data, 'base64'));
+    return resolved;
   }
 
-  /** Import a local file through the app's real drop/import path. */
+  /** Import a local file through the app's native file-input element via CDP DOM.setFileInputFiles. */
   async importFile(filePath) {
-    const buf = fs.readFileSync(filePath);
-    const name = path.basename(filePath);
-    // Chunks are concatenated before atob, so a chunk must hold a whole
-    // number of base64 triples. A chunk that is not a multiple of three bytes
-    // shifts every byte after the first boundary, which quietly corrupts the
-    // file instead of failing loudly.
-    const CHUNK = 3 * 512 * 1024;
-    await this.eval(`
-      window.__qaChunks = [];
-      window.__qaName = ${JSON.stringify(name)};
-      window.__qaType = ${JSON.stringify(mimeFor(filePath))};
-      return true;
-    `);
-    for (let off = 0; off < buf.length; off += CHUNK) {
-      const slice = buf.subarray(off, Math.min(off + CHUNK, buf.length));
-      // Chunks are concatenated before atob, so base64 padding must be
-      // stripped from every chunk but the last one.
-      const b64 = slice.toString('base64');
-      const isLast = off + CHUNK >= buf.length;
-      await this.eval(`window.__qaChunks.push("${isLast ? b64 : b64.replace(/=+$/, '')}"); return window.__qaChunks.length;`);
+    const resolvedPath = path.resolve(filePath);
+    const name = path.basename(resolvedPath);
+    const stat = fs.statSync(resolvedPath);
+    const doc = await this.send('DOM.getDocument', { depth: 1 });
+    const input = await this.send('DOM.querySelector', {
+      nodeId: doc.root.nodeId,
+      selector: '#file-input'
+    });
+    if (!input?.nodeId) {
+      throw new Error('Could not locate #file-input element in DOM');
     }
-    return this.eval(`
-      const bin = atob(window.__qaChunks.join(''));
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      window.__qaChunks = null;
-      const file = new File([bytes], window.__qaName, { type: window.__qaType });
-      window.__lastQaFile = file;
-      const dt = new DataTransfer();
-      dt.items.add(file);
-      window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
-      return { name: window.__qaName, size: bytes.length };
-    `, 120000);
+    await this.send('DOM.setFileInputFiles', {
+      nodeId: input.nodeId,
+      files: [resolvedPath]
+    });
+    return { name, size: stat.size };
   }
-}
-
-function mimeFor(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  return {
-    '.epub': 'application/epub+zip',
-    '.pdf': 'application/pdf',
-    '.txt': 'text/plain',
-    '.html': 'text/html',
-    '.htm': 'text/html',
-    '.fb2': 'application/x-fictionbook+xml',
-    '.cbz': 'application/vnd.comicbook+zip',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.cbr': 'application/vnd.comicbook-rar',
-    '.azw3': 'application/vnd.amazon.ebook',
-    '.mobi': 'application/x-mobipocket-ebook',
-    '.md': 'text/markdown',
-    '.markdown': 'text/markdown',
-    '.fbz': 'application/x-zip-compressed-fb2'
-  }[ext] || 'application/octet-stream';
 }
 
 const KEY_INFO = {
@@ -270,6 +251,7 @@ export async function launch({ freshUserData = false, extraArgs = [] } = {}) {
   });
   const cdp = new Cdp(ws);
   await cdp.send('Runtime.enable');
+  await cdp.send('DOM.enable');
   await cdp.send('Page.enable');
   await cdp.send('Log.enable');
   cdp.child = child;

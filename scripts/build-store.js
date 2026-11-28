@@ -33,12 +33,16 @@ config.appx = {
   applicationId: 'Lirune.LiruneReader'
 };
 config.win = { ...(config.win || {}), target: [{ target: 'appx', arch: ['x64'] }] };
-const configPath = path.join(os.tmpdir(), `novera-store-${process.pid}.json`);
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-store-'));
+const configPath = path.join(tempDir, 'config.json');
 fs.writeFileSync(configPath, JSON.stringify(config));
 const hookPath = path.join(__dirname, 'builder-env-hook.js');
-const result = spawnSync(process.execPath, ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'appx', '--config', configPath, '--publish', 'never'], {
-  stdio: 'inherit',
-  env: { ...process.env }
-});
-fs.rmSync(configPath, { force: true });
-process.exitCode = result.status === null ? 1 : result.status;
+try {
+  const result = spawnSync(process.execPath, ['-r', hookPath, require.resolve('electron-builder/cli.js'), '--win', 'appx', '--config', configPath, '--publish', 'never'], {
+    stdio: 'inherit',
+    env: { ...process.env }
+  });
+  process.exitCode = result.status === null ? 1 : result.status;
+} finally {
+  fs.rmSync(tempDir, { recursive: true, force: true });
+}

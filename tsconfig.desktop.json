@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "scripts/desktop-globals.d.ts",
+    "preload.js",
+    "scripts/storage-contract.js",
+    "scripts/validate-format-catalogue.js",
+    "scripts/check-modernization.js",
+    "scripts/audit-prod.js"
+  ]
+}

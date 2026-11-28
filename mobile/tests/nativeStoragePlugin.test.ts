@@ -163,9 +163,12 @@ test('cleanAndConfigureIntentFilters removes catch-alls and configures explicit 
   const starMimes = allData.filter((d: any) => d['android:mimeType'] === '*/*');
   assert.equal(starMimes.length, 0, 'Must not contain */* wildcard mimeType');
 
-  // 4. Assert NO application/octet-stream anywhere
+  // 4. Assert application/octet-stream is permitted ONLY in the generic binary fallback filter and SEND filters (never paired with pathPattern catch-alls)
   const octetMimes = allData.filter((d: any) => d['android:mimeType'] === 'application/octet-stream');
-  assert.equal(octetMimes.length, 0, 'Must not contain application/octet-stream');
+  assert.ok(octetMimes.length >= 2, 'Expected generic application/octet-stream fallback for Chrome/Downloads/WhatsApp EPUB opens');
+  for (const d of octetMimes) {
+    assert.equal(d['android:pathPattern'], undefined, 'application/octet-stream entry must not pair with a pathPattern');
+  }
 
   // 5. Assert NO mimeType-less content filter without pathPattern
   const bareContent = allData.filter((d: any) => d['android:scheme'] === 'content' && !d['android:mimeType'] && !d['android:pathPattern']);

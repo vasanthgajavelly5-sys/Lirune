@@ -9,9 +9,7 @@ const SpreadsheetAdapter = (() => {
   const MAX_BYTES = 64 * 1024 * 1024;
 
   const escape = value => Utils.escapeHTML(String(value ?? ''));
-  const decodeXml = value => String(value || '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+  const decodeXml = value => Utils.decodeXmlEntities(value);
 
   function rowsToHtml(name, rows) {
     const [header = [], ...body] = rows;
@@ -79,7 +77,7 @@ const SpreadsheetAdapter = (() => {
         const row = [];
         for (const cell of rowMatch[1].matchAll(/<table:table-cell\b[^>]*>([\s\S]*?)<\/table:table-cell>/gi)) {
           if (row.length >= MAX_COLS) break;
-          row.push(decodeXml(cell[1].match(/<text:p[^>]*>([\s\S]*?)<\/text:p>/i)?.[1]).replace(/<[^>]+>/g, '').trim());
+          row.push(decodeXml(Utils.stripTagsToText(cell[1].match(/<text:p[^>]*>([\s\S]*?)<\/text:p>/i)?.[1])));
         }
         if (row.some(Boolean)) rows.push(row);
       }

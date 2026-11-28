@@ -81,6 +81,25 @@ const Utils = {
       .replace(/>/g, '&gt;');
   },
 
+  // Decode standard XML/HTML character references in a single pass (prevents double-unescaping)
+  decodeXmlEntities: (str) => {
+    if (!str) return '';
+    const ENTITY_MAP = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&#39;': "'" };
+    return String(str).replace(/&(amp|lt|gt|quot|apos|#39);/g, (entity) => ENTITY_MAP[entity] || entity);
+  },
+
+  // Strip tags/scripts iteratively until fixed point for plain-text extraction
+  stripTagsToText: (html) => {
+    if (!html) return '';
+    let prev;
+    let cur = String(html);
+    do {
+      prev = cur;
+      cur = cur.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ').replace(/<[^>]*>/g, ' ');
+    } while (cur !== prev);
+    return cur.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim();
+  },
+
   // Validate and sanitize cover image URLs to prevent attribute injection or dangerous schemes
   sanitizeCoverUrl: (url) => {
     if (!url || typeof url !== 'string') return null;

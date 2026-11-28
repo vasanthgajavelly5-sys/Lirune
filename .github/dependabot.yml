@@ -9,6 +9,10 @@ updates:
     labels:
       - "dependencies"
       - "desktop"
+    ignore:
+      # Major Electron upgrades require Chromium/ABI compatibility validation (DEPENDENCY_POLICY.md)
+      - dependency-name: "electron"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
         dependency-type: "development"
@@ -22,7 +26,21 @@ updates:
     labels:
       - "dependencies"
       - "mobile"
+    ignore:
+      # Expo SDK / React Native major bumps must be performed coherently via `npx expo install`
+      - dependency-name: "expo*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react*"
+        update-types: ["version-update:semver-major"]
     groups:
+      expo-sdk:
+        patterns:
+          - "expo"
+          - "expo-*"
+          - "@expo/*"
+          - "react"
+          - "react-dom"
+          - "react-native*"
       dev-dependencies:
         dependency-type: "development"
 

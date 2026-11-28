@@ -1260,16 +1260,29 @@ ipcMain.handle('fs:read-book', (event, filePath) => {
   if (!consumeAuthorizedBookPath(resolvedPath)) {
     throw new Error('This file was not opened by the operating system');
   }
-  if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
-    throw new Error('The file does not exist');
+  let fd;
+  let buffer;
+  try {
+    fd = fs.openSync(resolvedPath, 'r');
+    const stats = fs.fstatSync(fd);
+    if (!stats.isFile()) {
+      throw new Error('The file does not exist');
+    }
+    if (stats.size > MAX_BOOK_FILE_SIZE) {
+      throw new Error(`File exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)`);
+    }
+    buffer = fs.readFileSync(fd);
+  } catch (err) {
+    if (err && (err.code === 'ENOENT' || err.code === 'EISDIR' || err.code === 'ENOTDIR')) {
+      throw new Error('The file does not exist');
+    }
+    throw err;
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch {}
+    }
   }
 
-  const stats = fs.statSync(resolvedPath);
-  if (stats.size > MAX_BOOK_FILE_SIZE) {
-    throw new Error(`File exceeds maximum supported size (${MAX_BOOK_FILE_SIZE / 1024 / 1024}MB)`);
-  }
-
-  const buffer = fs.readFileSync(resolvedPath);
   return {
     name: path.basename(resolvedPath),
     path: resolvedPath,

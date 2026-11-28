@@ -23,6 +23,7 @@ import { READER_THEMES } from '@/theme/Colors';
 import { toFileUri } from '@/services/storage/FileStorage';
 import { logger } from '@/utils/logger';
 import { READER_WEBVIEW_PROPS, allowReaderNavigation } from '@/services/security/webviewPolicy';
+import { sanitizeHtml } from '@/services/security/sanitizeHtml';
 
 const TAG = 'ImageReaderView';
 const TAP_SLOP = 12;
@@ -59,11 +60,7 @@ export function ImageReaderView({
         const uri = toFileUri(rawPath);
         if (book.format === 'svg') {
           const source = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.UTF8 });
-        const sanitized = source
-          .replace(/<script\b[\s\S]*?<\/script>/gi, '')
-          .replace(/\son\w+\s*=\s*(['"]).*?\1/gi, '')
-          .replace(/\s(?:href|xlink:href)\s*=\s*(['"])(?:https?:|file:|javascript:).*?\1/gi, '')
-          .replace(/<!DOCTYPE[\s\S]*?>/gi, '');
+          const sanitized = sanitizeHtml(source);
           if (!/^<svg[\s>]/i.test(sanitized.trim())) throw new Error('Invalid SVG document.');
           if (active) {
             setSvgMarkup(sanitized);

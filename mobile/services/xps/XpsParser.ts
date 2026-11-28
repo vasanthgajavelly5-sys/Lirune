@@ -7,6 +7,7 @@
 
 import JSZip from 'jszip';
 import { validateZipArchive } from '../security/archiveBudget.ts';
+import { escapeHtml, decodeXmlEntities } from '../security/sanitizeHtml.ts';
 
 export interface XpsPage {
   index: number;
@@ -19,15 +20,6 @@ export interface ParsedXps {
   pageCount: number;
   pages: XpsPage[];
   html: string;
-}
-
-function escapeHtml(s: string): string {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 export class XpsParser {
@@ -76,11 +68,7 @@ export class XpsParser {
       const glyphRegex = /<Glyphs\b[^>]*\bUnicodeString="([^"]*)"[^>]*>/gi;
       let gm: RegExpExecArray | null;
       while ((gm = glyphRegex.exec(pageXml)) !== null) {
-        const text = gm[1]
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"');
+        const text = decodeXmlEntities(gm[1]);
         if (text.trim()) glyphs.push(text);
       }
 

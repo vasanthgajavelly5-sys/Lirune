@@ -60,8 +60,18 @@ for (const [relPath, expHash] of expectedHashes.entries()) {
     continue;
   }
 
-  const stat = fs.statSync(fullPath);
-  const buf = fs.readFileSync(fullPath);
+  let fd;
+  let stat;
+  let buf;
+  try {
+    fd = fs.openSync(fullPath, 'r');
+    stat = fs.fstatSync(fd);
+    buf = fs.readFileSync(fd);
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { }
+    }
+  }
   const actualHash = crypto.createHash('sha256').update(buf).digest('hex').toLowerCase();
   const hashMatches = (actualHash === expHash);
 

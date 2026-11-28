@@ -12,7 +12,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 
 const CORPUS = path.join(os.tmpdir(), 'kilo', 'lirune-corpus');
-const WORK = path.join(os.tmpdir(), 'kilo', 'storage-work');
+const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-storage-work-'));
 
 let pass = 0;
 const failures = [];
@@ -28,9 +28,6 @@ function check(name, ok, detail = '') {
 function group(name) {
   console.log(`\n== ${name}`);
 }
-
-fs.rmSync(WORK, { recursive: true, force: true });
-fs.mkdirSync(WORK, { recursive: true });
 
 const cdp = await launch({ freshUserData: true });
 try {
@@ -251,11 +248,11 @@ try {
     fs.writeFileSync(p, typeof contents === 'string' ? contents : JSON.stringify(contents, null, 2));
     return p;
   };
-  const inspectPath = async file => cdp.eval(`
-    const file = new File([${JSON.stringify(fs.readFileSync(file, 'utf8'))}], 'backup.json', { type: 'application/json' });
-    const result = await Library.inspectBackupFile(file);
+  const inspectPath = async file => cdp.callFn(async (backupText) => {
+    const parsedFile = new File([backupText], 'backup.json', { type: 'application/json' });
+    const result = await Library.inspectBackupFile(parsedFile);
     return { ok: result.ok, error: result.error || null, summary: result.summary || null };
-  `, 120000);
+  }, [fs.readFileSync(file, 'utf8')], 120000);
 
   const validFile = writeFile('valid.json', backup.document);
   const valid = await inspectPath(validFile);
@@ -418,5 +415,6 @@ try {
   console.log(`\n${pass}/${pass + failures.length} passed`);
   if (failures.length) console.log(`FAILURES:\n  ${failures.map(f => `[${f}]`).join('\n  ')}`);
   await shutdown(cdp);
+  fs.rmSync(WORK, { recursive: true, force: true });
 }
 process.exit(failures.length ? 1 : 0);

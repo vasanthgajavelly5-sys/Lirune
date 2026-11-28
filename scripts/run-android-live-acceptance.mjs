@@ -45,8 +45,13 @@ function adbShell(shellCmd, timeout = 30000) {
 
 function captureScreenshot(targetPath) {
   try {
-    execSync(`adb -s ${DEVICE} exec-out screencap -p > "${targetPath}"`, { timeout: 15000 });
-    return fs.existsSync(targetPath) && fs.statSync(targetPath).size > 1000;
+    const res = spawnSync('adb', ['-s', DEVICE, 'exec-out', 'screencap', '-p'], {
+      timeout: 15000,
+      maxBuffer: 25 * 1024 * 1024
+    });
+    if (res.status !== 0 || !res.stdout || res.stdout.length <= 1000) return false;
+    fs.writeFileSync(targetPath, res.stdout);
+    return fs.statSync(targetPath).size > 1000;
   } catch {
     return false;
   }

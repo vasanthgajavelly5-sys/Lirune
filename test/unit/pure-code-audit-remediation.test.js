@@ -76,7 +76,7 @@ test('WIN-SEC-01 & WIN-SEC-02: DocumentAdapter.sanitizeHtml with allowRemote: fa
   assert.ok(!cleaned.includes('javascript:'), 'Must strip javascript: URI');
   assert.ok(!cleaned.includes('file:///etc/passwd'), 'Must strip file: URI');
   assert.ok(!cleaned.includes('https://tracking.com/beacon.gif'), 'Must strip remote image URL when allowRemote is false');
-  assert.ok(cleaned.includes('https://example.com/legit'), 'Must keep safe external link target');
+  assert.ok(cleaned.includes('href="https://example.com/legit"'), 'Must keep safe external link target');
   assert.ok(cleaned.includes('rel="noopener noreferrer"'), 'Must add noopener noreferrer to external link');
   assert.ok(!cleaned.includes('expression('), 'Must strip CSS expression');
   assert.ok(!cleaned.includes('behavior:'), 'Must strip CSS behavior');

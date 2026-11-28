@@ -7,6 +7,7 @@
   "scripts": {
     "start": "electron .",
     "lint": "node scripts/lint.js",
+    "check:types": "node scripts/check-types.js",
     "check:modernization": "node scripts/check-modernization.js",
     "test": "node scripts/run-tests.js all",
     "test:unit": "node scripts/run-tests.js unit",

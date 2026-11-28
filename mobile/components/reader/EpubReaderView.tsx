@@ -46,6 +46,7 @@ import {
 } from '@/utils/scrollEngineV2Utils';
 import { resolveZipHref, archiveDirname } from '@/services/epub/zipPaths';
 import { toPlainText } from '@/services/epub/markup';
+import { resolveInitialCoverHtml } from '@/services/epub/coverHelper';
 import { fileStorage } from '@/services/storage/FileStorage';
 import { READER_THEMES, isDarkReaderTheme } from '@/theme/Colors';
 import { getCssFontFamily } from '@/theme/Typography';
@@ -795,56 +796,17 @@ export function EpubReaderView({
           setActiveChapter(initialChapter);
           setCurrentChapterIndex(initialIdx);
 
-          // Resolve the cover HTML once per book open, independent of which
-          // chapter is restored. The cover is shown prepended to chapter 0.
-          //
-          // Priority:
-          //  1. epubPackage.coverPath from OPF (data URI from archive)
-          //  2. book.coverUrl from the extracted thumbnail on disk (read as base64 data URI)
-          //
-          // Never prepend coverHtml if the book's initial chapter already contains a cover image
-          // or is a dedicated cover page — doing so duplicates the cover, blows GPU tile limits,
-          // and crashes Chromium's renderer process.
-          let resolvedCoverHtml: string | undefined;
-          const initialHasCover =
-            initialIdx === 0 &&
-            (initialChapter.body.includes('data-cover') ||
-              initialChapter.body.includes('epub-cover') ||
-              (/<(?:img|image)\b/i.test(initialChapter.body) &&
-                initialChapter.body.replace(/<[^>]*>/g, '').trim().length < 500));
-
-          const firstChapterIsCover =
-            loadedChapters.length > 0 &&
-            (/\bcover\b/i.test(loadedChapters[0].id) ||
-              /\bcover\b/i.test(loadedChapters[0].itemPath) ||
-              /\bcover\b/i.test(loadedChapters[0].title || ''));
-
-          if (!initialHasCover && !firstChapterIsCover) {
-            if (epubPackage.coverPath) {
-              const coverUri = await archive.dataUri(epubPackage.coverPath);
-              if (coverUri) {
-                resolvedCoverHtml =
-                  `<div class="epub-cover-container"><img src="${coverUri}" alt="Cover" data-cover="true" style="max-width:100%;max-height:100%;object-fit:contain;margin:auto;display:block;" /></div>`;
-              }
-            }
-            if (!resolvedCoverHtml && book.coverUrl) {
-              // Fallback: convert the saved cover on disk into a base64 data URI.
-              // Modern WebViews block file:/// requests from inline HTML / about:blank
-              // origins due to cross-origin local resource restrictions.
-              try {
-                const b64 = await fileStorage.readAsBase64(book.coverUrl);
-                if (b64) {
-                  const ext = book.coverUrl.split('.').pop()?.toLowerCase() || 'jpeg';
-                  const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-                  const coverDataUri = `data:${mime};base64,${b64}`;
-                  resolvedCoverHtml =
-                    `<div class="epub-cover-container"><img src="${coverDataUri}" alt="Cover" data-cover="true" style="max-width:100%;max-height:100%;object-fit:contain;margin:auto;display:block;" /></div>`;
-                }
-              } catch (coverErr) {
-                logger.warn(TAG, 'Failed loading cover fallback from disk', coverErr);
-              }
-            }
-          }
+          // Resolve cover HTML once per book open, skipping dedicated cover pages.
+          const resolvedCoverHtml = await resolveInitialCoverHtml({
+            initialIdx,
+            initialChapter,
+            loadedChapters,
+            archiveCoverPath: epubPackage.coverPath,
+            bookCoverUrl: book.coverUrl,
+            archive,
+            readCoverBase64: (p) => fileStorage.readAsBase64(p),
+            onError: (coverErr) => logger.warn(TAG, 'Failed loading cover fallback from disk', coverErr),
+          });
           setCoverHtml(resolvedCoverHtml);
 
           // Queue lazy location generation for AFTER first paint

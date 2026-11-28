@@ -14,6 +14,7 @@
 
 import JSZip from 'jszip';
 import { validateZipArchive } from '../security/archiveBudget.ts';
+import { escapeHtml, decodeXmlEntities } from '../security/sanitizeHtml.ts';
 
 export interface PptxMetadata {
   title: string;
@@ -35,22 +36,13 @@ export interface ParsedPptx {
   html: string;
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function extractTextRuns(xml: string): string {
   // Collect text from <a:t> (DrawingML text) and <a:r><a:t> run elements
   const runs: string[] = [];
   const tRegex = /<a:t\b[^>]*>([\s\S]*?)<\/a:t>/gi;
   let m: RegExpExecArray | null;
   while ((m = tRegex.exec(xml)) !== null) {
-    const text = m[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    const text = decodeXmlEntities(m[1]);
     if (text.trim()) runs.push(text.trim());
   }
   return runs.join(' ');

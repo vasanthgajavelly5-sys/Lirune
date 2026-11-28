@@ -164,6 +164,7 @@ const ThemeManager = (() => {
       themeSwitch.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
     }
     syncReaderPanels();
+    window.dispatchEvent(new CustomEvent('lirune:appthemechange', { detail: { theme: themeName } }));
     window.dispatchEvent(new CustomEvent('novera:appthemechange', { detail: { theme: themeName } }));
   }
 
@@ -412,6 +413,7 @@ const ThemeManager = (() => {
       EpubLoader.applyTheme(themeName);
     }
 
+    window.dispatchEvent(new CustomEvent('lirune:readerThemeChange', { detail: { theme: themeName, colors } }));
     window.dispatchEvent(new CustomEvent('novera:readerThemeChange', { detail: { theme: themeName, colors } }));
   }
 

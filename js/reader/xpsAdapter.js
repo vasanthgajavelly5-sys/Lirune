@@ -23,7 +23,7 @@ const XpsAdapter = (() => {
         const file = zip.file(name);
         const xml = file ? await file.async('text') : '';
         const text = [...xml.matchAll(/<Glyphs\b[^>]*\bUnicodeString="([^"]*)"/gi)]
-          .map(match => match[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')).join(' ');
+          .map(match => Utils.decodeXmlEntities(match[1])).join(' ');
         return {
           id: `page-${index + 1}`,
           label: `Page ${index + 1}`,

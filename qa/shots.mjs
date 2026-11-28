@@ -1,9 +1,10 @@
 /** Captures the settings views to the temp folder for a visual check. */
 import { launch, shutdown, sleep } from './cdp.mjs';
+import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-const OUT = path.join(os.tmpdir(), 'kilo', 'lirune-shots');
+const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'lirune-shots-'));
 const cdp = await launch({ freshUserData: true });
 try {
   await sleep(1500);

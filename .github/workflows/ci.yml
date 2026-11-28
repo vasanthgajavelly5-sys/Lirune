@@ -36,6 +36,9 @@ jobs:
       - name: Lint and syntax checks
         run: npm run lint
 
+      - name: Desktop JS type check
+        run: npm run check:types
+
       - name: Modernization and deprecated API gate
         run: npm run check:modernization
 

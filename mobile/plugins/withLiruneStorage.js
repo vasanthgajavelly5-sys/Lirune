@@ -19,7 +19,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { withDangerousMod, withMainApplication, withAndroidManifest } = require('@expo/config-plugins');
+const { withDangerousMod, withMainApplication, withMainActivity, withAndroidManifest } = require('@expo/config-plugins');
 
 const PACKAGE_CLASS = 'LiruneStoragePackage';
 const PACKAGE_IMPORT = `com.lirune.reader.storage.${PACKAGE_CLASS}`;
@@ -143,6 +143,13 @@ const BLOCKED_EXTENSIONS = [
   'arsc',
 ];
 
+const GENERIC_BINARY_MIME_TYPES = [
+  'application/octet-stream',
+  'application/x-download',
+  'application/binary',
+  'binary/octet-stream',
+];
+
 function buildExplicitIntentFilters() {
   const mimeData = [];
   for (const mime of SUPPORTED_MIME_TYPES) {
@@ -159,7 +166,8 @@ function buildExplicitIntentFilters() {
     data: mimeData,
   };
 
-  const extensionData = [];
+  const fileExtensionData = [];
+  const contentExtensionData = [];
   for (const ext of SUPPORTED_EXTENSIONS) {
     const variants = [ext.toLowerCase(), ext.toUpperCase()];
     for (const v of variants) {
@@ -169,16 +177,16 @@ function buildExplicitIntentFilters() {
         `.*\\..*\\..*\\.${v}`,
       ];
       for (const pattern of patterns) {
-        extensionData.push({
+        // file:// URIs carry no authority host; adding android:host="*" fails OS matching.
+        fileExtensionData.push({
           $: {
-            'android:scheme': 'content',
-            'android:host': '*',
+            'android:scheme': 'file',
             'android:pathPattern': pattern,
           },
         });
-        extensionData.push({
+        contentExtensionData.push({
           $: {
-            'android:scheme': 'file',
+            'android:scheme': 'content',
             'android:host': '*',
             'android:pathPattern': pattern,
           },
@@ -187,16 +195,40 @@ function buildExplicitIntentFilters() {
     }
   }
 
-  const extensionFilter = {
+  const fileExtensionFilter = {
     action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
     category: [
       { $: { 'android:name': 'android.intent.category.DEFAULT' } },
       { $: { 'android:name': 'android.intent.category.BROWSABLE' } },
     ],
-    data: extensionData,
+    data: fileExtensionData,
   };
 
-  const sendData = SUPPORTED_MIME_TYPES.map((mime) => ({ $: { 'android:mimeType': mime } }));
+  const contentExtensionFilter = {
+    action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
+    category: [
+      { $: { 'android:name': 'android.intent.category.DEFAULT' } },
+      { $: { 'android:name': 'android.intent.category.BROWSABLE' } },
+    ],
+    data: contentExtensionData,
+  };
+
+  const genericBinaryData = [];
+  for (const mime of GENERIC_BINARY_MIME_TYPES) {
+    genericBinaryData.push({ $: { 'android:scheme': 'content', 'android:mimeType': mime } });
+    genericBinaryData.push({ $: { 'android:scheme': 'file', 'android:mimeType': mime } });
+  }
+  const genericBinaryFilter = {
+    action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
+    category: [
+      { $: { 'android:name': 'android.intent.category.DEFAULT' } },
+      { $: { 'android:name': 'android.intent.category.BROWSABLE' } },
+    ],
+    data: genericBinaryData,
+  };
+
+  const sendMimeTypes = [...SUPPORTED_MIME_TYPES, ...GENERIC_BINARY_MIME_TYPES.slice(0, 3)];
+  const sendData = sendMimeTypes.map((mime) => ({ $: { 'android:mimeType': mime } }));
   const sendFilter = {
     action: [{ $: { 'android:name': 'android.intent.action.SEND' } }],
     category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }],
@@ -209,12 +241,16 @@ function buildExplicitIntentFilters() {
     data: sendData,
   };
 
-  return [mimeFilter, extensionFilter, sendFilter, sendMultipleFilter];
+  return [mimeFilter, fileExtensionFilter, contentExtensionFilter, genericBinaryFilter, sendFilter, sendMultipleFilter];
 }
 
 function cleanAndConfigureIntentFilters(manifest) {
   const application = manifest.application?.[0];
   if (!application || !application.activity) return manifest;
+
+  // Multi-megabyte EPUB covers + base64 decode cycles exceed the default 48MB ART heap.
+  application.$ = application.$ || {};
+  application.$['android:largeHeap'] = 'true';
 
   const mainActivity = application.activity.find((a) => a.$?.['android:name'] === '.MainActivity');
   if (!mainActivity) return manifest;
@@ -332,14 +368,81 @@ function withPackageRegistration(config) {
   });
 }
 
+const NORMALIZE_INTENT_METHOD = `  private fun normalizeIntent(intent: Intent?) {
+    if (intent == null) return
+    if (intent.data == null) {
+      val clipUri = intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+      if (clipUri != null) {
+        intent.data = clipUri
+      } else if (Intent.ACTION_SEND == intent.action) {
+        val streamUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+          @Suppress("DEPRECATION")
+          intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        }
+        if (streamUri != null) {
+          intent.data = streamUri
+        }
+      }
+    }
+  }
+`;
+
+function patchMainActivityIntentNormalization(contents) {
+  let out = contents;
+  if (!out.includes('import android.content.Intent')) {
+    out = out.replace('import android.os.Bundle', 'import android.content.Intent\nimport android.net.Uri\nimport android.os.Bundle');
+  } else if (!out.includes('import android.net.Uri')) {
+    out = out.replace('import android.content.Intent', 'import android.content.Intent\nimport android.net.Uri');
+  }
+
+  if (!out.includes('fun normalizeIntent(')) {
+    out = out.replace(
+      /(class\s+MainActivity\b[^{]*\{\s*\n)/,
+      `$1${NORMALIZE_INTENT_METHOD}\n`
+    );
+  }
+  if (!out.includes('normalizeIntent(intent)')) {
+    out = out.replace(
+      /(override fun onCreate\([^)]*\)\s*\{\s*\n)/,
+      '$1    normalizeIntent(intent)\n'
+    );
+  }
+  if (!out.includes('override fun onNewIntent(')) {
+    out = out.replace(
+      /(\n\s*override fun createReactActivityDelegate)/,
+      '\n  override fun onNewIntent(intent: Intent?) {\n    normalizeIntent(intent)\n    setIntent(intent)\n    super.onNewIntent(intent)\n  }\n$1'
+    );
+  } else if (!/onNewIntent[\s\S]*?normalizeIntent\(intent\)/.test(out)) {
+    out = out.replace(
+      /(override fun onNewIntent\([^)]*\)\s*\{\s*\n)/,
+      '$1    normalizeIntent(intent)\n    setIntent(intent)\n'
+    );
+  }
+  return out;
+}
+
+function withMainActivityIntentNormalization(config) {
+  return withMainActivity(config, (cfg) => {
+    cfg.modResults.contents = patchMainActivityIntentNormalization(cfg.modResults.contents);
+    return cfg;
+  });
+}
+
 module.exports = function withLiruneStorage(config, options = {}) {
-  return withStorageManifest(withPackageRegistration(copyKotlinSources(config)), options);
+  return withStorageManifest(
+    withPackageRegistration(withMainActivityIntentNormalization(copyKotlinSources(config))),
+    options
+  );
 };
 
 module.exports.registerPackageInMainApplication = registerPackageInMainApplication;
 module.exports.cleanManifestPermissions = cleanManifestPermissions;
 module.exports.cleanAndConfigureIntentFilters = cleanAndConfigureIntentFilters;
+module.exports.patchMainActivityIntentNormalization = patchMainActivityIntentNormalization;
 module.exports.SUPPORTED_MIME_TYPES = SUPPORTED_MIME_TYPES;
+module.exports.GENERIC_BINARY_MIME_TYPES = GENERIC_BINARY_MIME_TYPES;
 module.exports.SUPPORTED_EXTENSIONS = SUPPORTED_EXTENSIONS;
 module.exports.BLOCKED_EXTENSIONS = BLOCKED_EXTENSIONS;
 module.exports.writeReleaseManifestOverlay = writeReleaseManifestOverlay;
